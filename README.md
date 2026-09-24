@@ -9,58 +9,90 @@
 → 沙箱执行验证 → 分层用例库 → 缺陷闭环 → 准出报告 → 全链路追溯
 ```
 
+## 5 条命令从零跑通 demo
+
+```bash
+make install        # ① 装依赖（uv sync + pnpm install）
+make proto          # ② 生成 gRPC stub（proto/ 唯一事实源）
+make dev            # ③ 一键拉起 7 服务 + gateway + 前端（等全绿）
+make demo-m1        # ④ M1 验收：接仓库→生成→执行→入库（全 mock，无需 LLM Key）
+make test           # ⑤ 单测（14 passed）
+```
+
+更多验收：`make demo-m0`（骨架全绿） / `demo-m2`（Wiki 增量+stale） / `demo-m3`（需求+RAG+G0~G5） / `demo-m4`（契约 breaking 影响分析） / `demo-m5`（缺陷闭环+计划报告+12 视图）。
+
+前端：打开 http://127.0.0.1:5173 —— 12 个视图全部来自真实接口（需求录入→工作台 SSE 管线动画→用例库→执行记录→缺陷回归→测试计划报告→日志追溯→质量流水线）。
+
+## 技术栈（锁定）
+
+- **仓库形态**：monorepo。后端 Python 3.12（uv），前端 pnpm + Vite；
+- **前端**：React 18 + TypeScript + Ant Design 5 + React Query + Zustand + ECharts；
+- **网关**：FastAPI，对外 REST + SSE，对内 gRPC 客户端；
+- **服务间**：gRPC（grpcio），proto 统一放 `proto/`，`make proto` 一次生成两端 stub；
+- **微服务（7）**：repo-svc / wiki-builder / contract-registry / req-svc / testgen-svc / runner-svc / trace-svc（同进程承载 DefectSvc + PlanSvc，共 9 个 PRD 3.3 服务）；
+- **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）+ 本地文件；SQLite 可经 `DATABASE_URL` 切换（开发兜底）；
+- **LLM**：OpenAI 兼容 API 全配置化（`LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`），**`LLM_MODE=mock` 无 Key 全流程可跑**；结构化输出过 pydantic 校验；
+- **沙箱**：`SANDBOX_MODE=docker`（--network none / 512m / 1cpu）/ `local`（本机 pytest）/ `fake`（确定性模拟）；
+- **部署**：`deploy/docker-compose.yml` 一键起 pg/redis/8 服务/前端；`make stack-up`。
+
 ## 目录结构
 
 ```
 TestForge/
-├── README.md                          ← 本文件
-├── docs/
-│   └── TestForge-PRD-v1.2.md         ← 产品需求文档（v1.2，评审稿）
-└── prototype/
-    └── testforge-prototype.html      ← 交互原型（单文件，零依赖，浏览器直接打开）
+├── proto/testforge.proto      # 全部 .proto，唯一事实源（PRD 3.3 全部 9 服务）
+├── gateway/                   # FastAPI 网关：REST + SSE + 统一封套 + trace 中间件
+├── services/
+│   ├── repo_svc/              # Git 接入/拉取 + tree-sitter 索引（函数卡片/调用图）
+│   ├── wiki_builder/          # 分层 Wiki 编译 + git diff 增量重建 + stale 传播
+│   ├── contract_registry/     # 契约注册/diff/breaking/影响分析
+│   ├── req_svc/               # 需求四步解析管线 + 可测性评分（G0）
+│   ├── testgen_svc/           # 六路上下文 + 两阶段生成 + 覆盖守卫
+│   ├── runner_svc/            # 沙箱执行 + 修复循环≤3轮 + junit/coverage 解析
+│   ├── trace_svc/             # traceID 账本（+缺陷闭环 + 迭代计划/报告）
+│   └── shared/                # 配置/JSON 日志/DB 模型/LLM 双实现/RAG/脱敏
+├── frontend/                  # React 12 视图（数据全部来自真实接口）
+├── fixtures/sample-repo/      # M1 被测仓库（create_order 及依赖，含存量测试）
+├── fixtures/api-repo/         # M4 多仓第二仓库（submit_payment）
+├── deploy/                    # docker-compose + Dockerfile + nginx
+├── scripts/                   # dev 编排 + demo-m0~m5 验收脚本
+├── Makefile  README.md  docs/
 ```
 
-## 快速开始
+## 关键设计（平台灵魂）
 
-1. 双击 `prototype/testforge-prototype.html`（或拖进浏览器）；
-2. 建议演示动线：
-   **需求录入**（源头）→ **需求质量流水线**（六关卡 G0~G5）→ **生成工作台**（点「▶ 开始生成」看管线动画）→ **服务地图**（点红色 breaking 边看影响分析）→ **缺陷管理**（点「回归验证」看缺陷闭环）→ **测试计划**（生成测试报告）→ **日志/追溯**（搜 traceID 回溯全链路）。
+1. **上下文优先级写死**：`code > contract > wiki > trace > similar > bugs`，冲突以源码/契约为准；
+2. **两阶段生成**：阶段 A 用例清单 JSON（pydantic 校验）→ 覆盖守卫静态检查表（NULL/空/极值/类型错/越权，缺类自动补）→ 阶段 B 按清单渲染 pytest；
+3. **沙箱闭环**：执行 → 失败回填修复 ≤3 轮 → 覆盖率回填 → 缺口补齐；失败超轮次自动建缺陷；
+4. **traceID 全链路**：网关 `tr_` 前缀，gRPC metadata 透传，全部写操作进 `trace_events`（入库前过脱敏钩子）；
+5. **增量索引**：`git diff` → 仅重建受影响页，调用方页跨模块置 stale；
+6. **质量关卡 G0~G5**：可测性<80 自动打回 / 知识就绪 / 覆盖达标 / 执行通过 / 缺陷清零 / 准出，`GET /api/quality/requirements` 返回六关卡+质量分+人工介入次数；
+7. **mock 优先**：LLM 与沙箱双实现环境变量切换，全 mock 无外部依赖跑通全部 demo。
 
-### URL 直达参数
+## Windows 主机注意
 
-| 参数 | 页面/效果 |
-| --- | --- |
-| `?view=workbench&autorun=1` | 生成工作台 + 自动播放生成管线动画 |
-| `?view=map` | 服务地图 / 契约中心（含平台 HTTP/RPC 对接契约） |
-| `?view=plans` / `?view=defects` | 测试计划 / 缺陷管理 |
-| `?view=logs` / `?view=collab` | 日志追溯 / 需求质量流水线 |
-| `?view=wiki&stale=1` / `?view=wiki&wikipage=flow` | Wiki stale 演示 / 跨服务业务流页 |
+本仓库在 Windows 上开发验证时，主机 Python asyncio 被三方软件注入破坏（uvicorn 无法启动），因此 `make dev` 自动采用 **WSL 后端 + Windows 前端** 拓扑（`scripts/dev_up_win.py` → `scripts/dev_up_wsl.sh`）；Linux/macOS 直接 `python scripts/dev_up.py`。`make test` 同理走 WSL 的 `.venv-wsl`。
 
-> 原型数据均为 mock，用于需求评审与方案对齐；页面内标注了「接入真实后端」位。
+依赖 PyPI 源慢时可 `UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple make install`。
 
-## 文档导读（PRD v1.2）
+## REST 端点（PRD 3.2 全量）
 
-| 章节 | 内容 |
-| --- | --- |
-| 1 背景与定位 | 痛点、定位、角色、第一原理（为什么不是"直接 RAG 一下"） |
-| 1.6 | 产研测分工与测试流程闭环、平台覆盖边界 |
-| 2 核心技术决策 | Wiki 预编译为主干 + RAG 补充 + 源码为事实源；上下文优先级 `code > contract > wiki > trace > similar > bugs`；两阶段生成+覆盖守卫 |
-| 3 系统架构 | 8 个微服务拆分；前端↔后端 **HTTP/REST**、服务间 **RPC(gRPC)**；REST 端点表 + proto 骨架 |
-| 4 功能需求 FR-1~12 | 仓库接入 / Wiki 编译 / 服务地图·契约 / 需求录入（唯一源头）/ 生成工作台 / 五层用例库 / 执行记录 / 日志追溯 / 全局联动 / 测试计划 / 缺陷闭环 / 测试报告 |
-| 5 关键流程 | P1 需求驱动全流程 · P2 契约变更影响分析 · P3 仓库接入 · P4 缺陷闭环 · P5 提测准入→准出 |
-| 7 质量度量 | 用例有效率 ≥85% · 覆盖率增量 ≥15% · 缺陷回归及时率 ≥90% 等 |
-| 8 里程碑 | M1 单仓闭环 → M2 Wiki → M3 需求+RAG → M4 契约+多仓 → M5 流程闭环 |
-| 11 需求质量流水线 | 六道质量关卡 G0~G5、需求质量档案、提效度量（5~8 人日 → ≤0.5 人日）、人的三种角色（定标准·批例外·拍发布） |
+`POST /api/repos`、`POST /api/repos/{id}/pull`、`POST /api/requirements/ingest`、`POST /api/requirements/{id}/confirm`、`POST /api/generations`、`GET /api/generations/{id}/events`(SSE)、`GET /api/cases`、`POST /api/cases/{id}/review`、`GET /api/runs`、`POST /api/runs/{id}/rerun`、`POST /api/contracts/{id}/impact`、`POST /api/plans`、`GET /api/plans/{iter}`、`POST /api/defects`、`POST /api/defects/{id}/regression`、`POST /api/reports/{iter}`、`GET /api/traces/{traceId}`、`GET /api/quality/requirements`。统一响应 `{code, message, data}`；SSE 事件 `stage(plan|guard|codegen|sandbox|coverage)` / `log` / `result`。
 
-## 核心设计三句话
+## 里程碑与 tag
 
-1. **测试用例生成是召回敏感任务**：RAG 保证精度不保证全量，所以知识"导入时预编译"（Wiki）而非"查询时检索"，被测源码原文注入作 ground truth；
-2. **生成必须过执行验证**：plan → 覆盖守卫 → codegen → docker 沙箱 → 修复循环 ≤3 轮 → 覆盖率回填，跑不过的用例不进库；
-3. **一切以需求为单位**：需求进入即进入六道质量关卡（G0 可测性 → G5 准出），AI 自动判定推进，人只在例外与发布拍板介入。
+| 里程碑 | 范围 | 验收 | tag |
+| --- | --- | --- | --- |
+| M0 骨架 | compose 全服务 + gateway→gRPC | demo-m0 11/11 | `m0` |
+| M1 单仓闭环 | 接仓库→tree-sitter→生成→沙箱→入库 | demo-m1 12/12（17 用例三类全过带 traceID + 真实 pytest 复核） | `m1` |
+| M2 Wiki 层 | 分层摘要 + 增量重建 + stale | demo-m2 10/10 | `m2` |
+| M3 需求+RAG | 四步管线 + G0 打回 + pgvector | demo-m3 16/16 | `m3` |
+| M4 契约+多仓 | 注册/diff/breaking/影响分析/定向重生成 | demo-m4 12/12 | `m4` |
+| M5 流程闭环 | 缺陷闭环/计划/报告/追溯 + 12 视图 | demo-m5 13/13 | `m5` |
 
-## 版本
+验收清单详见 `docs/验收清单.md`。
 
-- **PRD v1.2**（2026-09）：新增需求质量保障流水线（六关卡 + 提效度量）
-- **PRD v1.1**：产研测分工与测试流程闭环（测试计划/缺陷/报告）
-- **PRD v1.0**：初版（定位/架构/FR-1~9/流程/非功能/里程碑）
-- **原型**：12 视图全联动（仪表盘 / Wiki / 服务地图 / 仓库接入 / 需求录入 / 测试计划 / 生成工作台 / 用例库 / 执行记录 / 缺陷管理 / 日志追溯 / 需求质量流水线）
+## 文档
+
+- `docs/TestForge-PRD-v1.2.md` —— 唯一需求来源；
+- `prototype/testforge-prototype.html` —— UI 视觉基准（浏览器直接打开）；
+- `docs/验收清单.md` —— 里程碑验收项逐条勾选。

@@ -12,7 +12,7 @@ from sqlalchemy import Integer, func
 from gateway.envelope import ApiError, err, ok
 from services.shared.config import GRPC_PORTS, VERSION, get_settings
 from services.shared.db import get_session, init_db
-from services.shared.grpc_client import grpc_call, grpc_stream
+from services.shared.grpc_client import grpc_call
 from services.shared.logging import new_trace_id, set_trace_id, setup_logging
 from services.shared.models import (
     Cases,
@@ -506,6 +506,7 @@ def get_trace(trace_id: str):
 
 # M3 需求路由 + M4 契约路由（文件尾部导入注册，避免循环依赖）
 from gateway import contracts as _contracts  # noqa: E402, F401
+from gateway import plans as _plans  # noqa: E402, F401
 from gateway import requirements as _requirements  # noqa: E402, F401
 
 if __name__ == "__main__":

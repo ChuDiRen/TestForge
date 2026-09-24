@@ -5,15 +5,8 @@ import logging
 
 from fastapi import Request
 
-from gateway.main import (
-    GRPC_PORTS,
-    ApiError,
-    app,
-    get_session,
-    grpc_call,
-    grpc_stream,
-    ok,
-)
+from gateway.main import GRPC_PORTS, ApiError, app, get_session, grpc_call, ok
+from services.shared.grpc_client import grpc_stream
 from services.shared.models import ContractDiffs, Contracts
 
 log = logging.getLogger("gateway.contract")

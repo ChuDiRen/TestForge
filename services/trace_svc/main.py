@@ -67,10 +67,36 @@ class DefectServicer(pb2_grpc.DefectSvcServicer):
         return pong(NAME)
 
     def CreateFromRun(self, request, context):  # noqa: N802
-        context.abort(grpc.StatusCode.UNIMPLEMENTED, "M5 上线")
+        from services.trace_svc import loop
+
+        try:
+            case_codes = json.loads(request.case_codes_json or "[]")
+        except json.JSONDecodeError:
+            case_codes = []
+        res = loop.create_from_run(
+            run_id=request.run_id,
+            case_codes=case_codes,
+            req_code=request.req_code,
+            trace_id=request.trace_id,
+            reason=request.reason,
+        )
+        return pb2.Defect(id=res["id"], code=res["code"], title=f"run {request.run_id} 失败", status=res["status"], assignee=res["assignee"])
 
     def TriggerRegression(self, request, context):  # noqa: N802
-        context.abort(grpc.StatusCode.UNIMPLEMENTED, "M5 上线")
+        from services.trace_svc import loop
+
+        try:
+            res = loop.trigger_regression(request.id, trace_id=request.trace_id)
+        except KeyError as exc:
+            context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+        return pb2.RunReport(
+            run_id=res["run_code"],
+            sandbox_status="regression",
+            pass_total=res["pass_total"],
+            pass_count=res["pass_count"],
+            status="success" if res["status"] == "已关闭" else "failed",
+            log_json=json.dumps(res, ensure_ascii=False),
+        )
 
 
 class PlanServicer(pb2_grpc.PlanSvcServicer):
@@ -78,7 +104,10 @@ class PlanServicer(pb2_grpc.PlanSvcServicer):
         return pong(NAME)
 
     def EvaluateExitPlan(self, request, context):  # noqa: N802
-        context.abort(grpc.StatusCode.UNIMPLEMENTED, "M5 上线")
+        from services.trace_svc import loop
+
+        res = loop.evaluate_plan(request.code, request.version, list(request.req_codes), trace_id=request.trace_id)
+        return pb2.ExitCheck(entry_ok=res["entry_ok"], exit_ok=res["exit_ok"], checks=res["checks"], report_json=json.dumps(res.get("case_stats", {}), ensure_ascii=False))
 
 
 def register(server) -> None:

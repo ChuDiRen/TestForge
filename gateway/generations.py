@@ -110,13 +110,36 @@ def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_r
         _event(gen_code, "stage", "sandbox", f"执行完成 {report['pass_count']}/{report['pass_total']} 通过（{report['sandbox_status']}）", json.dumps(report, ensure_ascii=False), progress=0.85)
         _event(gen_code, "stage", "coverage", f"分支覆盖率 {report['coverage']}% · 修复 {report['repair_rounds']} 轮", progress=0.95)
 
-        # ③ 入库：runs + cases（通过→已入库，失败→草稿）
+        # 逐用例结果（供入库与缺陷关联）
         case_results = {}
         try:
-            log_data = json.loads(report.get("log_json") or "{}")
-            case_results = log_data.get("cases", {})
+            case_results = json.loads(report.get("log_json") or "{}").get("cases", {})
         except json.JSONDecodeError:
             pass
+
+        # ②b 执行失败（超修复轮次）→ 失败自动建缺陷（PRD FR-11）
+        if report.get("status") != "success":
+            try:
+                failed_codes = [tc for tc, st in case_results.items() if st != "passed"]
+                grpc_call(
+                    "trace-svc",
+                    GRPC_PORTS["trace-svc"],
+                    "DefectSvc",
+                    "CreateFromRun",
+                    {
+                        "run_id": report.get("run_id") or run_code,
+                        "case_codes_json": json.dumps(failed_codes, ensure_ascii=False),
+                        "req_code": source_req,
+                        "trace_id": trace_id,
+                        "reason": f"修复 {report.get('repair_rounds', 0)} 轮后仍失败",
+                    },
+                    timeout=15,
+                )
+                _event(gen_code, "stage", "defect", f"执行失败 → 自动创建缺陷并指派（失败 {len(failed_codes)} 用例）", progress=0.92)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("auto defect creation failed: %s", exc)
+
+        # ③ 入库：runs + cases（通过→已入库，失败→草稿）
         with get_session() as sess:
             sess.add(
                 Runs(
@@ -137,7 +160,7 @@ def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_r
                     log_json=report.get("log_json", ""),
                 )
             )
-            for c in cases:
+            for c, sc in zip(cases, suite_cases):
                 ok = case_results.get(c["code"]) == "passed"
                 code = f"CASE-{gen_code[-6:]}-{c['code']}"
                 sess.add(
@@ -147,7 +170,8 @@ def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_r
                         title=c["title"],
                         module=c.get("module", ""),
                         category=c["category"],
-                        schema_json=json.dumps(c, ensure_ascii=False),
+                        # 存 suite 版 schema（含 code_file，供缺陷回归只重跑关联用例）
+                        schema_json=json.dumps(sc, ensure_ascii=False),
                         source_req=source_req,
                         confidence=c.get("confidence", 0.9),
                         status="已入库" if ok else "草稿",

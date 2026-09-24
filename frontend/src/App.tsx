@@ -5,6 +5,17 @@ import { useQuery } from "@tanstack/react-query";
 import { get } from "./api";
 import { Dashboard } from "./views/Dashboard";
 import { Placeholder } from "./views/Placeholder";
+import { Wiki } from "./views/Wiki";
+import { Map } from "./views/Map";
+import { RepoAdd } from "./views/RepoAdd";
+import { Requirements } from "./views/Requirements";
+import { Plans } from "./views/Plans";
+import { Workbench } from "./views/Workbench";
+import { Cases } from "./views/Cases";
+import { Runs } from "./views/Runs";
+import { Defects } from "./views/Defects";
+import { Logs } from "./views/Logs";
+import { Quality } from "./views/Quality";
 
 const { Sider, Header, Content } = Layout;
 
@@ -30,18 +41,34 @@ function currentView(): ViewKey {
   return VIEWS.some((x) => x.key === v) ? (v as ViewKey) : "dashboard";
 }
 
+const VIEW_COMPONENTS: Partial<Record<ViewKey, () => JSX.Element>> = {
+  dashboard: Dashboard,
+  wiki: Wiki,
+  map: Map,
+  "repo-add": RepoAdd,
+  requirements: Requirements,
+  plans: Plans,
+  workbench: Workbench,
+  cases: Cases,
+  runs: Runs,
+  defects: Defects,
+  logs: Logs,
+  quality: Quality,
+};
+
 export function App() {
   const view = currentView();
   const { data: stats } = useQuery({
     queryKey: ["stats"],
     queryFn: () => get<Record<string, number>>("/api/stats/summary"),
+    refetchInterval: 10000,
   });
   const pendingReviews = stats?.pending_reviews ?? 0;
 
   const body = useMemo(() => {
     const meta = VIEWS.find((v) => v.key === view)!;
-    if (meta.milestone === 0) return <Dashboard />;
-    return <Placeholder view={meta.label} milestone={meta.milestone} />;
+    const C = VIEW_COMPONENTS[view];
+    return C ? <C /> : <Placeholder view={meta.label} milestone={meta.milestone} />;
   }, [view]);
 
   return (

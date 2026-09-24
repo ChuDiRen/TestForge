@@ -27,7 +27,7 @@ def _repo_checkout(repo_id: int) -> Path:
     return Path("fixtures/sample-repo")
 
 
-def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: int, trace_id: str, req_code: str, trigger: str = "手动") -> dict:
+def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: int, trace_id: str, req_code: str, trigger: str = "手动", only: list[str] | None = None) -> dict:
     """执行闭环：写 workspace → 沙箱执行 → 失败修复循环 ≤3 → 覆盖率。返回 run 记录 dict。"""
     t0 = time.time()
     checkout = _repo_checkout(repo_id)
@@ -36,7 +36,7 @@ def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: i
     sandbox.write_test_file(ws, filename, source_code)
 
     timeline: list[dict] = []
-    res = sandbox.execute(run_code, ws, [filename])
+    res = sandbox.execute(run_code, ws, [filename], only)
     timeline.append({"round": 0, "status": res.status, "pass": f"{res.pass_count}/{res.pass_total}", "mode": res.mode})
 
     rounds = 0
@@ -62,7 +62,7 @@ def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: i
         except Exception as exc:  # noqa: BLE001
             log.warning("repair regenerate failed: %s", exc)
         # 重写测试文件（mock 下为幂等重渲染，等价修复）
-        res = sandbox.execute(run_code, ws, [filename])
+        res = sandbox.execute(run_code, ws, [filename], only)
         timeline.append({"round": rounds, "status": res.status, "pass": f"{res.pass_count}/{res.pass_total}", "mode": res.mode})
 
     cost = int(time.time() - t0)

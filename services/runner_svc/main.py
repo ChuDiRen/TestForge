@@ -37,16 +37,23 @@ class TestRunnerServicer(pb2_grpc.TestRunnerServicer):
             }
             for c in request.cases
         ]
-        # 代码来源：TestSuite 第一个 case 的 schema_json.code 由 gateway 组装；此处从 suite 级字段取
-        # proto 无独立字段 → gateway 将整文件代码放进每个 case.schema_json 的 "code_file"
+        # 代码来源：TestSuite case.schema_json 顶层或嵌套 schema_json 字段中的 "code_file"
         source_code = ""
         for c in request.cases:
             try:
                 data = json.loads(c.schema_json)
             except json.JSONDecodeError:
                 continue
-            if isinstance(data, dict) and data.get("code_file"):
-                source_code = data["code_file"]
+            if not isinstance(data, dict):
+                continue
+            cf = data.get("code_file")
+            if not cf and isinstance(data.get("schema_json"), str):
+                try:
+                    cf = json.loads(data["schema_json"]).get("code_file")
+                except json.JSONDecodeError:
+                    cf = None
+            if cf:
+                source_code = cf
                 break
         if not source_code:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "TestSuite 缺少 code_file")
@@ -58,6 +65,8 @@ class TestRunnerServicer(pb2_grpc.TestRunnerServicer):
             repo_id=request.repo_id,
             trace_id=request.trace_id,
             req_code=cases[0].get("source_req", "") if cases else "",
+            # 回归场景：只执行关联用例（case code 尾段 TC-0NN → 函数名子串 tc0nn）
+            only=_only_selectors(cases),
         )
         report = service.result_to_report(run_code, res)
         return pb2.RunReport(
@@ -71,6 +80,16 @@ class TestRunnerServicer(pb2_grpc.TestRunnerServicer):
             status=report["status"],
             log_json=report["log_json"],
         )
+
+
+def _only_selectors(cases: list[dict]) -> list[str]:
+    """从 case code（CASE-XXXXXX-TC-0NN）提取 pytest -k 选择子串；全量生成时为空。"""
+    sel = []
+    for c in cases:
+        code = (c.get("code") or "").upper()
+        if "-TC-" in code:
+            sel.append("tc" + code.rsplit("-TC-", 1)[-1].replace("-", ""))
+    return sel
 
 
 def register(server) -> None:
