@@ -19,14 +19,34 @@ def _metadata() -> list[tuple[str, str]]:
 
 
 def grpc_call(service: str, port: int, svc_name: str, method: str, request: dict[str, Any], timeout: float | None = None) -> dict:
-    """按服务名调用 RPC，返回 dict（JSON 透传，避免各处依赖消息类型导入）。"""
+    """按服务名调用 RPC，返回 dict（JSON 透传）。连接类失败丢弃缓存 channel 后重试一次。"""
+    for attempt in (1, 2):
+        try:
+            return _call_once(service, port, svc_name, method, request, timeout)
+        except grpc.RpcError as exc:
+            retryable = exc.code() in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED)
+            if not retryable or attempt == 2:
+                raise
+            _STUB_CACHE.pop(f"{svc_name}:{_target_of(service, port)}", None)
+            import time
+
+            time.sleep(0.8)
+    raise RuntimeError("unreachable")  # pragma: no cover
+
+
+def _target_of(service: str, port: int) -> str:
+    settings = get_settings()
+    host = settings.service_host or service
+    return f"{host}:{port}"
+
+
+def _call_once(service: str, port: int, svc_name: str, method: str, request: dict[str, Any], timeout: float | None) -> dict:
     from services.shared.gen import testforge_pb2 as pb2
     from services.shared.gen import testforge_pb2_grpc as pb2_grpc
 
     settings = get_settings()
-    timeout = timeout or settings.grpc_timeout_s
-    host = settings.service_host or service  # SVC_HOST 为空时按服务名解析（compose 网络）
-    target = f"{host}:{port}"
+    call_timeout = timeout or settings.grpc_timeout_s
+    target = _target_of(service, port)
     key = f"{svc_name}:{target}"
     if key not in _STUB_CACHE:
         channel = grpc.insecure_channel(target)
@@ -36,7 +56,7 @@ def grpc_call(service: str, port: int, svc_name: str, method: str, request: dict
 
     req_type = getattr(pb2, _request_type(svc_name, method))
     req = _fill(req_type(), request)
-    resp = getattr(stub, method)(req, timeout=timeout, metadata=_metadata())
+    resp = getattr(stub, method)(req, timeout=call_timeout, metadata=_metadata())
     return _to_dict(resp)
 
 
@@ -109,5 +129,4 @@ def _fill(req: Any, data: dict[str, Any]) -> Any:
 def _to_dict(msg: Any) -> dict:
     from google.protobuf.json_format import MessageToDict
 
-    d = MessageToDict(msg, preserving_proto_field_name=True)
-    return d
+    return MessageToDict(msg, preserving_proto_field_name=True, always_print_fields_with_no_presence=True)

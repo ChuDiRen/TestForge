@@ -11,9 +11,9 @@ from services.testgen_svc.schemas import CasePlan, Patch, PlannedCase
 
 log = logging.getLogger("testgen.plan")
 
-# create_order 演示依赖的默认打桩（happy/boundary 用例共用）
+# create_order 演示依赖的默认打桩（happy/boundary 用例共用；库存 1000 覆盖上界 999）
 _ORDER_DEFAULT_PATCHES = [
-    Patch(module="app.inventory.client", attr="get_stock", value=10),
+    Patch(module="app.inventory.client", attr="get_stock", value=1000),
     Patch(module="app.inventory.client", attr="get_price", value=19.9),
     Patch(module="app.inventory.client", attr="reserve", value=True),
     Patch(module="app.payments.client", attr="charge", value={"payment_id": "pay-ok", "status": "PAID"}),
@@ -26,7 +26,7 @@ _BUYER = {"id": "u-1", "role": "buyer", "active": True}
 
 def _curated_create_order() -> list[PlannedCase]:
     """create_order 精选清单：正常/边界/异常/权限/幂等，输入与断言一一对应实现分支。"""
-    base = lambda **extra: dict(user=_BUYER, sku="SKU-001", quantity=2, **extra)  # noqa: E731
+    base = lambda **extra: dict({"user": _BUYER, "sku": "SKU-001", "quantity": 2}, **extra)  # noqa: E731
     cases: list[PlannedCase] = [
         PlannedCase(id="TC-001", title="正常下单应成功并返回订单", category="normal", input=base(), patches=list(_ORDER_DEFAULT_PATCHES), expected_fields={"status": "CREATED", "total": 39.8, "user_id": "u-1"}, covers="主流程：校验→库存→支付→落单", source="plan"),
         PlannedCase(id="TC-002", title="数量下界 1 应成功", category="boundary", input=base(quantity=1), patches=list(_ORDER_DEFAULT_PATCHES), expected_fields={"total": 19.9}, covers="边界：quantity=1", source="plan"),

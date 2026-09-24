@@ -54,24 +54,25 @@ def guard(plan: CasePlan, fn: FnInfo) -> tuple[CasePlan, dict]:
             )
         )
 
-    # --- 参数级检查表 ---
+    # --- 参数级检查表（有默认值的可选参数天然宽容：跳过 NULL/空/类型错三类） ---
     checked: list[str] = []
     for p in fn.params:
         ann = p.annotation.lower()
         if p.name in ("self", "cls"):
             continue
+        optional = p.has_default
         if any(t in ann for t in _NUMPY_LIKE) or p.name in ("quantity", "count", "amount", "num", "size"):
             if not any(c.category == "boundary" and p.name in c.input for c in plan.cases):
                 added.append(_extreme_case(plan, added, fn, p.name))
                 checked.append(f"{p.name}:extreme")
-            if not any(c.expected_error and p.name in c.input and c.category == "exception" for c in plan.cases):
+            if not optional and not any(c.expected_error and p.name in c.input and c.category == "exception" for c in plan.cases):
                 added.append(_null_case(plan, added, fn, p.name))
                 checked.append(f"{p.name}:null")
         if "str" in ann or p.name in ("sku", "code", "name", "key", "id"):
-            if not any(c.category == "exception" and isinstance(c.input.get(p.name), str) and c.input.get(p.name) == "" for c in plan.cases):
+            if not optional and not any(c.category == "exception" and isinstance(c.input.get(p.name), str) and c.input.get(p.name) == "" for c in plan.cases):
                 added.append(_empty_case(plan, added, fn, p.name))
                 checked.append(f"{p.name}:empty")
-        if not any(c.category == "exception" and _is_wrong_type(c.input.get(p.name), ann) for c in plan.cases):
+        if not optional and not any(c.category == "exception" and _is_wrong_type(c.input.get(p.name), ann) for c in plan.cases):
             added.append(_type_case(plan, added, fn, p.name))
             checked.append(f"{p.name}:type-error")
 

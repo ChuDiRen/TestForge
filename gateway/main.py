@@ -309,6 +309,7 @@ def list_cases(layer: str = "", module: str = "", status: str = "", category: st
                         "source_req": c.source_req,
                         "confidence": c.confidence,
                         "trace_id": c.trace_id,
+                        "gen_id": c.gen_id,
                         "target_function": c.target_function,
                         "last_run_ok": c.last_run_ok,
                         "schema": json.loads(c.schema_json) if c.schema_json else {},
@@ -364,6 +365,7 @@ def list_runs(limit: int = 100):
                     "status": r.status,
                     "trace_id": r.trace_id,
                     "req_code": r.req_code,
+                    "gen_id": r.gen_id,
                     "created_at": r.created_at.isoformat(),
                 }
                 for r in rows

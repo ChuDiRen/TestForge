@@ -21,8 +21,14 @@ PY="$ROOT/.venv-wsl/bin/python"
 start_svc() { # name module port
   local name="$1" mod="$2" port="$3"
   if port_open "$port"; then echo "  = $name 已在 :$port，跳过"; return 0; fi
-  (PYTHONPATH="$ROOT" nohup "$PY" -u -m "$mod" >"$LOGS/$name.log" 2>&1 & echo $! >"$RUN/$name.pid")
-  echo "  + $name pid=$(cat "$RUN/$name.pid") -> :$port"
+  for attempt in 1 2; do
+    (PYTHONPATH="$ROOT" nohup "$PY" -u -m "$mod" >"$LOGS/$name.log" 2>&1 & echo $! >"$RUN/$name.pid")
+    echo "  + $name pid=$(cat "$RUN/$name.pid") -> :$port (attempt $attempt)"
+    local dl=$((SECONDS + 20))
+    while [ $SECONDS -lt $dl ]; do port_open "$port" && return 0; sleep 0.4; done
+    echo "  ! $name 第 $attempt 次未就绪，重试…"
+  done
+  echo "  ! $name 启动失败（$LOGS/$name.log）"; return 1
 }
 
 wait_port() { # port label timeout_s
@@ -39,13 +45,23 @@ start_svc contract-registry services.contract_registry.main 50053
 start_svc req-svc          services.req_svc.main          50054
 start_svc testgen-svc      services.testgen_svc.main      50055
 start_svc runner-svc       services.runner_svc.main       50056
-for p in 50057 50051 50052 50053 50054 50055 50056; do wait_port $p svc 25; done
 
 echo "[wsl] 启动 gateway…"
 if port_open 8000; then echo "  = gateway 已在 :8000，跳过"; else
-  (PYTHONPATH="$ROOT" nohup "$PY" -u -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000 >"$LOGS/gateway.log" 2>&1 & echo $! >"$RUN/gateway.pid")
-  echo "  + gateway pid=$(cat "$RUN/gateway.pid") -> :8000"
+  for attempt in 1 2 3; do
+    (PYTHONPATH="$ROOT" nohup "$PY" -u -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000 >"$LOGS/gateway.log" 2>&1 & echo $! >"$RUN/gateway.pid")
+    echo "  + gateway pid=$(cat "$RUN/gateway.pid") -> :8000 (attempt $attempt)"
+    local_dl=$((SECONDS + 25))
+    ok=0
+    while [ $SECONDS -lt $local_dl ]; do
+      if port_open 8000; then ok=1; break; fi
+      sleep 0.4
+    done
+    [ $ok -eq 1 ] && break
+    echo "  ! gateway 第 $attempt 次未就绪，重试…"
+    sleep 1
+  done
 fi
-wait_port 8000 gateway 30
+wait_port 8000 gateway 30 || exit 1
 
 echo "[wsl] 后端就绪：gateway http://127.0.0.1:8000（Windows 经 localhost 转发访问）"

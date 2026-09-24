@@ -26,7 +26,7 @@ def run_server(port: int, name: str, register: Callable[[grpc.Server], None]) ->
     from services.shared.db import db_ok, init_db
 
     init_db()
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=16), interceptors=[TraceServerInterceptor()])
     register(server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()

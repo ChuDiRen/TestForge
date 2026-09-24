@@ -25,9 +25,13 @@ def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 120) -> str:
 
 
 def clone(url: str, dest: Path, branch: str, credential_ref: str = "") -> str:
-    """克隆仓库到 dest，返回 HEAD rev。"""
-    if dest.exists():
+    """克隆仓库到 dest（已存在 git 仓库则幂等返回 HEAD）。"""
+    if (dest / ".git").exists():
         return _run(["git", "-C", str(dest), "rev-parse", "HEAD"]).strip()
+    if dest.exists():
+        import shutil
+
+        shutil.rmtree(dest, ignore_errors=True)
     dest.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["git", "clone", "--depth", "50"]
     if branch and branch != "default":
@@ -63,12 +67,10 @@ def prev_rev(dest: Path) -> str:
 
 
 def repo_local_path(url_or_path: str) -> Path:
-    """注册时允许直接给本地路径/file://；返回规范本地路径。"""
+    """统一克隆到 data/repos/<name>：源可为本地路径/file://，检出与源分离保证 pull --ff-only 语义。"""
     s = url_or_path
     if s.startswith("file://"):
         s = s[7:]
-    if re.match(r"^[A-Za-z]:[\\/]", s) or s.startswith("/"):
-        return Path(s)
     settings = get_settings()
-    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", s.rstrip("/").split("/")[-1].removesuffix(".git")) or "repo"
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", s.rstrip("/\\").split("/")[-1].removesuffix(".git")) or "repo"
     return Path(settings.repo_root) / name

@@ -139,7 +139,7 @@ def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_r
             )
             for c in cases:
                 ok = case_results.get(c["code"]) == "passed"
-                code = f"CASE-{c['code']}" if not c["code"].startswith("CASE-") else c["code"]
+                code = f"CASE-{gen_code[-6:]}-{c['code']}"
                 sess.add(
                     Cases(
                         code=code,
