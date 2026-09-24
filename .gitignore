@@ -11,3 +11,4 @@ data/
 *.log
 .env.local
 /fixtures/sample-repo/.git/
+/fixtures/api-repo/.git/
