@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func
+from sqlalchemy import Integer, func
 
 from gateway.envelope import ApiError, err, ok
 from services.shared.config import GRPC_PORTS, VERSION, get_settings
@@ -134,6 +134,105 @@ def _pass_rate(sess) -> float:  # type: ignore[no-untyped-def]
         return 0.0
     passed = sess.query(Runs).filter(Runs.status == "success").count()
     return round(passed / total * 100, 1)
+
+
+# ---------------- Wiki（M2） ----------------
+
+
+@app.get("/api/wiki")
+def list_wiki(repo_id: int = 0):
+    from services.shared.models import WikiPages
+
+    with get_session() as sess:
+        q = sess.query(WikiPages)
+        if repo_id:
+            q = q.filter(WikiPages.repo_id == repo_id)
+        rows = q.order_by(WikiPages.level, WikiPages.id).all()
+        return ok(
+            [
+                {
+                    "id": w.id,
+                    "repo_id": w.repo_id,
+                    "level": w.level,
+                    "title": w.title,
+                    "module": w.module,
+                    "function": w.function,
+                    "rev": w.rev,
+                    "stale": w.stale,
+                    "updated_at": w.updated_at.isoformat(),
+                }
+                for w in rows
+            ]
+        )
+
+
+
+@app.get("/api/wiki/health")
+def wiki_health():
+    from services.shared.models import WikiPages
+
+    with get_session() as sess:
+        rows = sess.query(WikiPages.repo_id, func.count(), func.sum(func.cast(WikiPages.stale, Integer))).group_by(WikiPages.repo_id).all()
+        return ok([{"repo_id": rid, "pages": total, "stale": int(stale or 0)} for rid, total, stale in rows])
+
+
+@app.get("/api/wiki/{page_id}")
+def get_wiki_page(page_id: int):
+    from services.shared.models import WikiPages
+
+    with get_session() as sess:
+        w = sess.get(WikiPages, page_id)
+        if w is None:
+            raise ApiError(404, "页面不存在", 404)
+        return ok(
+            {
+                "id": w.id,
+                "repo_id": w.repo_id,
+                "level": w.level,
+                "title": w.title,
+                "content_md": w.content_md,
+                "rev": w.rev,
+                "stale": w.stale,
+            }
+        )
+
+
+@app.post("/api/wiki/rebuild")
+async def rebuild_wiki(request: Request):
+    """一键重建：body {repo_id, full?}。full=true 全量重编译并清 stale。"""
+
+    body = await request.json()
+    repo_id = int(body.get("repo_id") or 0)
+    full = bool(body.get("full"))
+    with get_session() as sess:
+        repo = sess.get(Repos, repo_id)
+        if repo is None:
+            raise ApiError(404, "repo 不存在", 404)
+    res = grpc_call(
+        "wiki-builder",
+        GRPC_PORTS["wiki-builder"],
+        "WikiBuilder",
+        "Rebuild",
+        {"repo_id": repo_id, "from_rev": "" if full else repo.head_rev, "to_rev": repo.head_rev, "changed_files": [] if full else ["__stale__"]},
+        timeout=120,
+    )
+    return ok(res)
+
+
+    from services.shared.models import WikiPages
+
+    with get_session() as sess:
+        rows = (
+            sess.query(WikiPages.repo_id, func.count(), func.sum(func.cast(WikiPages.stale, Integer)))
+            .group_by(WikiPages.repo_id)
+            .all()
+        )
+        return ok(
+            [
+                {"repo_id": rid, "pages": total, "stale": int(stale or 0)}
+                for rid, total, stale in rows
+            ]
+        )
 
 
 # ---------------- 仓库（M1 全量；M0 落库+列表） ----------------

@@ -143,19 +143,28 @@ def _reindex(repo_id: int, dest, rev: str, steps: list[str], changed_files: list
                     edges += 1
         sess.commit()
 
-    # Wiki 编译（M2 上线；此处先尝试 gRPC，失败不阻塞接入）
+    # Wiki 编译（经 gRPC 调 wiki-builder；失败重试 3 次，仍失败不阻塞接入但记录日志）
     pages = 0
-    try:
-        res = grpc_call(
-            "wiki-builder",
-            GRPC_PORTS["wiki-builder"],
-            "WikiBuilder",
-            "Rebuild",
-            {"repo_id": repo_id, "from_rev": from_rev or "", "to_rev": rev, "changed_files": changed_files or []},
-        )
-        pages = int(res.get("pages_rebuilt", 0))
-        steps.append(f"wiki 重建: {pages} 页")
-    except Exception as exc:  # noqa: BLE001
-        steps.append(f"wiki 重建暂不可用（{str(exc)[:60]}）")
+    import time as _time
+
+    for attempt in (1, 2, 3):
+        try:
+            res = grpc_call(
+                "wiki-builder",
+                GRPC_PORTS["wiki-builder"],
+                "WikiBuilder",
+                "Rebuild",
+                {"repo_id": repo_id, "from_rev": from_rev or "", "to_rev": rev, "changed_files": changed_files or []},
+                timeout=120,
+            )
+            pages = int(res.get("pages_rebuilt", 0))
+            steps.append(f"wiki 重建: {pages} 页")
+            break
+        except Exception as exc:  # noqa: BLE001
+            log.warning("wiki rebuild attempt %d failed: %s", attempt, exc)
+            if attempt == 3:
+                steps.append(f"wiki 重建暂不可用（{str(exc)[:60]}）")
+            else:
+                _time.sleep(1.0)
 
     return {"functions": len(cards), "call_edges": edges, "wiki_pages": pages}
