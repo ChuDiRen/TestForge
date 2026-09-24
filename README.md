@@ -16,7 +16,7 @@ make install        # ① 装依赖（uv sync + pnpm install）
 make proto          # ② 生成 gRPC stub（proto/ 唯一事实源）
 make dev            # ③ 一键拉起 7 服务 + gateway + 前端（等全绿）
 make demo-m1        # ④ M1 验收：接仓库→生成→执行→入库（全 mock，无需 LLM Key）
-make test           # ⑤ 单测（14 passed）
+make test           # ⑤ 单测（23 passed，含 gateway TestClient 接口测试）
 ```
 
 更多验收：`make demo-m0`（骨架全绿） / `demo-m2`（Wiki 增量+stale） / `demo-m3`（需求+RAG+G0~G5） / `demo-m4`（契约 breaking 影响分析） / `demo-m5`（缺陷闭环+计划报告+12 视图）。
