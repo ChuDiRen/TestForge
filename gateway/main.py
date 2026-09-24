@@ -504,6 +504,9 @@ def get_trace(trace_id: str):
     )
 
 
+# M3 需求路由（文件尾部导入注册，避免循环依赖）
+from gateway import requirements  # noqa: E402, F401
+
 if __name__ == "__main__":
     import uvicorn
 

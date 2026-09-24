@@ -158,6 +158,18 @@ def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_r
                         repo_id=repo_id or None,
                     )
                 )
+            sess.flush()
+            # RAG 向量索引（pgvector / python 余弦）
+            try:
+                from services.shared.rag import index_case
+
+                for c in cases:
+                    index_case(
+                        f"CASE-{gen_code[-6:]}-{c['code']}",
+                        f"{c['title']} {c['category']} {target} {json.dumps(c.get('input', {}), ensure_ascii=False)[:300]}",
+                    )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("rag index failed: %s", exc)
             g = sess.query(Generations).filter(Generations.code == gen_code).first()
             if g is not None:
                 g.status = "done"

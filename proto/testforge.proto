@@ -257,6 +257,7 @@ message ParseReport {
   float testability = 6;
   string status = 7;
   repeated string pipeline = 8;
+  repeated string new_rules = 9;
 }
 
 // ============ 缺陷 ============

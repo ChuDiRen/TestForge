@@ -56,6 +56,12 @@ def init_db() -> None:
             log.info("pgvector extension ready")
         except Exception as exc:  # noqa: BLE001
             log.warning("pgvector unavailable: %s", exc)
+        try:
+            from services.shared.rag import ensure_pgvector_table
+
+            ensure_pgvector_table()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("rag table unavailable: %s", exc)
     else:
         Base.metadata.create_all(engine)
 

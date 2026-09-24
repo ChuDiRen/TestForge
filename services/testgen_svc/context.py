@@ -76,15 +76,22 @@ def build_context(repo_id: int, function: str, module: str = "") -> ContextBundl
         except Exception as exc:  # noqa: BLE001
             log.debug("wiki ctx skip: %s", exc)
 
-        # 4. similar：相似用例 few-shot（同函数/同模块已入库用例）
+        # 4. similar：相似用例 few-shot（RAG 检索优先，目标函数直查兜底）
         try:
-            sims = sess.query(Cases).filter(Cases.target_function == function).limit(3).all()
-            if not sims and module:
-                sims = sess.query(Cases).filter(Cases.module == module).limit(3).all()
+            from services.shared.rag import similar_cases
+
+            sims = similar_cases(function, limit=3)
             if sims:
-                ctx.similar = "\n".join(f"- {s.code} {s.title} [{s.category}]" for s in sims)
+                ctx.similar = "\n".join(f"- {s['code']} {s['title']} [{s['category']}] sim={s['score']}" for s in sims)
         except Exception as exc:  # noqa: BLE001
-            log.debug("similar ctx skip: %s", exc)
+            log.debug("rag similar skip: %s", exc)
+        if not ctx.similar:
+            try:
+                sims = sess.query(Cases).filter(Cases.target_function == function).limit(3).all()
+                if sims:
+                    ctx.similar = "\n".join(f"- {s.code} {s.title} [{s.category}]" for s in sims)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("similar ctx skip: %s", exc)
 
         # 5. bugs：历史缺陷模式
         try:
