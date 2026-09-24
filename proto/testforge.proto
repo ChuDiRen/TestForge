@@ -128,6 +128,7 @@ message Contract {
   string version = 5;
   string spec = 6;
   string status = 7;
+  repeated string consumers = 8;
 }
 
 message ContractVersion {

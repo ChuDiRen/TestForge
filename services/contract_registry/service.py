@@ -1,0 +1,165 @@
+"""contract-registry 业务：契约注册、版本 diff、breaking 识别、影响分析。
+
+breaking 规则（确定性）：
+- rest: 删除字段 / 新增必填字段 / 删除端点 / 错误码弃用
+- grpc: 删除 rpc / 删除字段
+- topic: 删除字段 / 改字段类型
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+
+from services.shared.db import get_session
+from services.shared.models import Cases, ContractDiffs, Contracts, WikiPages
+from services.shared.trace import emit
+
+log = logging.getLogger("contract-registry")
+
+PROPAGATE = "传播链：提供方发布 → 消费方 wiki stale → 关联用例打标 → 定向重生成"
+
+
+def register(name: str, ctype: str, provider_repo: str, version: str, spec: str, consumers: list[str]) -> dict:
+    """注册契约；同名已存在则视为新版本，计算 diff + breaking。"""
+    with get_session() as sess:
+        old = sess.query(Contracts).filter(Contracts.name == name).order_by(Contracts.id.desc()).first()
+        if old is None:
+            c = Contracts(name=name, type=ctype, provider_repo=provider_repo, version=version, spec=spec, consumers=json.dumps(consumers, ensure_ascii=False), status="active")
+            sess.add(c)
+            sess.commit()
+            emit("契约", "contract-registry", f"契约注册 {name} {version}（{ctype}）")
+            return {"contract_id": c.id, "version": version, "breaking": False, "changes": [], "first": True}
+
+        changes, breaking = diff_specs(old.spec or "", spec, ctype)
+        old.version = version
+        old.spec = spec
+        old.consumers = json.dumps(consumers, ensure_ascii=False)
+        sess.add(ContractDiffs(contract_id=old.id, from_v=old.version, to_v=version, breaking=breaking, detail=json.dumps({"changes": changes}, ensure_ascii=False)))
+        sess.commit()
+        emit("契约", "contract-registry", f"契约变更 {name} {old.version}→{version} breaking={breaking} 变更={len(changes)}")
+        return {"contract_id": old.id, "version": version, "breaking": breaking, "changes": changes, "first": False}
+
+
+def diff_specs(old_spec: str, new_spec: str, ctype: str) -> tuple[list[str], bool]:
+    try:
+        old = json.loads(old_spec or "{}")
+        new = json.loads(new_spec or "{}")
+    except json.JSONDecodeError:
+        return (["spec 非 JSON，跳过 diff"], False)
+
+    changes: list[str] = []
+    breaking = False
+    if ctype == "rest":
+        old_paths = set((old.get("paths") or {}).keys())
+        new_paths = set((new.get("paths") or {}).keys())
+        for p in old_paths - new_paths:
+            changes.append(f"- 端点删除 {p}")
+            breaking = True
+        for p in new_paths - old_paths:
+            changes.append(f"+ 端点新增 {p}")
+        for p in old_paths & new_paths:
+            for method in ("post", "get", "put", "delete"):
+                props = lambda spec: (((spec.get("paths") or {}).get(p) or {}).get(method) or {}).get("__fields__", {})  # noqa: E731
+                of, nf = props(old), props(new)
+                for f in of:
+                    if f not in nf:
+                        changes.append(f"- {method.upper()} {p} 响应/字段移除 {f}")
+                        breaking = True
+                for f, meta in nf.items():
+                    if f not in of and (meta.get("required") if isinstance(meta, dict) else False):
+                        changes.append(f"+ {method.upper()} {p} 新增必填 {f}")
+                        breaking = True
+                    elif f not in of:
+                        changes.append(f"+ {method.upper()} {p} 新增可选 {f}")
+        old_err = set((old.get("error_codes") or []))
+        new_err = set((new.get("error_codes") or []))
+        for e in old_err - new_err:
+            changes.append(f"- 错误码弃用 {e}")
+            breaking = True
+    elif ctype == "grpc":
+        old_rpc = set((old.get("rpcs") or []))
+        new_rpc = set((new.get("rpcs") or []))
+        for r in old_rpc - new_rpc:
+            changes.append(f"- rpc 删除 {r}")
+            breaking = True
+        for f in (old.get("fields") or {}):
+            if f not in (new.get("fields") or {}):
+                changes.append(f"- 消息字段删除 {f}")
+                breaking = True
+    elif ctype == "topic":
+        for f in (old.get("fields") or {}):
+            nf = (new.get("fields") or {}).get(f)
+            if nf is None:
+                changes.append(f"- 事件字段删除 {f}")
+                breaking = True
+            elif isinstance(nf, dict) and nf.get("type") != (old.get("fields") or {}).get(f, {}).get("type"):
+                changes.append(f"~ 事件字段类型变更 {f}")
+                breaking = True
+
+    if not changes:
+        changes.append("无结构变更")
+    return changes, breaking
+
+
+DOMAIN_TERMS = {
+    "payment": ("pay", "支付", "payment"),
+    "order": ("order", "订单"),
+    "inventory": ("inventory", "库存"),
+}
+
+
+def impact(contract_id: int, to_v: str, trace_id: str = "") -> list[dict]:
+    """影响传播：消费方 wiki stale + 关联用例打标，返回资产清单。"""
+    events: list[dict] = []
+    with get_session() as sess:
+        c = sess.get(Contracts, contract_id)
+        if c is None:
+            return events
+        domain = _domain_of(c.name)
+        terms = DOMAIN_TERMS.get(domain, (domain,))
+
+        def hit(text: str) -> bool:
+            t = (text or "").lower()
+            return any(term in t for term in terms)
+
+        consumers = json.loads(c.consumers or "[]")
+        # 1) 消费方 wiki 页 stale（consumers 或域词匹配模块页）
+        for page in sess.query(WikiPages).filter(WikiPages.level == "module").all():
+            if any(cons in f"{page.module} {page.title}" for cons in consumers) or hit(page.module) or hit(page.title):
+                page.stale = True
+                events.append({"asset_type": "wiki_page", "asset_id": str(page.id), "reason": f"契约 {c.name} 变更 → 模块页 {page.module} stale", "stale_wiki": True, "case_tagged": False})
+        # 2) 关联用例打标（module/title 命中域词）
+        for case in sess.query(Cases).filter(Cases.status == "已入库").limit(500).all():
+            if hit(case.module) or hit(case.title) or hit(case.target_function):
+                case.review_note = f"[contract-impact] {c.name}@{to_v}"
+                events.append({"asset_type": "case", "asset_id": case.code, "reason": f"断言引用 {c.name} 旧契约字段", "stale_wiki": False, "case_tagged": True})
+        sess.commit()
+        # 3) 传播链记录
+        events.append({"asset_type": "propagation", "asset_id": PROPAGATE, "reason": f"{c.name} {c.version}→{to_v}", "stale_wiki": True, "case_tagged": True})
+    emit("契约", "contract-registry", f"影响分析 {c.name}@{to_v}: 资产 {len(events)} 项", trace_id=trace_id or None)
+    return events
+
+
+def _domain_of(name: str) -> str:
+    n = (name or "").lower()
+    for d in ("payment", "pay", "order", "inventory", "user"):
+        if d in n:
+            return "pay" if d == "payment" else d
+    return n.split()[0][:6] if n.split() else n
+
+
+def regenerate_affected(repo_id: int, case_ids: list[str], target: str, reason: str, source_req: str, trace_id: str) -> dict:
+    """定向重生成（仅受影响用例，非全量）。"""
+    from services.shared.config import GRPC_PORTS
+    from services.shared.grpc_client import grpc_call
+
+    res = grpc_call(
+        "testgen-svc",
+        GRPC_PORTS["testgen-svc"],
+        "TestGen",
+        "RegenerateAffected",
+        {"repo_id": repo_id, "case_ids": case_ids, "trace_id": trace_id, "reason": reason, "target_function": target, "source_req": source_req},
+        timeout=60,
+    )
+    return res
