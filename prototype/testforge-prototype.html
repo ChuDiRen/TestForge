@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TestForge · AI 测试用例生成平台 · 原型 v0.1</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --border:#30363d;
+    --text:#e6edf3; --dim:#8b949e; --faint:#6e7681;
+    --green:#3fb950; --blue:#58a6ff; --amber:#d29922; --red:#f85149; --purple:#bc8cff;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;font-size:13px;display:flex;min-height:100vh}
+  ::-webkit-scrollbar{width:8px;height:8px} ::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
+
+  /* ---------- 布局骨架 ---------- */
+  .sidebar{width:216px;min-width:216px;background:var(--panel);border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .logo{font-size:16px;font-weight:700;padding:6px 10px 2px;letter-spacing:.5px}
+  .logo b{color:var(--green)}
+  .logo-sub{color:var(--faint);font-size:11px;padding:0 10px 14px;border-bottom:1px solid var(--border);margin-bottom:10px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:7px;color:var(--dim);cursor:pointer;margin-bottom:2px;user-select:none}
+  .nav-item:hover{background:var(--panel2);color:var(--text)}
+  .nav-item.active{background:#12233a;color:var(--blue);font-weight:600}
+  .nav-item .badge{margin-left:auto;background:var(--green);color:#04260f;font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700}
+  .side-foot{margin-top:auto;border-top:1px solid var(--border);padding-top:10px;font-size:11px;color:var(--dim)}
+  .side-foot .row{display:flex;justify-content:space-between;padding:3px 4px}
+  .side-foot .ok{color:var(--green)} .side-foot .warn{color:var(--amber)}
+
+  main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .topbar{height:50px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--panel)}
+  .proj{font-weight:600}
+  .branch{color:var(--dim);font-size:12px}
+  .chip{display:inline-block;font-size:11px;padding:2px 9px;border-radius:9px;border:1px solid var(--border);color:var(--dim)}
+  .chip.mock{border-color:var(--amber);color:var(--amber)}
+  .topbar .spacer{flex:1}
+
+  .view{display:none;padding:20px;max-width:1500px}
+  .view.active{display:block}
+  h2.page-title{font-size:17px;margin-bottom:4px}
+  .page-desc{color:var(--dim);margin-bottom:16px;font-size:12px}
+
+  /* ---------- 通用面板 ---------- */
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden}
+  .panel-head{padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;display:flex;align-items:center;gap:8px;font-size:13px}
+  .panel-head .sub{color:var(--faint);font-weight:400;font-size:11px;margin-left:auto}
+  .panel-body{padding:14px}
+
+  .grid-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
+  .stat-card .label{color:var(--dim);font-size:12px}
+  .stat-card .value{font-size:26px;font-weight:700;margin:6px 0 2px}
+  .stat-card .delta{font-size:11px;color:var(--green)} .stat-card .delta.warn{color:var(--amber)}
+
+  .grid-2{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+
+  /* ---------- 状态芯片 ---------- */
+  .st{display:inline-block;font-size:11px;padding:1px 9px;border-radius:9px;font-weight:600}
+  .st.green{background:#0f2e1a;color:var(--green)} .st.blue{background:#0d2547;color:var(--blue)}
+  .st.amber{background:#2e2305;color:var(--amber)} .st.red{background:#3a1210;color:var(--red)}
+  .st.gray{background:#22262d;color:var(--dim)} .st.purple{background:#241a38;color:var(--purple)}
+
+  /* ---------- 表格 ---------- */
+  table.data{width:100%;border-collapse:collapse}
+  table.data th{font-size:11px;color:var(--faint);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap}
+  table.data td{padding:8px 12px;border-bottom:1px solid #21262d;vertical-align:top}
+  table.data tr:last-child td{border-bottom:none}
+  table.data tbody tr{cursor:pointer} table.data tbody tr:hover{background:var(--panel2)}
+  table.data td:first-child{white-space:nowrap}
+  td.mono,code,.mono{font-family:Consolas,"JetBrains Mono",monospace}
+
+  /* ---------- 按钮 ---------- */
+  .btn{border:1px solid var(--border);background:var(--panel2);color:var(--text);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:12px}
+  .btn:hover{border-color:var(--dim)}
+  .btn-primary{background:#1f6feb;border-color:#1f6feb;color:#fff;font-weight:600}
+  .btn-primary:hover{background:#388bfd}
+  .btn-sm{padding:3px 10px;font-size:11px}
+
+  /* ---------- 仪表盘趋势图 ---------- */
+  .chart-wrap{display:flex;align-items:flex-end;gap:18px;height:150px;padding:8px 6px 0}
+  .day{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1}
+  .bars{display:flex;gap:4px;align-items:flex-end;height:110px}
+  .bar{width:14px;border-radius:3px 3px 0 0}
+  .bar.gen{background:#238636} .bar.pass{background:#1f6feb}
+  .day .d-label{color:var(--faint);font-size:10px}
+  .legend{display:flex;gap:14px;color:var(--dim);font-size:11px;margin-top:8px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+
+  /* ---------- Wiki 视图 ---------- */
+  .wiki-grid{display:grid;grid-template-columns:280px 1fr;gap:14px}
+  .tree{padding:8px}
+  .tree .repo{padding:7px 8px;font-weight:600;display:flex;gap:7px;align-items:center;border-radius:6px;cursor:pointer}
+  .tree .repo.sel{background:#12233a;color:var(--blue)}
+  .tree .pg{padding:5px 8px 5px 26px;color:var(--dim);cursor:pointer;border-radius:6px;display:flex;align-items:center;gap:7px}
+  .tree .pg:hover{background:var(--panel2);color:var(--text)}
+  .tree .pg.sel{background:var(--panel2);color:var(--text)}
+  .tree .cnt{margin-left:auto;color:var(--faint);font-size:10px}
+  .wiki-doc{padding:18px 22px;font-size:13px;line-height:1.75}
+  .wiki-doc h3{font-size:15px;margin-bottom:8px;color:var(--blue)}
+  .wiki-doc h4{font-size:12.5px;margin:14px 0 6px;color:var(--green)}
+  .wiki-doc ul{padding-left:20px;color:#c9d1d9}
+  .wiki-doc li{margin:3px 0}
+  .stale-banner{background:#2e2305;border:1px solid #644a08;color:var(--amber);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:12px}
+  .stale-banner button{margin-left:auto}
+
+  /* ---------- 生成工作台 ---------- */
+  .wb{display:grid;grid-template-columns:270px 1fr 1.25fr;gap:14px;align-items:start}
+  .target{padding:8px 10px;border-radius:7px;cursor:pointer;border:1px solid transparent}
+  .target:hover{background:var(--panel2)}
+  .target.sel{background:#12233a;border-color:#1f4e8c}
+  .target .sig{font-family:Consolas,monospace;font-size:12px}
+  .target .meta{display:flex;gap:6px;margin-top:4px;align-items:center}
+  .layer{font-size:10px;padding:1px 7px;border-radius:8px}
+  .layer.ut{background:#0f2e1a;color:var(--green)} .layer.api{background:#0d2547;color:var(--blue)} .layer.fn{background:#241a38;color:var(--purple)}
+
+  .tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--panel)}
+  .tab{padding:9px 13px;font-size:12px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent}
+  .tab:hover{color:var(--text)} .tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+  .tab-body{display:none;padding:13px;min-height:265px}
+  .tab-body.active{display:block}
+  pre.code{background:#0a0d12;border:1px solid var(--border);border-radius:7px;padding:12px;font-family:Consolas,monospace;font-size:11.5px;line-height:1.6;overflow:auto;color:#c9d1d9;white-space:pre}
+  .c-k{color:#ff7b72}.c-f{color:#d2a8ff}.c-s{color:#a5d6ff}.c-c{color:#8b949e;font-style:italic}.c-n{color:#79c0ff}
+  .sim-row{display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid #21262d;font-size:12px}
+  .sim-score{font-family:Consolas,monospace;color:var(--green);font-weight:700;width:44px}
+  .bug-row{padding:8px 4px;border-bottom:1px solid #21262d;font-size:12px}
+  .bug-row b{color:var(--red);font-family:Consolas,monospace;font-size:11px;margin-right:8px}
+  .prio-note{padding:9px 13px;border-top:1px solid var(--border);color:var(--faint);font-size:11px}
+  .prio-note b{color:var(--dim)}
+
+  .stepper{display:flex;gap:0;margin:6px 0 12px}
+  .step{flex:1;text-align:center;position:relative;padding-top:16px}
+  .step::before{content:"";position:absolute;top:7px;left:-50%;width:100%;height:2px;background:var(--border)}
+  .step:first-child::before{display:none}
+  .step .dot2{position:absolute;top:0;left:50%;transform:translateX(-50%);width:15px;height:15px;border-radius:50%;background:var(--panel);border:2px solid var(--border);z-index:1}
+  .step.done::before{background:var(--green)} .step.done .dot2{border-color:var(--green);background:var(--green)}
+  .step.active::before{background:#1f4e8c} .step.active .dot2{border-color:var(--blue);box-shadow:0 0 0 3px #1f6feb33;animation:pulse 1.2s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 3px #1f6feb33}50%{box-shadow:0 0 0 6px #1f6feb11}}
+  .step .s-label{font-size:11px;color:var(--dim)} .step.done .s-label{color:var(--green)} .step.active .s-label{color:var(--blue);font-weight:600}
+  .run-status{background:#0a0d12;border:1px solid var(--border);border-radius:7px;padding:9px 12px;font-family:Consolas,monospace;font-size:11px;color:var(--dim);min-height:58px;line-height:1.7}
+  .run-status .ok{color:var(--green)} .run-status .hl{color:var(--blue)} .run-status .wr{color:var(--amber)}
+  .sum-chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .sum-chips .chip b{color:var(--text)}
+
+  /* ---------- 用例库筛选 ---------- */
+  .filters{display:flex;gap:9px;margin-bottom:14px;align-items:center}
+  select,input[type=text]{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 10px;font-size:12px;outline:none}
+  input[type=text]{width:210px}
+
+  /* ---------- 抽屉 ---------- */
+  .overlay{position:fixed;inset:0;background:#00000088;display:none;z-index:50}
+  .overlay.show{display:block}
+  .drawer{position:fixed;top:0;right:-520px;width:500px;height:100vh;background:var(--panel);border-left:1px solid var(--border);z-index:60;transition:right .22s ease;display:flex;flex-direction:column}
+  .drawer.show{right:0}
+  .drawer-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-weight:600}
+  .drawer-head .x{margin-left:auto;cursor:pointer;color:var(--dim);font-size:17px;padding:2px 8px;border-radius:6px}
+  .drawer-head .x:hover{background:var(--panel2);color:var(--text)}
+  .drawer-body{padding:16px 18px;overflow:auto;flex:1}
+  .drawer-body pre{font-size:11.5px}
+
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2a38;border:1px solid var(--border);color:var(--text);padding:9px 18px;border-radius:9px;font-size:12px;display:none;z-index:99;box-shadow:0 6px 22px #000a}
+  .empty-tip{color:var(--faint);text-align:center;padding:36px 0;font-size:12px}
+
+  /* ---------- 服务地图 / 契约中心 ---------- */
+  .map-grid{display:grid;grid-template-columns:1fr 360px;gap:14px;align-items:start}
+  .map-svg{width:100%;height:auto;display:block}
+  .node-box{fill:#161b22;stroke:#30363d;stroke-width:1.2}
+  .node-box.core{stroke:#1f6feb;stroke-width:1.6}
+  .node-g{cursor:pointer} .node-g:hover .node-box{stroke:var(--blue)}
+  .node-title{fill:#e6edf3;font-size:13px;font-weight:600;font-family:"Segoe UI","Microsoft YaHei",sans-serif}
+  .node-sub{fill:#8b949e;font-size:10px;font-family:"Segoe UI","Microsoft YaHei",sans-serif}
+  .edge{stroke:#5a6470;stroke-width:1.6;fill:none}
+  .edge.dash{stroke-dasharray:6 5}
+  .edge.breaking{stroke:var(--red);stroke-width:2.2;stroke-dasharray:8 5;animation:dashmove 1.2s linear infinite}
+  @keyframes dashmove{to{stroke-dashoffset:-13}}
+  g.edgeg{cursor:pointer} g.edgeg:hover .edge{stroke:var(--blue)}
+  .edge-label{fill:#8b949e;font-size:10.5px;font-family:Consolas,monospace}
+  .edge-label.bad{fill:var(--red);font-weight:700}
+  .imp-item{padding:8px 2px;border-bottom:1px solid #21262d;font-size:12px;display:flex;gap:8px;align-items:flex-start;line-height:1.55}
+  textarea{width:100%;min-height:118px;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:10px 12px;font-size:12px;line-height:1.7;font-family:Consolas,monospace;outline:none;resize:vertical}
+  textarea:focus{border-color:#1f4e8c}
+  .drop-zone{border:1px dashed var(--border);border-radius:8px;padding:10px 14px;color:var(--dim);font-size:12px}
+</style>
+</head>
+<body>
+
+<!-- ============ 侧边栏 ============ -->
+<aside class="sidebar">
+  <div class="logo">⚡ Test<b>Forge</b></div>
+  <div class="logo-sub">AI 测试用例生成平台 · 原型 v0.1</div>
+  <div class="nav-item active" data-view="dashboard">📊 仪表盘</div>
+  <div class="nav-item" data-view="wiki">📚 代码库 / Wiki</div>
+  <div class="nav-item" data-view="map">🗺 服务地图 / 契约 <span class="badge" style="background:var(--red);color:#fff">1</span></div>
+  <div class="nav-item" data-view="repos">📥 仓库接入</div>
+  <div class="nav-item" data-view="reqs">📝 需求录入</div>
+  <div class="nav-item" data-view="plans">🎯 测试计划</div>
+  <div class="nav-item" data-view="workbench">🛠 生成工作台 <span class="badge">核心</span></div>
+  <div class="nav-item" data-view="cases">🗂 用例库（分层）</div>
+  <div class="nav-item" data-view="runs">🧪 执行记录</div>
+  <div class="nav-item" data-view="defects">🐞 缺陷管理</div>
+  <div class="nav-item" data-view="logs">📜 日志 / 追溯</div>
+  <div class="nav-item" data-view="collab">📋 需求质量流水线</div>
+  <div class="side-foot">
+    <div class="row"><span>Wiki 索引</span><span class="warn">3 模块 stale</span></div>
+    <div class="row"><span>契约中心</span><span class="warn">1 breaking</span></div>
+    <div class="row"><span>RAG 向量库</span><span class="ok">12.4k 条</span></div>
+    <div class="row"><span>沙箱集群</span><span class="ok">在线 ×4</span></div>
+  </div>
+</aside>
+
+<main>
+  <!-- ============ 顶栏 ============ -->
+  <div class="topbar">
+    <span class="proj">商城平台 · 多仓（6 services）</span>
+    <span class="branch">⎇ order-service@main @ 3f9d2c1</span>
+    <span class="chip mock">原型 · mock 数据</span>
+    <span class="spacer"></span>
+    <button class="btn btn-sm">接入真实后端</button>
+    <span class="chip" id="reviewChip" style="border-color:var(--amber);color:var(--amber)">待人审 37</span>
+    <span class="chip">海鸥</span>
+  </div>
+
+  <!-- ============ 视图1: 仪表盘 ============ -->
+  <section class="view active" id="view-dashboard">
+    <h2 class="page-title">仪表盘</h2>
+    <div class="page-desc">生成质量三指标：用例有效率（编译+执行通过）/ 覆盖率增量 / 回归一致性 · <b>全流程以需求为源头，traceID 全链路可回溯（见「日志 / 追溯」）</b></div>
+
+    <div class="stale-banner" style="margin-bottom:16px">⚠ 契约变更待处理：<b>payment-service · Payment API v2.3.1 → v2.4.0（breaking）</b>&nbsp;影响 order-service 的 5 个用例与 2 个 wiki 页。<button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="nav('map')">查看影响分析</button></div>
+
+    <div class="grid-stats">
+      <div class="stat-card"><div class="label">用例有效率</div><div class="value">92.4%</div><div class="delta">▲ 1.8% 较上周</div></div>
+      <div class="stat-card"><div class="label">分支覆盖率增量</div><div class="value">+18.6%</div><div class="delta">对比人工基线</div></div>
+      <div class="stat-card"><div class="label">本周生成用例</div><div class="value" id="statWeekGen">214</div><div class="delta">单测 168 · 接口 38 · 功能 8 · E2E 4</div></div>
+      <div class="stat-card"><div class="label">待人工评审</div><div class="value" style="color:var(--amber)" id="statReview">37</div><div class="delta warn">其中功能用例 12</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-head">近 7 天生成趋势 <span class="sub">按日统计</span></div>
+        <div class="panel-body">
+          <div class="chart-wrap" id="trend"></div>
+          <div class="legend">
+            <span><span class="dot" style="background:#238636"></span>生成用例</span>
+            <span><span class="dot" style="background:#1f6feb"></span>执行通过</span>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">Wiki 健康度 <span class="sub">导入时预编译 · 增量重建</span></div>
+        <table class="data">
+          <tbody id="wikiHealthBody">
+            <tr><td><b>order-service</b></td><td><span class="st green">最新</span></td><td style="color:var(--faint)">12 分钟前</td></tr>
+            <tr><td><b>payment-service</b></td><td><span class="st amber">2 模块 stale</span></td><td style="color:var(--faint)">2 小时前</td></tr>
+            <tr><td><b>inventory-service</b></td><td><span class="st green">最新</span></td><td style="color:var(--faint)">40 分钟前</td></tr>
+          </tbody>
+        </table>
+        <div class="panel-body" style="border-top:1px solid var(--border)">
+          <button class="btn btn-sm" onclick="rebuildAll(this)">⟳ 一键重建全部 stale 页面</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-head">最近生成任务 <span class="sub">点击行查看详情（原型中跳执行记录）</span></div>
+      <table class="data">
+        <thead><tr><th>任务</th><th>目标</th><th>层级</th><th>触发</th><th>状态</th><th>有效率</th><th>时间</th></tr></thead>
+        <tbody>
+          <tr onclick="nav('runs')"><td class="mono">GEN-0421</td><td class="mono">create_order()</td><td><span class="layer api">接口</span></td><td>PR #128</td><td><span class="st green">已完成</span></td><td>10/10</td><td style="color:var(--faint)">3 分钟前</td></tr>
+          <tr onclick="nav('runs')"><td class="mono">GEN-0420</td><td class="mono">calc_discount()</td><td><span class="layer ut">单测</span></td><td>手动</td><td><span class="st green">已完成</span></td><td>8/10</td><td style="color:var(--faint)">26 分钟前</td></tr>
+          <tr onclick="nav('runs')"><td class="mono">GEN-0419</td><td class="mono">POST /api/orders</td><td><span class="layer fn">功能</span></td><td>定时</td><td><span class="st blue">待人审</span></td><td>—</td><td style="color:var(--faint)">1 小时前</td></tr>
+          <tr onclick="nav('runs')"><td class="mono">GEN-0418</td><td class="mono">refund()</td><td><span class="layer api">接口</span></td><td>PR #127</td><td><span class="st amber">修复中</span></td><td>6/9</td><td style="color:var(--faint)">2 小时前</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 视图2: Wiki ============ -->
+  <section class="view" id="view-wiki">
+    <h2 class="page-title">代码库 / Wiki</h2>
+    <div class="page-desc">导入时预编译：LLM 分层摘要 repo → module → 函数卡片，输出人可 review 的 Markdown + 机器可查的结构化索引</div>
+    <div class="wiki-grid">
+      <div class="panel">
+        <div class="panel-head">页面树</div>
+        <div class="tree">
+          <div class="repo sel">🌐 系统级 Wiki（跨仓）<span class="cnt">2 页</span></div>
+          <div class="pg" onclick="showWikiPage('flow',this)">📄 业务流页：下单 → 支付（跨 3 服务）</div>
+          <div class="pg">📄 服务地图说明页</div>
+          <div class="repo" style="margin-top:6px">📦 order-service <span class="cnt">3 模块</span></div>
+          <div class="pg" onclick="showWikiPage('module',this)">📄 总览页（架构）</div>
+          <div class="pg sel" onclick="showWikiPage('module',this)">📁 订单模块 · 模块页 <span class="cnt">卡片×12</span></div>
+          <div class="pg">📁 优惠券模块 · 模块页 <span class="cnt">卡片×8</span></div>
+          <div class="pg">📁 退款模块 · 模块页 <span class="cnt" style="color:var(--amber)">stale</span></div>
+          <div class="repo" style="margin-top:8px;opacity:.65">📦 payment-service</div>
+          <div class="repo" style="opacity:.65">📦 inventory-service</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">📄 <span id="wikiPageTitle">订单模块 · 模块页</span><span class="sub" id="wikiPageRev">auto-gen by wiki-builder · rev 47</span></div>
+        <div id="wikiPageModule">
+        <div id="staleBox" style="display:none;padding:14px 14px 0">
+          <div class="stale-banner">⚠ 源码在本页生成后发生变更（2 个文件），本页内容可能过期。<button class="btn btn-sm btn-primary" onclick="rebuildPage(this)">重建本页</button></div>
+        </div>
+        <div class="wiki-doc">
+          <h3>订单模块（order-module）</h3>
+          <h4>职责</h4>
+          <ul><li>订单创建 / 取消 / 查询的生命周期管理</li><li>下单价格计算与优惠券核销</li></ul>
+          <h4>对外接口</h4>
+          <ul><li><code>POST /api/orders</code> · <code>DELETE /api/orders/{id}</code> · <code>GET /api/orders/{id}</code></li></ul>
+          <h4>业务规则</h4>
+          <ul>
+            <li>下单金额必须 &gt; 0 且 ≤ 单笔上限 50,000</li>
+            <li>下单即锁定库存（<code>inventory.lock</code>），取消订单 15 分钟内免手续费</li>
+            <li>买家与商家角色隔离：买家仅能操作自己的订单</li>
+            <li>支付预授权失败时订单进入 <code>PAY_FAILED</code> 终态并释放库存</li>
+          </ul>
+          <h4>调用关系</h4>
+          <ul><li>依赖：inventory（库存锁定）· payment（预授权）· eventBus（领域事件 <code>OrderCreated</code>）</li><li>被依赖：退款模块 · 报表模块</li></ul>
+          <h4>已知风险点（来自历史缺陷）</h4>
+          <ul><li>金额字段曾出现科学计数法绕过上限校验（BUG-2213，已回归用例 TC-009）</li></ul>
+        </div>
+        </div>
+        <div class="wiki-doc" id="wikiPageFlow" style="display:none">
+          <h3>业务流：下单 → 支付（跨 3 服务）</h3>
+          <h4>链路</h4>
+          <ul>
+            <li>gateway → order-service → inventory-service（同步 gRPC）· payment-service（同步 REST）</li>
+            <li>order-service → kafka <code>order.created v3</code> → notification-service（异步）</li>
+          </ul>
+          <h4>关键规则（跨服务）</h4>
+          <ul>
+            <li>下单即锁库存；15 分钟未支付由 <code>payment_ttl_scanner</code> 自动关单并释放库存</li>
+            <li>预授权失败 → <code>PAY_FAILED</code> 终态 + 库存释放 + 事件 <code>order.pay_failed</code></li>
+            <li>买家与商家角色隔离在网关层统一鉴权（User API v1.0.4）</li>
+          </ul>
+          <h4>SLA（来自近 7 天 trace，12,438 条，已脱敏）</h4>
+          <ul><li>P99 850ms · 错误率 0.3% · 超时主因：payment 预授权慢调用（占 71%）</li></ul>
+          <h4>契约依赖</h4>
+          <ul>
+            <li>Payment API <b>v2.4.0</b> <span class="st red">⚠ breaking</span> → 2 个 wiki 页 stale、5 个用例待定向重生成</li>
+            <li>LockStock gRPC v1.8.0 ✅ 最新 · User API v1.0.4 ✅ 最新</li>
+          </ul>
+          <h4>关联用例</h4>
+          <ul><li>接口层 TC-005 ~ TC-007 · 功能层 FUNC-005 / FUNC-006 · 契约层 CTR-012</li></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 视图2.5: 服务地图 / 契约中心 ============ -->
+  <section class="view" id="view-map">
+    <h2 class="page-title">服务地图 / 契约中心</h2>
+    <div class="page-desc">跨仓单一事实源：契约注册中心（OpenAPI / proto / topic）+ 系统 Wiki 层。契约变更 → 自动影响分析 → stale 标记与用例定向重生成</div>
+
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
+        <span class="chip">前端 / 浏览器</span><span class="edge-label">── HTTP/REST ──▶</span>
+        <span class="chip" style="border-color:var(--blue);color:var(--blue)">API Gateway · BFF</span><span class="edge-label">── RPC/gRPC ──▶</span>
+        <span class="chip">repo-svc</span><span class="chip">wiki-builder</span><span class="chip">contract-registry</span><span class="chip">testgen-svc</span><span class="chip">runner-svc</span><span class="chip">req-svc</span>
+        <span class="edge-label">── gRPC ──▶</span><span class="chip">Postgres · 对象存储 · 向量库</span>
+        <span style="margin-left:auto;color:var(--faint);font-size:11px">平台自身约定：前端 ↔ 后端全 HTTP；后端服务间全 RPC(gRPC)</span>
+      </div>
+    </div>
+    <div class="map-grid">
+
+      <div class="panel">
+        <div class="panel-head">服务依赖图 <span class="sub" id="mapSub">6 服务 · 5 契约 · 1 breaking</span></div>
+        <div class="panel-body">
+          <svg class="map-svg" id="svcSvg" viewBox="0 0 980 412" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5a6470"/></marker>
+              <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f85149"/></marker>
+            </defs>
+            <!-- 边 -->
+            <g class="edgeg" onclick="showImpact('ok','User API v1.0.4')">
+              <path class="edge" d="M139,188 L139,116" marker-end="url(#arr)"/>
+              <text class="edge-label" x="147" y="156">REST User v1.0.4</text>
+            </g>
+            <g class="edgeg" onclick="showImpact('ok','Orders API v1.2.0')">
+              <path class="edge" d="M218,214 L376,207" marker-end="url(#arr)"/>
+              <text class="edge-label" x="250" y="200">REST Orders v1.2.0</text>
+            </g>
+            <g class="edgeg" onclick="showImpact('ok','LockStock gRPC v1.8.0')">
+              <path class="edge" d="M538,188 C620,150 660,110 744,88" marker-end="url(#arr)"/>
+              <text class="edge-label" x="586" y="128">LockStock gRPC v1.8.0</text>
+            </g>
+            <g class="edgeg" onclick="showImpact('breaking','Payment API v2.3.1 → v2.4.0')">
+              <path class="edge breaking" d="M538,206 L744,206" marker-end="url(#arrRed)"/>
+              <text class="edge-label bad" x="560" y="196">⚠ Payment v2.3.1→v2.4.0</text>
+            </g>
+            <g class="edgeg" onclick="showImpact('ok','kafka topic order.created v3')">
+              <path class="edge dash" d="M480,232 C510,290 535,325 550,340" marker-end="url(#arr)"/>
+              <path class="edge dash" d="M580,352 L744,356" marker-end="url(#arr)"/>
+              <text class="edge-label" x="466" y="396">kafka topic: order.created v3</text>
+            </g>
+            <!-- topic 节点 -->
+            <circle cx="562" cy="352" r="16" fill="#1c2129" stroke="#30363d"/>
+            <text x="562" y="357" text-anchor="middle" font-size="13">⚡</text>
+            <!-- 服务节点 -->
+            <g class="node-g" transform="translate(60,60)"><rect class="node-box" width="158" height="52" rx="10"/><text class="node-title" x="14" y="22">user-service</text><text class="node-sub" x="14" y="40">Java · 用户与鉴权</text></g>
+            <g class="node-g" transform="translate(60,190)"><rect class="node-box" width="158" height="52" rx="10"/><text class="node-title" x="14" y="22">gateway</text><text class="node-sub" x="14" y="40">Go · API 网关</text></g>
+            <g class="node-g" transform="translate(380,180)" onclick="toast('order-service · wiki 12 页 · 用例 214 · 当前演示仓库')"><rect class="node-box core" width="158" height="52" rx="10"/><text class="node-title" x="14" y="22">order-service ●</text><text class="node-sub" x="14" y="40">Java · 订单核心（当前仓库）</text></g>
+            <g class="node-g" transform="translate(748,60)" onclick="showImpact('ok','LockStock gRPC v1.8.0')"><rect class="node-box" width="172" height="52" rx="10"/><text class="node-title" x="14" y="22">inventory-service</text><text class="node-sub" x="14" y="40">Go · 库存 · gRPC 提供方</text></g>
+            <g class="node-g" transform="translate(748,180)" onclick="showImpact('breaking','Payment API v2.3.1 → v2.4.0')"><rect class="node-box" width="172" height="52" rx="10" style="stroke:#f85149"/><text class="node-title" x="14" y="22">payment-service ⚠</text><text class="node-sub" x="14" y="40">Java · 支付 · v2.4.0 待发布</text></g>
+            <g class="node-g" transform="translate(748,330)"><rect class="node-box" width="172" height="52" rx="10"/><text class="node-title" x="14" y="22">notification-service</text><text class="node-sub" x="14" y="40">Python · 通知（topic 消费方）</text></g>
+          </svg>
+          <div style="display:flex;gap:16px;color:var(--faint);font-size:11px;margin-top:4px">
+            <span>─ 同步：前端→网关 HTTP/REST · 服务间 gRPC</span><span>┄ 异步事件（Kafka）</span><span style="color:var(--red)">红 = breaking 契约变更 · 点边或节点查看影响分析</span>
+          </div>
+        </div>
+        <table class="data" style="border-top:1px solid var(--border)">
+          <thead><tr><th>契约注册中心</th><th>类型</th><th>提供方</th><th>版本</th><th>状态</th><th>消费方</th><th>最近变更</th></tr></thead>
+          <tbody>
+            <tr onclick="showImpact('breaking','Payment API v2.3.1 → v2.4.0')" style="cursor:pointer"><td class="mono">Payment API</td><td>REST</td><td>payment-service</td><td class="mono">v2.4.0</td><td><span class="st red">⚠ breaking</span></td><td>order-service</td><td style="color:var(--faint)">今天 09:12</td></tr>
+            <tr onclick="showImpact('ok','LockStock gRPC v1.8.0')" style="cursor:pointer"><td class="mono">LockStock</td><td>gRPC</td><td>inventory-service</td><td class="mono">v1.8.0</td><td><span class="st green">最新</span></td><td>order-service</td><td style="color:var(--faint)">3 天前</td></tr>
+            <tr onclick="showImpact('ok','Orders API v1.2.0')" style="cursor:pointer"><td class="mono">Orders API</td><td>REST</td><td>order-service</td><td class="mono">v1.2.0</td><td><span class="st green">最新</span></td><td>gateway · admin-web</td><td style="color:var(--faint)">昨天</td></tr>
+            <tr onclick="showImpact('ok','kafka topic order.created v3')" style="cursor:pointer"><td class="mono">order.created</td><td>Kafka topic</td><td>order-service</td><td class="mono">schema v3</td><td><span class="st green">最新</span></td><td>notification-service</td><td style="color:var(--faint)">5 天前</td></tr>
+            <tr onclick="showImpact('ok','User API v1.0.4')" style="cursor:pointer"><td class="mono">User API</td><td>REST</td><td>user-service</td><td class="mono">v1.0.4</td><td><span class="st green">最新</span></td><td>gateway · order · payment</td><td style="color:var(--faint)">1 周前</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel" id="impactPanel">
+        <div class="panel-head">契约影响分析 <span class="sub" id="impactSub">Payment API v2.3.1 → v2.4.0</span></div>
+        <div class="panel-body" id="impactBreaking">
+          <div class="stale-banner" style="margin:0 0 10px">⚠ BREAKING CHANGE · 检测于今天 09:12（CI 契约 diff 自动规则）</div>
+          <div style="font-size:12px;color:var(--dim);margin-bottom:6px">变更内容</div>
+          <pre class="code"><span class="c-k">- Response.payUrl</span>        <span class="c-c">(移除)</span>
+<span class="c-s">+ Response.redirectUrl</span>   <span class="c-c">(新增, 必填)</span>
+<span class="c-k">- ErrorCode.PAY_101</span>      <span class="c-c">(弃用 → PAY_402)</span></pre>
+          <div style="font-size:12px;color:var(--dim);margin:12px 0 4px">影响传播链</div>
+          <div class="imp-item"><span>1️⃣</span><span><b>payment-service</b> 发布 v2.4.0 → 契约注册中心 diff 命中 breaking 规则 ×2</span></div>
+          <div class="imp-item"><span>2️⃣</span><span>消费方 <b>order-service</b>：wiki 页 ×2 标记 stale，关联用例 ×5 打「契约变更」标记</span></div>
+          <div class="imp-item"><span>3️⃣</span><span>系统 Wiki「下单→支付业务流页」SLA 段落待重算</span></div>
+          <div style="font-size:12px;color:var(--dim);margin:12px 0 4px">受影响资产</div>
+          <table class="data">
+            <thead><tr><th>资产</th><th>影响点</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">TC-007</td><td>断言引用 payUrl 字段</td></tr>
+              <tr><td class="mono">TC-009</td><td>错误码路径 PAY_101</td></tr>
+              <tr><td class="mono">FUNC-005</td><td>步骤含支付跳转断言</td></tr>
+              <tr><td class="mono">CTR-012</td><td>消费方契约 expectation 过期</td></tr>
+              <tr><td class="mono">wiki ×2</td><td>订单模块页 · 业务流页</td></tr>
+            </tbody>
+          </table>
+          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="regenAffected(this)">定向重生成 5 个用例</button>
+            <button class="btn btn-sm" onclick="toast('已通知 order-service owner @qa-team（原型模拟）')">通知消费方 owner</button>
+          </div>
+        </div>
+        <div class="panel-body" id="impactOk" style="display:none">
+          <div class="stale-banner" style="margin:0 0 10px;background:#0f2e1a;border-color:#1d4d2c;color:var(--green)">✓ 该契约近 30 天无 breaking 变更</div>
+          <div class="imp-item"><span>·</span><span>消费方 1 个，关联用例 6 个（近 7 天沙箱全部通过）</span></div>
+          <div class="imp-item"><span>·</span><span>最近变更：3 天前 · 字段注释更新（非破坏性）</span></div>
+          <div class="imp-item"><span>·</span><span>消费方桩（WireMock）与契约版本一致 ✓</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-head">平台对接契约（真实系统按此实现） <span class="sub">前端 ↔ 后端 = HTTP/REST · 服务 ↔ 服务 = RPC/gRPC</span></div>
+      <div class="panel-body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div style="font-size:12px;color:var(--dim);margin-bottom:6px">HTTP REST（前端 → 网关）</div>
+<pre class="code">POST /api/repos                      接入仓库 {url, credential, branch}
+POST /api/repos/{id}/pull            拉取 + 增量索引 + wiki 重建
+POST /api/requirements/ingest        需求录入 {title, source, body|fileId}
+POST /api/requirements/{id}/confirm  规则冲突确认 → 工单 + 定向重生成
+POST /api/generations                创建生成任务 {target, layer, options}
+GET  /api/generations/{id}/events    生成进度（SSE 流式：PLAN→GUARD→CODE…）
+GET  /api/cases?layer=ut|api|fn|e2e|contract&module=&status=
+POST /api/cases/{id}/review          人审通过/驳回
+GET  /api/runs?target=&status=       执行记录 · POST /api/runs/{id}/rerun
+POST /api/contracts/{id}/impact      契约影响分析 → 受影响用例清单</pre>
+        </div>
+        <div>
+          <div style="font-size:12px;color:var(--dim);margin-bottom:6px">gRPC（服务间，proto 骨架）</div>
+<pre class="code">service WikiBuilder {
+  rpc Rebuild(RepoDiff) returns (RebuildResult);   // 增量重建
+  rpc GetModulePage(PageQuery) returns (WikiPage);
+}
+service ContractRegistry {
+  rpc Register(Contract) returns (ContractVersion);
+  rpc Impact(ContractDiff) returns (stream ImpactEvent);
+}
+service TestGen {
+  rpc Generate(GenPlan) returns (stream GenEvent); // PLAN→GUARD→CODE
+  rpc RegenerateAffected(Scope) returns (GenResult);
+}
+service TestRunner {
+  rpc Execute(TestSuite) returns (RunReport);      // docker 沙箱
+}
+service ReqIngest {
+  rpc Parse(RequirementDoc) returns (ParseReport); // 规则+冲突检测
+}</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 视图3: 生成工作台 ============ -->
+  <section class="view" id="view-workbench">
+    <h2 class="page-title">生成工作台</h2>
+    <div class="page-desc">上下文组装（code &gt; wiki &gt; similar &gt; bugs）→ 两阶段生成（PLAN → 覆盖守卫 → CodeGen）→ 沙箱验证闭环</div>
+    <div class="wb">
+
+      <!-- 左列: 目标选择 -->
+      <div class="panel">
+        <div class="panel-head">目标选择 <span class="sub">订单模块</span></div>
+        <div style="padding:8px">
+          <div class="target sel" onclick="selTarget(this)">
+            <div class="sig">createOrder(OrderRequest, User)</div>
+            <div class="meta"><span class="layer api">接口</span><span style="color:var(--faint);font-size:10px">OrderController</span></div>
+          </div>
+          <div class="target" onclick="selTarget(this)">
+            <div class="sig">calcDiscount(User, List&lt;Item&gt;)</div>
+            <div class="meta"><span class="layer ut">单测</span><span style="color:var(--faint);font-size:10px">PriceService</span></div>
+          </div>
+          <div class="target" onclick="selTarget(this)">
+            <div class="sig">cancelOrder(orderId)</div>
+            <div class="meta"><span class="layer ut">单测</span><span style="color:var(--faint);font-size:10px">OrderService</span></div>
+          </div>
+          <div class="target" onclick="selTarget(this)">
+            <div class="sig">refund(orderId, reason)</div>
+            <div class="meta"><span class="layer api">接口</span><span style="color:var(--faint);font-size:10px">RefundService</span></div>
+          </div>
+          <div class="target" onclick="selTarget(this)">
+            <div class="sig">跨服务旅程：下单 → 支付</div>
+            <div class="meta"><span class="layer fn">功能</span><span style="color:var(--faint);font-size:10px">跨 3 服务 · wiki 业务流</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 中列: 上下文组装 -->
+      <div class="panel">
+        <div class="panel-head">上下文组装预览 <span class="sub">create_order</span></div>
+        <div class="tabs">
+          <div class="tab active" data-tab="t-wiki">📄 Wiki 页</div>
+          <div class="tab" data-tab="t-code">💻 源码注入</div>
+          <div class="tab" data-tab="t-sim">🔍 相似用例 RAG</div>
+          <div class="tab" data-tab="t-bug">🐛 历史缺陷</div>
+          <div class="tab" data-tab="t-contract">📜 契约</div>
+          <div class="tab" data-tab="t-trace">🧵 Trace</div>
+        </div>
+        <div class="tab-body active" id="t-wiki">
+          <div class="wiki-doc" style="padding:4px;font-size:12px;line-height:1.7">
+            <b style="color:var(--blue)">订单模块 · 业务规则（节选）</b>
+            <ul style="margin-top:6px">
+              <li>下单金额必须 &gt; 0 且 ≤ 50,000</li>
+              <li>库存不足抛 <code>OUT_OF_STOCK</code>，订单不落库</li>
+              <li>预授权失败抛 <code>PAY_FAILED</code>，释放库存</li>
+              <li>买家仅能操作自己的订单</li>
+            </ul>
+            <div style="color:var(--faint);margin-top:8px;font-size:11px">↑ 语义层：模块职责 / 业务规则 / 调用关系，wiki 提供全局理解</div>
+          </div>
+        </div>
+        <div class="tab-body" id="t-code">
+<pre class="code"><span class="c-k">public</span> <span class="c-n">Order</span> <span class="c-f">createOrder</span>(<span class="c-n">OrderRequest</span> req, <span class="c-n">User</span> buyer) {
+    <span class="c-f">validateAmount</span>(req.getAmount());              <span class="c-c">// 金额必须 > 0 且 ≤ 50000</span>
+    <span class="c-k">if</span> (req.getAmount().compareTo(MAX_ORDER) &gt; <span class="c-n">0</span>)
+        <span class="c-k">throw new</span> <span class="c-f">BizException</span>(<span class="c-s">"EXCEED_LIMIT"</span>);
+    <span class="c-n">Item</span> item = inventory.<span class="c-f">lock</span>(req.getSku(), req.getQty()); <span class="c-c">// OUT_OF_STOCK</span>
+    <span class="c-n">Order</span> order = Order.<span class="c-f">of</span>(buyer, item, req.getAmount());
+    orderRepo.<span class="c-f">save</span>(order);
+    payment.<span class="c-f">preAuth</span>(order);                       <span class="c-c">// PAY_FAILED</span>
+    eventBus.<span class="c-f">publish</span>(OrderCreated.<span class="c-f">of</span>(order));
+    <span class="c-k">return</span> order;
+}</pre>
+          <div style="color:var(--faint);font-size:11px;margin-top:8px">↑ ground truth：被测函数真实源码 + 直接依赖签名，wiki/检索与源码冲突时以此为准</div>
+        </div>
+        <div class="tab-body" id="t-sim">
+          <div class="sim-row"><span class="sim-score">0.91</span><span class="mono">test_create_order_normal</span><span style="margin-left:auto;color:var(--faint);font-size:11px">orders/test_create_order.py</span></div>
+          <div class="sim-row"><span class="sim-score">0.87</span><span class="mono">test_create_order_exceed_limit</span><span style="margin-left:auto;color:var(--faint);font-size:11px">orders/test_create_order.py</span></div>
+          <div class="sim-row"><span class="sim-score">0.74</span><span class="mono">test_lock_inventory_out_of_stock</span><span style="margin-left:auto;color:var(--faint);font-size:11px">inventory/test_lock.py</span></div>
+          <div class="sim-row"><span class="sim-score">0.63</span><span class="mono">test_preauth_declined</span><span style="margin-left:auto;color:var(--faint);font-size:11px">payment/test_preauth.py</span></div>
+          <div style="color:var(--faint);font-size:11px;margin-top:8px">↑ few-shot：检索相似已有用例，让生成风格与断言写法和存量测试保持一致</div>
+        </div>
+        <div class="tab-body" id="t-bug">
+          <div class="bug-row"><b>BUG-2213</b>金额传科学计数法 1e3 绕过上限校验<div style="color:var(--faint);margin-top:2px">影响 create_order → 已注入回归用例要求</div></div>
+          <div class="bug-row"><b>BUG-1987</b>并发下单库存超卖<div style="color:var(--faint);margin-top:2px">影响 inventory.lock → 并发场景提示</div></div>
+          <div style="color:var(--faint);font-size:11px;margin-top:8px">↑ 历史缺陷模式：防止同一坑被踩第二次</div>
+        </div>
+        <div class="tab-body" id="t-contract">
+          <div style="font-size:11px;color:var(--faint);margin-bottom:4px">提供方 payment-service · REST v2.4.0（<span style="color:var(--red)">⚠ breaking，见服务地图</span>）</div>
+<pre class="code">POST /api/payments
+Request : { orderId: string, amount: Money, channel: ALIPAY|WECHAT }
+Response: { paymentId: string, redirectUrl: string }
+          <span class="c-c">// v2.4.0: payUrl 移除 → redirectUrl (必填)</span>
+Errors  : 402 PAY_FAILED · 429 RATE_LIMITED</pre>
+          <div style="font-size:11px;color:var(--faint);margin:8px 0 4px">提供方 inventory-service · gRPC v1.8.0</div>
+<pre class="code">rpc LockStock(LockRequest) returns (LockResponse)
+Errors: OUT_OF_STOCK</pre>
+          <div style="color:var(--faint);font-size:11px;margin-top:8px">↑ 跨服务依赖走契约：消费方测试按契约自动生成桩（WireMock），无需拉起提供方全量环境</div>
+        </div>
+        <div class="tab-body" id="t-trace">
+<pre class="code"><span class="c-c">// trace 0a4f…e21 · POST /api/orders · P50 报文（已脱敏）</span>
+{ "sku": "A1", "qty": 2, "amount": 129.00, "userId": "u_***" }
+
+<span class="c-c">// 近 7 天采样 12,438 条 · 金额分布 P50=129 P95=4200 P99=47800
+// 从真实流量分布反推的高价值边界:
+//   金额 47800 (P99, 逼近上限 50000) · qty=0 (线上出现 17 次)</span></pre>
+          <div style="color:var(--faint);font-size:11px;margin-top:8px">↑ 真实报文驱动：边界值从生产流量分布反推，比拍脑袋的等价类更贴近真实风险</div>
+        </div>
+        <div class="prio-note">注入优先级：<b>code &gt; contract &gt; wiki &gt; trace &gt; similar &gt; bugs</b> — 服务内看源码，跨服务看契约与 trace，冲突以源码/契约为准</div>
+      </div>
+
+      <!-- 右列: 管线 + 结果 -->
+      <div class="panel">
+        <div class="panel-head">生成管线 <span class="sub">create_order · 接口层</span></div>
+        <div class="panel-body">
+          <div class="stepper" id="stepper">
+            <div class="step" data-s="0"><span class="dot2"></span><div class="s-label">① 用例清单 PLAN</div></div>
+            <div class="step" data-s="1"><span class="dot2"></span><div class="s-label">② 覆盖守卫</div></div>
+            <div class="step" data-s="2"><span class="dot2"></span><div class="s-label">③ 代码生成</div></div>
+            <div class="step" data-s="3"><span class="dot2"></span><div class="s-label">④ 沙箱执行</div></div>
+            <div class="step" data-s="4"><span class="dot2"></span><div class="s-label">⑤ 覆盖率回填</div></div>
+          </div>
+          <div class="run-status" id="runStatus">待命 — 点击「开始生成」，观察两阶段生成与验证闭环（原型为模拟动画）</div>
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-primary" id="genBtn" onclick="generate()">▶ 开始生成</button>
+            <button class="btn" onclick="resetGen()">重置</button>
+          </div>
+          <div class="sum-chips" id="sumChips" style="display:none"></div>
+          <div id="caseWrap" style="display:none">
+            <table class="data">
+              <thead><tr><th>ID</th><th>类别</th><th>场景 / 输入</th><th>预期</th><th>状态</th></tr></thead>
+              <tbody id="caseBody"></tbody>
+            </table>
+            <div style="color:var(--faint);font-size:11px;margin-top:8px">点击行查看用例的结构化 JSON（可直接喂给 runner 执行）</div>
+          </div>
+          <div class="empty-tip" id="caseEmpty">生成完成后，结构化用例将在此展示</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 视图3.5: 仓库接入 ============ -->
+  <section class="view" id="view-repos">
+    <h2 class="page-title">仓库接入</h2>
+    <div class="page-desc">Git 拉取 → 构建体系/语言识别 → tree-sitter 索引 → wiki 编译 → 契约扫描 → RAG 向量化，一条流水线自动完成；支持 webhook 增量 + 定时全量</div>
+
+    <div class="grid-stats" style="margin-bottom:14px">
+      <div class="stat-card"><div class="label">已接入仓库</div><div class="value" id="statRepos">6</div><div class="delta warn">5 正常 · 1 拉取失败</div></div>
+      <div class="stat-card"><div class="label">Wiki 索引覆盖</div><div class="value">34/34</div><div class="delta">模块页 34 · 函数卡片 1,204</div></div>
+      <div class="stat-card"><div class="label">Webhook 增量</div><div class="value">5/6</div><div class="delta warn">admin-web 未配置</div></div>
+      <div class="stat-card"><div class="label">定时全量拉取</div><div class="value">30min</div><div class="delta">下次 02:30</div></div>
+    </div>
+
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-head">接入新仓库 <span class="sub">凭据由凭据管理器托管，不落明文</span></div>
+      <div class="panel-body">
+        <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="repoUrl" placeholder="git@github.com:mall/promo-service.git" style="width:330px">
+          <select id="repoCred"><option>SSH Key (deploy)</option><option>Access Token</option><option>用户名 + 密码</option></select>
+          <select id="repoLang"><option>自动检测</option><option>Java</option><option>Go</option><option>Python</option><option>前端 (Node)</option></select>
+          <label style="color:var(--dim);font-size:12px;display:flex;gap:5px;align-items:center"><input type="checkbox" checked> webhook 增量</label>
+          <button class="btn btn-primary btn-sm" onclick="cloneRepo(this)">⇣ 开始克隆并接入</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">已接入仓库 <span class="sub">拉取 = git pull + 增量索引 + wiki 重建（点「拉取」看日志动画）</span></div>
+      <table class="data">
+        <thead><tr><th>仓库</th><th>Git 地址</th><th>分支</th><th>语言栈</th><th>最近拉取</th><th>Wiki</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="repoBody">
+          <tr><td><b>order-service</b></td><td class="mono" style="font-size:11px">github.com/mall/order-service</td><td class="mono">main</td><td>Java 17 · Spring Boot</td><td style="color:var(--faint)">12 分钟前 (webhook)</td><td><span class="st green">12 页 ✓</span></td><td><span class="st green">已最新</span></td><td><button class="btn btn-sm" onclick="pullRepo(this,'order-service')">拉取</button> <button class="btn btn-sm" onclick="rebuildRepo(this)">重建</button></td></tr>
+          <tr><td><b>payment-service</b></td><td class="mono" style="font-size:11px">github.com/mall/payment-service</td><td class="mono">main</td><td>Java 17 · Spring Boot</td><td style="color:var(--faint)">2 小时前</td><td><span class="st amber">8 页 · 2 stale</span></td><td><span class="st amber">有变更</span></td><td><button class="btn btn-sm" onclick="pullRepo(this,'payment-service')">拉取</button> <button class="btn btn-sm" onclick="rebuildRepo(this)">重建</button></td></tr>
+          <tr><td><b>inventory-service</b></td><td class="mono" style="font-size:11px">github.com/mall/inventory-service</td><td class="mono">main</td><td>Go 1.22</td><td style="color:var(--faint)">40 分钟前</td><td><span class="st green">6 页 ✓</span></td><td><span class="st green">已最新</span></td><td><button class="btn btn-sm" onclick="pullRepo(this,'inventory-service')">拉取</button> <button class="btn btn-sm" onclick="rebuildRepo(this)">重建</button></td></tr>
+          <tr><td><b>user-service</b></td><td class="mono" style="font-size:11px">github.com/mall/user-service</td><td class="mono">main</td><td>Java 17</td><td style="color:var(--faint)">1 小时前</td><td><span class="st green">5 页 ✓</span></td><td><span class="st green">已最新</span></td><td><button class="btn btn-sm" onclick="pullRepo(this,'user-service')">拉取</button> <button class="btn btn-sm" onclick="rebuildRepo(this)">重建</button></td></tr>
+          <tr><td><b>gateway</b></td><td class="mono" style="font-size:11px">github.com/mall/gateway</td><td class="mono">main</td><td>Go · API 网关</td><td style="color:var(--faint)">1 小时前</td><td><span class="st green">3 页 ✓</span></td><td><span class="st green">已最新</span></td><td><button class="btn btn-sm" onclick="pullRepo(this,'gateway')">拉取</button> <button class="btn btn-sm" onclick="rebuildRepo(this)">重建</button></td></tr>
+          <tr><td><b>admin-web</b></td><td class="mono" style="font-size:11px">github.com/mall/admin-web</td><td class="mono">main</td><td>Vue 3 · Node 20</td><td style="color:var(--faint)">3 天前</td><td>—</td><td><span class="st red">拉取失败</span></td><td><button class="btn btn-sm" onclick="pullRepo(this,'admin-web')">重试</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 视图3.7: 需求录入 ============ -->
+  <section class="view" id="view-reqs">
+    <h2 class="page-title">需求录入</h2>
+    <div class="page-desc">需求文档（docx / md / 飞书 / Confluence）→ LLM 解析 → 业务规则提取 → 与系统 Wiki diff（冲突检测）→ 功能/接口用例草稿 → 进用例库待人审</div>
+
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-head">录入新需求 <span class="sub">解析后：规则页进 wiki 待审队列 · 用例草稿进用例库</span></div>
+      <div class="panel-body">
+        <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input type="text" id="reqTitle" placeholder="需求标题，如：新增积分抵扣下单" style="width:300px">
+          <select id="reqSource"><option>上传文件</option><option>飞书文档</option><option>Confluence</option><option>直接粘贴 →</option></select>
+          <select id="reqRepo" title="需求必须绑定目标仓库，作为全流程源头">
+            <option>📌 关联仓库: order-service</option><option>payment-service</option><option>inventory-service</option><option>跨服务旅程</option>
+          </select>
+          <span class="chip drop-zone" id="reqFile" style="cursor:pointer" onclick="attachFile(this)">📎 点击或拖拽上传 .md / .docx / .pdf</span>
+        </div>
+        <div style="color:var(--faint);font-size:11px;margin:-4px 0 8px">需求是全流程唯一源头：录入 → 解析 → Wiki 规则 → 用例生成 → 沙箱执行 → 回填结果，每步记 traceID，可全链路回溯</div>
+        <textarea id="reqBody" placeholder="直接粘贴需求正文（Markdown / 用户故事格式）…">## 用户故事
+作为 有积分账户的买家，我希望下单时用积分抵扣部分金额，以便降低购买成本
+
+## 验收条件
+1. 积分抵扣比例 ≤ 订单金额 30%
+2. 积分不足时按剩余可用部分抵扣
+3. 优惠叠加顺序：VIP折扣 → 满减 → 积分抵扣
+4. 退款时积分按比例退回</textarea>
+        <div class="stepper" id="ingestStepper" style="margin-top:14px">
+          <div class="step"><span class="dot2"></span><div class="s-label">① 文档解析</div></div>
+          <div class="step"><span class="dot2"></span><div class="s-label">② 规则抽取</div></div>
+          <div class="step"><span class="dot2"></span><div class="s-label">③ Wiki diff</div></div>
+          <div class="step"><span class="dot2"></span><div class="s-label">④ 用例生成</div></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-primary" id="ingestBtn" onclick="ingestReq(this)">▶ 解析并生成用例</button>
+          <button class="btn" onclick="toast('已保存为草稿（原型模拟）')">存草稿</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">需求列表 <span class="sub">点行看解析结果：规则提取 / Wiki diff / 冲突 / 生成用例</span></div>
+      <table class="data">
+        <thead><tr><th>需求</th><th>标题</th><th>来源</th><th>版本</th><th>规则</th><th>生成用例</th><th>状态</th><th>更新时间</th></tr></thead>
+        <tbody>
+          <tr onclick="openReq('REQ-101')"><td class="mono">REQ-101</td><td>订单金额上限调整 50,000 → 100,000</td><td>飞书文档</td><td class="mono">v3</td><td>规则 ×3（1 变更）</td><td>用例 ×3</td><td><span class="st green">已生效</span></td><td style="color:var(--faint)">昨天 17:20</td></tr>
+          <tr onclick="openReq('REQ-104')"><td class="mono">REQ-104</td><td>支付超时关单 15min → 10min</td><td>飞书文档</td><td class="mono">v1</td><td>规则 ×1</td><td>用例 ×2 待重生成</td><td><span class="st amber">⚠ 规则冲突</span><button class="btn btn-sm" style="margin-top:4px" onclick="event.stopPropagation();confirmReq104(this)">✓ 确认并重生成</button></td><td style="color:var(--faint)">今天 11:03</td></tr>
+          <tr onclick="openReq('REQ-102')"><td class="mono">REQ-102</td><td>新增积分抵扣下单</td><td>Confluence</td><td class="mono">v2</td><td>抽取中 3/5</td><td>—</td><td><span class="st blue">解析中</span></td><td style="color:var(--faint)">10 分钟前</td></tr>
+          <tr onclick="openReq('REQ-103')"><td class="mono">REQ-103</td><td>下单页改版：地址选择组件</td><td>上传 docx</td><td class="mono">v1.2</td><td>规则 ×3</td><td>用例 ×3</td><td><span class="st green">已生效</span></td><td style="color:var(--faint)">3 天前</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 视图: 测试计划 ============ -->
+  <section class="view" id="view-plans">
+    <h2 class="page-title">测试计划 / 轮次</h2>
+    <div class="page-desc">以迭代为纲的测试闭环：需求评审(产品) → 提测(研发) → 冒烟准入 → 用例执行 → 缺陷回归 → 准出报告，平台自动推进所有可机器验证的环节</div>
+
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
+        <span class="chip" style="border-color:var(--purple);color:var(--purple)">产品</span><span class="edge-label">PRD · 需求评审 · 验收 ▶</span>
+        <span class="chip" style="border-color:var(--blue);color:var(--blue)">研发</span><span class="edge-label">设计 · 开发 · 自测 · 提测单 ▶</span>
+        <span class="chip" style="border-color:var(--green);color:var(--green)">测试</span><span class="edge-label">计划 · 用例 · 冒烟准入 · 执行 · 缺陷 · 回归 · 准出 ▶</span>
+        <span class="chip">发布</span>
+        <span style="margin-left:auto;color:var(--faint);font-size:11px">本平台覆盖测试域全部环节，AI 替代人肉部分：用例设计 / 执行 / 回归触发 / 报告初稿</span>
+      </div>
+    </div>
+
+    <div class="grid-stats" style="margin-bottom:14px">
+      <div class="stat-card"><div class="label">进行中迭代</div><div class="value">2</div><div class="delta">ITR-2025.10 · ITR-2025.11</div></div>
+      <div class="stat-card"><div class="label">冒烟一次准入率</div><div class="value">92%</div><div class="delta warn">本期 1 次打回</div></div>
+      <div class="stat-card"><div class="label">用例评审通过率</div><div class="value">94%</div><div class="delta">AI 草稿 → 人工终稿</div></div>
+      <div class="stat-card"><div class="label">已准出迭代</div><div class="value">1</div><div class="delta">ITR-2025.09 已归档</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">迭代计划 <span class="sub">准入/准出由平台按标准自动判定 · 点行看报告</span></div>
+      <table class="data">
+        <thead><tr><th>迭代</th><th>版本</th><th>关联需求</th><th>用例集(单/接/功/E2E/契约)</th><th>轮次</th><th>准入</th><th>准出</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr onclick="openReport('ITR-2025.10')"><td class="mono">ITR-2025.10</td><td class="mono">v2.5.0</td><td>REQ-101 · REQ-105</td><td>12 / 8 / 14 / 2 / 1</td><td>冒烟 ✅ · 功能 执行中 · 回归 待启动</td><td><span class="st green">✓ 已准入</span></td><td><span class="st gray">未到准出</span></td><td><button class="btn btn-sm" onclick="event.stopPropagation();genReport(this,'ITR-2025.10')">测试报告(中期)</button></td></tr>
+          <tr onclick="openReport('ITR-2025.09')"><td class="mono">ITR-2025.09</td><td class="mono">v2.4.0</td><td>REQ-103</td><td>9 / 6 / 11 / 1 / 0</td><td>冒烟 ✅ · 功能 ✅ · 回归 ✅</td><td><span class="st green">✓ 已准入</span></td><td><span class="st green">✓ 已准出</span></td><td><button class="btn btn-sm" onclick="event.stopPropagation();openReport('ITR-2025.09')">测试报告</button></td></tr>
+        </tbody>
+      </table>
+      <div class="prio-note">准入 = 冒烟测试通过 + 用例评审通过率 ≥ 90%；准出 = 用例执行 100% + 致命/严重缺陷修复并验证 + 遗留缺陷有评审结论 + 测试报告输出</div>
+    </div>
+  </section>
+
+  <!-- ============ 视图4: 用例库 ============ -->
+  <section class="view" id="view-cases">
+    <h2 class="page-title">用例库（分层）</h2>
+    <div class="page-desc">单测 / 接口 / 功能 / E2E / 契约 五层用例统一管理，每一步均为可执行动作（schema 约束，禁止自然语言步骤），直接进 runner 或导出给 QA</div>
+    <div class="tabs" id="layerTabs" style="margin-bottom:14px;border:1px solid var(--border);border-radius:9px;background:var(--panel)">
+      <div class="tab active" onclick="showLayer('',this)">全部 14</div>
+      <div class="tab" onclick="showLayer('ut',this)">单元测试 3</div>
+      <div class="tab" onclick="showLayer('api',this)">接口测试 2</div>
+      <div class="tab" onclick="showLayer('fn',this)">功能测试 6</div>
+      <div class="tab" onclick="showLayer('e2e',this)">E2E 测试 2</div>
+      <div class="tab" onclick="showLayer('contract',this)">契约测试 1</div>
+    </div>
+    <div class="filters">
+      <select id="fModule"><option value="">全部模块</option><option>订单</option><option>支付</option><option>跨服务</option></select>
+      <select id="fCat"><option value="">全部类别</option><option>normal</option><option>boundary</option><option>exception</option><option>permission</option><option value="contract">契约</option></select>
+      <select id="fStatus"><option value="">全部状态</option><option>草稿</option><option>待人审</option><option>已入库</option></select>
+      <input type="text" placeholder="搜索用例标题 / ID…">
+      <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="nav('reqs')">＋ 从需求文档批量生成</button>
+    </div>
+    <div class="panel">
+      <table class="data" id="funcTable">
+        <thead><tr><th>ID</th><th>标题</th><th>模块</th><th>类别</th><th>执行方式</th><th>步骤数</th><th>状态</th><th>最近执行</th></tr></thead>
+        <tbody id="funcBody">
+          <tr data-layer="ut" data-m="订单" data-c="boundary" data-s="已入库" onclick="openFunc('UT-101')"><td class="mono">UT-101</td><td>calcDiscount：VIP 与满减叠加边界</td><td>订单</td><td><span class="st blue">boundary</span></td><td>pytest · docker 沙箱</td><td>断言×6</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">今日 10:12 ✅</td></tr>
+          <tr data-layer="ut" data-m="订单" data-c="normal" data-s="已入库" onclick="openFunc('UT-102')"><td class="mono">UT-102</td><td>cancelOrder：超 15 分钟收手续费（费率 0.5%）</td><td>订单</td><td><span class="st blue">normal</span></td><td>pytest · docker 沙箱</td><td>断言×4</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">昨日 15:40 ✅</td></tr>
+          <tr data-layer="ut" data-m="订单" data-c="boundary" data-s="已入库" onclick="openFunc('UT-103')"><td class="mono">UT-103</td><td>createOrder：科学计数法金额回归（BUG-2213）</td><td>订单</td><td><span class="st red">boundary</span></td><td>pytest · docker 沙箱</td><td>断言×2</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">今日 09:41 ✅</td></tr>
+          <tr data-layer="api" data-m="订单" data-c="exception" data-s="已入库" onclick="openFunc('API-201')"><td class="mono">API-201</td><td>POST /api/orders 参数校验矩阵（14 组）</td><td>订单</td><td><span class="st red">exception</span></td><td>httpx · TestClient</td><td>断言×28</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">今日 08:30 ✅</td></tr>
+          <tr data-layer="api" data-m="支付" data-c="permission" data-s="待人审" onclick="openFunc('API-202')"><td class="mono">API-202</td><td>GET /api/payments/{id} 鉴权 + 幂等重放</td><td>支付</td><td><span class="st purple">permission</span></td><td>httpx</td><td>断言×8</td><td><span class="st blue">待人审</span></td><td style="color:var(--faint)">—</td></tr>
+          <tr data-layer="fn" data-m="订单" data-c="exception" data-s="已入库" onclick="openFunc('FUNC-001')"><td class="mono">FUNC-001</td><td>下单金额为负数应拒绝</td><td>订单</td><td><span class="st red">exception</span></td><td>API (httpx)</td><td>1</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">今日 09:41 ✅</td></tr>
+          <tr data-layer="fn" data-m="订单" data-c="normal" data-s="已入库" onclick="openFunc('FUNC-002')"><td class="mono">FUNC-002</td><td>取消订单 15 分钟内免手续费</td><td>订单</td><td><span class="st blue">normal</span></td><td>API (httpx)</td><td>3</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">昨日 18:22 ✅</td></tr>
+          <tr data-layer="fn" data-m="订单" data-c="permission" data-s="待人审" onclick="openFunc('FUNC-003')"><td class="mono">FUNC-003</td><td>买家越权查看他人订单被拒绝</td><td>订单</td><td><span class="st purple">permission</span></td><td>API (httpx)</td><td>2</td><td><span class="st blue">待人审</span></td><td style="color:var(--faint)">—</td></tr>
+          <tr data-layer="fn" data-m="订单" data-c="exception" data-s="草稿" onclick="openFunc('FUNC-004')"><td class="mono">FUNC-004</td><td>库存不足下单失败页面提示</td><td>订单</td><td><span class="st red">exception</span></td><td>UI (Playwright)</td><td>4</td><td><span class="st gray">草稿</span></td><td style="color:var(--faint)">—</td></tr>
+          <tr data-layer="fn" data-m="支付" data-c="normal" data-s="已入库" onclick="openFunc('FUNC-005')"><td class="mono">FUNC-005</td><td>支付超时订单自动关闭并释放库存</td><td>支付</td><td><span class="st blue">normal</span></td><td>API (httpx)</td><td>3</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">昨日 16:05 ✅</td></tr>
+          <tr data-layer="fn" data-m="跨服务" data-c="normal" data-s="已入库" onclick="openFunc('FUNC-006')"><td class="mono">FUNC-006</td><td>下单后 15 分钟未支付自动关单（跨 order + payment）</td><td>跨服务</td><td><span class="st blue">normal</span></td><td>跨服务（2 真实 + 1 桩）</td><td>3</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">今日 02:00 ✅</td></tr>
+          <tr data-layer="e2e" data-m="跨服务" data-c="normal" data-s="已入库" onclick="openFunc('E2E-301')"><td class="mono">E2E-301</td><td>下单 → 支付 → 查看订单 完整旅程（staging 全真实服务）</td><td>跨服务</td><td><span class="st blue">normal</span></td><td>Playwright (staging)</td><td>7</td><td><span class="st green">已入库</span></td><td style="color:var(--faint)">今日 02:30 ✅ 41s</td></tr>
+          <tr data-layer="e2e" data-m="跨服务" data-c="exception" data-s="草稿" onclick="openFunc('E2E-302')"><td class="mono">E2E-302</td><td>未登录下单拦截 → 登录 → 续单</td><td>跨服务</td><td><span class="st red">exception</span></td><td>Playwright (staging)</td><td>5</td><td><span class="st gray">草稿</span></td><td style="color:var(--faint)">—</td></tr>
+          <tr id="rowCTR012" data-layer="contract" data-m="跨服务" data-c="contract" data-s="待人审" onclick="openFunc('CTR-012')"><td class="mono">CTR-012</td><td>Payment API v2.4.0 消费方契约测试（⚠ 契约变更重生成）</td><td>跨服务</td><td><span class="st gray">contract</span></td><td>Pact（消费方侧）</td><td>12</td><td><span class="st blue">待人审</span></td><td style="color:var(--faint)">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 视图5: 执行记录 ============ -->
+  <section class="view" id="view-runs">
+    <h2 class="page-title">执行记录</h2>
+    <div class="page-desc">docker 沙箱执行（--network none · 资源限额），失败自动进入修复循环（≤3 轮），覆盖率缺口定向补用例</div>
+    <div class="panel">
+      <table class="data">
+        <thead><tr><th>Run</th><th>目标</th><th>触发</th><th>沙箱</th><th>通过</th><th>分支覆盖</th><th>修复轮次</th><th>耗时</th><th>状态</th></tr></thead>
+        <tbody id="runsBody">
+          <tr onclick="openRun('RUN-0421')"><td class="mono">RUN-0421</td><td class="mono">create_order</td><td>PR #128</td><td><span class="st green">docker ✓</span></td><td>9/9</td><td>92%</td><td>1 轮</td><td>38s</td><td><span class="st green">成功</span></td></tr>
+          <tr onclick="openRun('RUN-0420')"><td class="mono">RUN-0420</td><td class="mono">calc_discount</td><td>手动</td><td><span class="st green">docker ✓</span></td><td>8/10</td><td>85%</td><td>2 轮</td><td>51s</td><td><span class="st amber">2 例待修</span></td></tr>
+          <tr onclick="openRun('RUN-0419')"><td class="mono">RUN-0419</td><td class="mono">POST /api/orders</td><td>PR #127</td><td><span class="st green">docker ✓</span></td><td>14/16</td><td>88%</td><td>0 轮</td><td>1m12s</td><td><span class="st red">2 例失败</span></td></tr>
+          <tr onclick="openRun('RUN-0418')"><td class="mono">RUN-0418</td><td class="mono">FUNC-002 回归</td><td>定时</td><td><span class="st green">docker ✓</span></td><td>1/1</td><td>—</td><td>0 轮</td><td>4s</td><td><span class="st green">成功</span></td></tr>
+          <tr onclick="openRun('RUN-0417')"><td class="mono">RUN-0417</td><td class="mono">Payment 契约（消费方 order-svc）</td><td>契约变更 webhook</td><td><span class="st green">docker ✓</span></td><td>24/25</td><td>—</td><td>0 轮</td><td>41s</td><td><span class="st red">1 例失败</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 视图: 缺陷管理 ============ -->
+  <section class="view" id="view-defects">
+    <h2 class="page-title">缺陷管理</h2>
+    <div class="page-desc">执行失败自动建缺陷（关联 run / 用例 / 源头需求 / traceID）→ 指派研发 → 修复提交 → 平台自动回归关联用例 → 通过即关闭，缺陷生命周期全程留痕</div>
+
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
+        <span class="chip">新建</span><span class="edge-label">▶</span>
+        <span class="chip">已确认/指派</span><span class="edge-label">▶</span>
+        <span class="chip">修复中</span><span class="edge-label">▶</span>
+        <span class="chip" style="border-color:var(--blue);color:var(--blue)">待回归</span><span class="edge-label">▶</span>
+        <span class="chip" style="border-color:var(--green);color:var(--green)">已关闭</span>
+        <span style="color:var(--faint)">（拒绝 / 延期：需评审结论，计入准出遗留分析）</span>
+        <span style="margin-left:auto;color:var(--faint);font-size:11px">失败执行 → 自动建缺陷；「待回归」→ 平台自动拉起沙箱回归，通过即关闭</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <table class="data" id="bugTable">
+        <thead><tr><th>缺陷</th><th>标题</th><th>来源</th><th>关联用例</th><th>源头需求</th><th>严重级</th><th>状态</th><th>责任人</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr onclick="openBug('BUG-301')"><td class="mono">BUG-301</td><td>POST /api/orders 契约未同步导致 2 用例失败</td><td>自动创建 · RUN-0419</td><td class="mono">API-201 ×2</td><td class="mono">REQ-101</td><td><span class="st red">严重</span></td><td><span class="st blue">已确认</span></td><td>后端-小王</td><td>—</td></tr>
+          <tr id="rowBUG-302" onclick="openBug('BUG-302')"><td class="mono">BUG-302</td><td>payment_ttl_scanner 配置漂移（实现 15min ≠ 需求 10min）</td><td>自动创建 · REQ-104 回归</td><td class="mono">FUNC-005/006</td><td class="mono">REQ-104</td><td><span class="st red">严重</span></td><td><span class="st amber">待回归</span></td><td>研发-老李</td><td><button class="btn btn-sm" onclick="event.stopPropagation();regressionBug(this,'BUG-302')">▶ 回归验证</button></td></tr>
+          <tr onclick="openBug('BUG-303')"><td class="mono">BUG-303</td><td>金额科学计数法绕过上限校验（AI 用例首次暴露）</td><td>人工提交 · TC-009 暴露</td><td class="mono">UT-103 / TC-009</td><td class="mono">REQ-101</td><td><span class="st red">致命</span></td><td><span class="st green">已关闭</span></td><td>后端-小王</td><td>—</td></tr>
+        </tbody>
+      </table>
+      <div class="prio-note">缺陷与 run / 用例 / 需求 / traceID 四向关联 —— 准出时"致命/严重清零、遗留有结论"由平台按迭代自动核对</div>
+    </div>
+  </section>
+
+  <!-- ============ 视图7: 日志 / 追溯 ============ -->
+  <section class="view" id="view-logs">
+    <h2 class="page-title">日志 / 追溯</h2>
+    <div class="page-desc">一切操作皆日志：需求（源头）→ 解析 → 生成 → 执行，全链路 traceID 贯穿。正向：需求追到执行结果；反向：执行/用例回溯到需求源头</div>
+    <div class="filters">
+      <select id="logType"><option value="">全部类型</option><option>需求</option><option>生成</option><option>执行</option><option>仓库</option><option>契约</option><option>缺陷</option><option>计划</option></select>
+      <input type="text" id="logSearch" placeholder="搜索 traceID / 需求ID / 关键词…" style="width:260px">
+      <span class="chip" style="margin-left:auto">traceID 全链路贯穿 · 日志保留 180 天 · 可导出审计包</span>
+    </div>
+    <div class="panel">
+      <table class="data" id="logTable">
+        <thead><tr><th>时间</th><th>TraceID</th><th>类型</th><th>操作者</th><th>摘要</th><th>源头需求</th><th>操作</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 视图: 需求质量流水线 ============ -->
+  <section class="view" id="view-collab">
+    <h2 class="page-title">需求质量流水线</h2>
+    <div class="page-desc">提效 × 质量：每个需求自动走完六道质量关卡（G0~G5），AI 全程判定与推进，人只在「例外」与「发布拍板」介入 —— 保障每个需求的质量，同时把人从执行中解放出来</div>
+
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
+        <span class="chip" style="border-color:var(--red);color:var(--red)">传统：单需求 5~8 人日 · 全程人工</span>
+        <span class="edge-label">──▶</span>
+        <span class="chip" style="border-color:var(--green);color:var(--green)">本平台：≤ 0.5 人日 · 周期 4~8 小时 · AI 自动推进</span>
+        <span class="chip">环节自动化率 91%</span>
+        <span class="chip">需求质量档案 100%</span>
+        <span style="margin-left:auto;color:var(--faint);font-size:11px">人只做三件事：定标准 · 批例外 · 拍发布</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">需求质量流水线 <span class="sub">G0 可测性 · G1 知识就绪 · G2 用例覆盖 · G3 执行验证 · G4 缺陷清零 · G5 准出 —— 全部 AI 自动判定</span></div>
+      <table class="data">
+        <thead><tr><th>需求</th><th>质量分</th><th>G0 准入</th><th>G1 知识</th><th>G2 覆盖</th><th>G3 执行</th><th>G4 缺陷</th><th>G5 准出</th><th>人工介入</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr onclick="openRQ('REQ-101')"><td class="mono">REQ-101</td><td><span class="st green">96</span></td><td>✅ 94 分</td><td>✅ 自动</td><td>✅ +18%</td><td>✅ 3/3</td><td>✅ 0 遗留</td><td>✅ 已出报告</td><td>0 次</td><td><span class="st green">已生效</span></td></tr>
+          <tr onclick="openRQ('REQ-105')"><td class="mono">REQ-105</td><td><span class="st blue">88</span></td><td>✅ 88 分</td><td>✅ 自动</td><td>✅ +22%</td><td>✅ 10/10</td><td>✅ 0 关联</td><td>🕓 功能轮中</td><td>0 次</td><td><span class="st blue">AI 推进中 83%</span></td></tr>
+          <tr onclick="openRQ('REQ-104')"><td class="mono">REQ-104</td><td><span class="st amber">61</span></td><td>✅ 71 分</td><td>✅ 自动</td><td>✅ 已生成</td><td>✅ 回归 2/2</td><td>⚠️ 遗留 1</td><td>⛔ 待遗留评审</td><td><span class="st amber">1 次（冲突确认）</span></td><td><span class="st amber">例外 · 待人处理</span></td></tr>
+          <tr onclick="openRQ('REQ-102')"><td class="mono">REQ-102</td><td><span class="st red">72</span></td><td>⛔ 72 分 &lt; 80 自动打回</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><span style="color:var(--faint)">0 次（AI 打回，不耗人力）</span></td><td><span class="st gray">待产品修订</span></td></tr>
+        </tbody>
+      </table>
+      <div class="prio-note">人的三种角色：<b>定标准</b>（可测性分数线 / 覆盖率基线 / 置信度阈值——定好即 AI 自动把关）· <b>批例外</b>（低置信产物 / 需求与实现冲突 / 修复 3 轮失败 / 遗留缺陷评审）· <b>拍发布</b>（G5 唯一必须到场的决策）。质量分 = 可测性 × 覆盖 × 执行 × 缺陷 加权，跌破阈值自动预警</div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ 抽屉 ============ -->
+<div class="overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head"><span id="drawerTitle">详情</span><span class="x" onclick="closeDrawer()">✕</span></div>
+  <div class="drawer-body">
+    <pre class="code" id="drawerJson"></pre>
+    <div id="traceJump" style="display:none;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-sm" onclick="closeDrawer();nav('reqs')">📄 去源头需求</button>
+      <button class="btn btn-sm" onclick="closeDrawer();nav('cases')">🗂 去用例库</button>
+      <button class="btn btn-sm" onclick="closeDrawer();nav('runs')">🧪 去执行记录</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= 导航 ================= */
+function nav(v){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===v));
+  document.querySelectorAll('.view').forEach(s=>s.classList.toggle('active',s.id==='view-'+v));
+}
+document.querySelectorAll('.nav-item').forEach(n=>n.onclick=()=>nav(n.dataset.view));
+
+/* ================= toast ================= */
+let toastTimer;
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.style.display='none',2200);}
+
+/* ================= 全局联动状态（跨视图共享） ================= */
+const APP={review:37,weekGen:214,repos:6,logs:[
+  {ts:'10:05:00',trace:'tr_p910',type:'计划',actor:'QA-张三',summary:'ITR-2025.10 冒烟 12/12 通过 → 准入，功能轮执行中',req:'—'},
+  {ts:'09:50:12',trace:'tr_b301',type:'缺陷',actor:'ci-bot',summary:'RUN-0419 失败 2 例 → 自动创建 BUG-301 并指派 后端-小王',req:'REQ-101'},
+  {ts:'09:16:45',trace:'tr_8a2f',type:'需求',actor:'req-svc',summary:'REQ-105 解析完成 → 状态待人审（用例草稿已入用例库）',req:'REQ-105'},
+  {ts:'09:16:02',trace:'tr_8a2f',type:'执行',actor:'runner-svc',summary:'RUN-0425 沙箱执行: 首轮 8/10 → 修复1轮 → 10/10 ✅',req:'REQ-105'},
+  {ts:'09:15:20',trace:'tr_8a2f',type:'生成',actor:'testgen-svc',summary:'GEN-0425 自动编排生成 FUNC-011/012 · API-203（覆盖守卫补边界类）',req:'REQ-105'},
+  {ts:'09:13:05',trace:'tr_8a2f',type:'需求',actor:'req-svc',summary:'Wiki diff: 「下单→支付业务流页」新增规则 1 条待确认',req:'REQ-105'},
+  {ts:'09:12:31',trace:'tr_8a2f',type:'需求',actor:'req-svc',summary:'文档解析 PRD-积分抵扣下单.docx → 规则×5 · 验收条件×4',req:'REQ-105'},
+  {ts:'09:12:03',trace:'tr_8a2f',type:'需求',actor:'QA-张三',summary:'需求录入 REQ-105（源头 · 关联仓库 order-service）',req:'REQ-105'},
+  {ts:'09:12:00',trace:'tr_c41d',type:'契约',actor:'ci-bot',summary:'payment-service v2.4.0 契约 diff 命中 breaking ×2 → 影响分析',req:'—'},
+  {ts:'08:30:11',trace:'tr_9f03',type:'执行',actor:'runner-svc',summary:'RUN-0421 create_order 接口用例 10/10 通过 (PR #128)',req:'REQ-101'},
+  {ts:'08:29:40',trace:'tr_9f03',type:'生成',actor:'testgen-svc',summary:'GEN-0421 create_order 用例×10（上下文: wiki+源码+RAG+契约）',req:'REQ-101'},
+  {ts:'昨天 17:20',trace:'tr_51b7',type:'需求',actor:'PO-李四',summary:'REQ-101 金额上限调整已生效 → 规则页更新 · 用例×3 入库',req:'REQ-101'},
+  {ts:'昨天 09:00',trace:'tr_77e0',type:'仓库',actor:'repo-svc',summary:'order-service webhook 增量拉取: 9 函数更新 · wiki 重建',req:'—'}
+]};
+const RUN_INDEX={};
+RUN_INDEX['RUN-0421']={trace:'tr_9f03',req:'REQ-101',timeline:['拉起容器 + DB fixture seed','执行 create_order 接口套件 ×10','首轮 10/10 通过','日志归档，traceID tr_9f03']};
+const logCls={'需求':'blue','生成':'purple','执行':'green','仓库':'gray','契约':'red','缺陷':'amber','计划':'gray'};
+function logEvent(type,actor,summary,trace,req){
+  APP.logs.unshift({ts:new Date().toTimeString().slice(0,8),trace,type,actor,summary,req:req||'—'});
+  renderLogs();
+}
+function renderLogs(){
+  const body=document.getElementById('logBody');if(!body)return;
+  const kw=(document.getElementById('logSearch').value||'').trim().toLowerCase();
+  const ty=document.getElementById('logType').value;
+  body.innerHTML=APP.logs
+    .filter(l=>(!ty||l.type===ty)&&(!kw||(l.trace+l.req+l.summary+l.actor).toLowerCase().includes(kw)))
+    .map(l=>`<tr><td style="color:var(--faint);white-space:nowrap">${l.ts}</td><td class="mono" style="color:var(--blue)">${l.trace}</td><td><span class="st ${logCls[l.type]||'gray'}">${l.type}</span></td><td>${l.actor}</td><td>${l.summary}</td><td class="mono">${l.req}</td><td><button class="btn btn-sm" onclick="openTrace('${l.trace}')">🔗 链路回溯</button></td></tr>`).join('');
+}
+function openTrace(trace){
+  const chain=APP.logs.filter(l=>l.trace===trace).slice().reverse();
+  const req=chain.map(l=>l.req).find(x=>x&&x!=='—');
+  showDrawer('链路回溯 '+trace+(req?' · 源头需求: '+req:'')+'（双向可溯）');
+  const lines=chain.map((l,i,a)=>`${i===a.length-1?'└─':'├─'} ${l.ts} [${l.type}] ${l.actor} · ${l.summary}`);
+  document.getElementById('drawerJson').textContent=['正向: 需求源头 → 最终执行结果；反向: 任意节点均可回溯到需求',''].concat(lines).join('\n');
+  document.getElementById('traceJump').style.display='flex';
+}
+function syncReview(){
+  const c=document.getElementById('reviewChip');if(c)c.textContent='待人审 '+APP.review;
+  const s=document.getElementById('statReview');if(s)s.textContent=APP.review;
+}
+function addRun(id,target,trigger,pass,cov,rounds,cost,cls,txt,trace,req){
+  const b=document.getElementById('runsBody');if(!b)return;
+  b.insertAdjacentHTML('afterbegin',
+   `<tr onclick="openRun('${id}')"><td class="mono">${id}</td><td class="mono">${target}</td><td>${trigger}</td><td><span class="st green">docker ✓</span></td><td>${pass}</td><td>${cov}</td><td>${rounds}</td><td>${cost}</td><td><span class="st ${cls}">${txt}</span></td></tr>`);
+  if(trace)RUN_INDEX[id]={trace,req:req||'—',timeline:['拉起容器 + DB fixture seed','执行测试套件: '+target,'修复轮次: '+rounds,'最终结果: '+pass+' ('+txt+')','日志归档完成，traceID '+trace]};
+}
+function addServiceNode(name){
+  const svg=document.getElementById('svcSvg');if(!svg)return;
+  svg.insertAdjacentHTML('beforeend',
+   `<g class="node-g" transform="translate(60,330)"><rect class="node-box" width="158" height="52" rx="10"/><text class="node-title" x="14" y="22">${name}</text><text class="node-sub" x="14" y="40">新接入 · 契约已注册</text></g>`);
+}
+function linkGenerated(){
+  APP.weekGen+=9;const el=document.getElementById('statWeekGen');if(el)el.textContent=APP.weekGen;
+  addRun('RUN-0422','create_order（工作台生成）','手动','9/9','92%','1 轮','38s','green','成功','tr_e519','REQ-101');
+  logEvent('生成','testgen-svc','GEN-0422 create_order 用例×9（覆盖守卫补权限类×1）','tr_e519','REQ-101');
+  logEvent('执行','runner-svc','RUN-0422 create_order: 首轮 7/9 → 修复1轮 → 9/9 ✅','tr_e519','REQ-101');
+}
+
+/* ================= 仪表盘: 趋势图 ================= */
+const trend=document.getElementById('trend');
+[['周一',28,24],['周二',35,31],['周三',22,20],['周四',41,38],['周五',52,47],['周六',12,11],['周日',24,22]].forEach(([d,g,p])=>{
+  const day=document.createElement('div');day.className='day';
+  day.innerHTML=`<div class="bars"><div class="bar gen" style="height:${g*2}px"></div><div class="bar pass" style="height:${p*2}px"></div></div><div class="d-label">${d}</div>`;
+  trend.appendChild(day);
+});
+function rebuildAll(btn){btn.textContent='⟳ 重建中…';btn.disabled=true;setTimeout(()=>{btn.textContent='✓ 全部页面已是最新';toast('已重建 3 个 stale 模块页');},1200);}
+
+/* ================= Wiki（多仓 + 系统 Wiki） ================= */
+let staleOn=false;
+function rebuildPage(btn){btn.textContent='重建中…';btn.disabled=true;setTimeout(()=>{staleOn=false;document.getElementById('staleBox').style.display='none';toast('订单模块页已重建 (rev 48)');},1000);}
+function showWikiPage(kind,el){
+  document.querySelectorAll('.tree .pg').forEach(p=>p.classList.remove('sel'));
+  if(el)el.classList.add('sel');
+  const isFlow=kind==='flow';
+  document.getElementById('wikiPageModule').style.display=isFlow?'none':'block';
+  document.getElementById('wikiPageFlow').style.display=isFlow?'block':'none';
+  document.getElementById('wikiPageTitle').textContent=isFlow?'业务流页：下单 → 支付（跨 3 服务）':'订单模块 · 模块页';
+  document.getElementById('wikiPageRev').textContent=isFlow?'system-wiki · auto-gen · rev 12 · 来源: trace 12,438 条':'auto-gen by wiki-builder · rev 47';
+  document.getElementById('staleBox').style.display=(!isFlow&&staleOn)?'block':'none';
+}
+
+/* ================= 服务地图 / 契约影响分析 ================= */
+function showImpact(kind,sub){
+  document.getElementById('impactSub').textContent=sub;
+  document.getElementById('impactBreaking').style.display=kind==='breaking'?'block':'none';
+  document.getElementById('impactOk').style.display=kind==='breaking'?'none':'block';
+}
+function regenAffected(btn){
+  btn.textContent='定向重生成中…';btn.disabled=true;
+  setTimeout(()=>{
+    btn.textContent='✓ 5 个用例已重生成并通过沙箱';
+    addRun('RUN-0423','CTR-012 契约断言重生成','影响分析','5/5','—','0 轮','12s','green','成功','tr_c41d','—');
+    const tr=document.getElementById('rowCTR012');
+    if(tr){tr.children[6].innerHTML='<span class="st green">已入库</span>';tr.children[7].textContent='刚刚 ✅';tr.dataset.s='已入库';}
+    APP.review=Math.max(0,APP.review-1);syncReview();updateCaseCounts();
+    logEvent('生成','testgen-svc','CTR-012 契约断言按 Payment v2.4.0 重生成（5 用例）','tr_c41d','—');
+    logEvent('执行','runner-svc','RUN-0423 契约回归 5/5 ✅ · CTR-012 → 已入库','tr_c41d','—');
+    toast('联动完成：RUN-0423 入执行记录 · CTR-012 已入库 · 待审 -1 · 日志已记录');
+  },1300);
+}
+
+/* ================= 工作台 ================= */
+function selTarget(el){document.querySelectorAll('.target').forEach(t=>t.classList.remove('sel'));el.classList.add('sel');toast('原型：上下文预览为 create_order 示例数据');}
+document.querySelectorAll('#view-workbench .tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('#view-workbench .tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('#view-workbench .tab-body').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');document.getElementById(t.dataset.tab).classList.add('active');
+});
+
+const CASES=[
+ {id:'TC-001',cat:'boundary',scene:'金额 = -1（负数）',expect:'400 INVALID_AMOUNT',st:'pass'},
+ {id:'TC-002',cat:'boundary',scene:'金额 = 0',expect:'400 INVALID_AMOUNT',st:'pass'},
+ {id:'TC-003',cat:'boundary',scene:'金额 = 50,001（超上限）',expect:'400 EXCEED_LIMIT',st:'pass'},
+ {id:'TC-004',cat:'boundary',scene:'金额 = 50,000（边界内）',expect:'201 创建成功',st:'pass'},
+ {id:'TC-005',cat:'normal',scene:'正常下单 + 库存锁定',expect:'201 + OrderCreated 事件',st:'pass'},
+ {id:'TC-006',cat:'exception',scene:'sku 库存不足',expect:'409 OUT_OF_STOCK',st:'repaired'},
+ {id:'TC-007',cat:'exception',scene:'预授权失败',expect:'402 PAY_FAILED + 释放库存',st:'repaired'},
+ {id:'TC-008',cat:'permission',scene:'买家操作他人订单',expect:'403 FORBIDDEN',st:'pass'},
+ {id:'TC-009',cat:'boundary',scene:'金额 = 1e3（科学计数法回归 BUG-2213）',expect:'400 EXCEED_LIMIT',st:'pass'},
+];
+const stChip={pass:'<span class="st green">✓ 通过</span>',repaired:'<span class="st amber">🔧 修复后通过</span>',fail:'<span class="st red">✗ 失败</span>'};
+
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const steps=()=>document.querySelectorAll('#stepper .step');
+const logBox=()=>document.getElementById('runStatus');
+function resetGen(){
+  steps().forEach(s=>s.classList.remove('done','active'));
+  logBox().textContent='待命 — 点击「开始生成」，观察两阶段生成与验证闭环（原型为模拟动画）';
+  document.getElementById('sumChips').style.display='none';
+  document.getElementById('caseWrap').style.display='none';
+  document.getElementById('caseEmpty').style.display='block';
+}
+async function generate(){
+  const btn=document.getElementById('genBtn');btn.disabled=true;btn.textContent='生成中…';
+  resetGen();
+  const S=steps(),L=logBox;
+  const run=async(i,line,ms)=>{S[i].classList.add('active');L().innerHTML+=`<div class="hl">▶ ${line}</div>`;await sleep(ms);S[i].classList.remove('active');S[i].classList.add('done');};
+  L().innerHTML='';
+  await run(0,'PLAN: 组装上下文（wiki 1页 + 源码 28行 + 相似用例 4条 + 缺陷 2条）',700);
+  L().innerHTML+='<div class="ok">✓ PLAN: 产出 8 条用例清单（JSON schema 校验通过）</div>';
+  await run(1,'GUARD: 静态检查表 — 边界/等价类/异常/权限 五类扫描',700);
+  L().innerHTML+='<div class="wr">⚠ GUARD: 检出缺失【权限类】用例 → 自动补 TC-008</div>';
+  await run(2,'CODEGEN: 清单 → test_create_order.py（pytest, 9 cases）',900);
+  await run(3,'SANDBOX: docker --network none · 首轮 7/9 通过',1100);
+  L().innerHTML+='<div class="wr">⚙ REPAIR: TC-006 / TC-007 断言失败 → 带报错回填修复（第 1 轮）</div>';
+  await sleep(900);
+  L().innerHTML+='<div class="ok">✓ SANDBOX: 第 2 轮 9/9 全部通过</div>';
+  S[3].classList.remove('active');S[3].classList.add('done');
+  await run(4,'COVERAGE: 分支覆盖 92%（+22% vs 人工基线），无缺口',700);
+  // 汇总
+  const sc=document.getElementById('sumChips');sc.style.display='flex';
+  sc.innerHTML=`<span class="chip">用例 <b>9</b></span><span class="chip">首轮通过 <b>7</b></span><span class="chip">修复 <b>2</b> 轮次 <b>1</b></span><span class="chip" style="border-color:var(--green);color:var(--green)">分支覆盖 <b>92%</b></span>`;
+  const body=document.getElementById('caseBody');
+  body.innerHTML=CASES.map(c=>`<tr onclick="openCase('${c.id}')"><td class="mono">${c.id}</td><td><span class="st ${c.cat==='boundary'?'blue':c.cat==='exception'?'red':c.cat==='permission'?'purple':'green'}">${c.cat}</span></td><td>${c.scene}</td><td class="mono" style="font-size:11.5px">${c.expect}</td><td>${stChip[c.st]}</td></tr>`).join('');
+  document.getElementById('caseWrap').style.display='block';
+  document.getElementById('caseEmpty').style.display='none';
+  linkGenerated();
+  btn.disabled=false;btn.textContent='▶ 重新生成';
+  toast('生成完成：9 用例 · 9/9 通过 · RUN-0422 已入执行记录');
+}
+
+/* ================= 抽屉 ================= */
+function showDrawer(title,obj){
+  document.getElementById('drawerTitle').textContent=title;
+  document.getElementById('drawerJson').textContent=obj===undefined?'':JSON.stringify(obj,null,2);
+  document.getElementById('traceJump').style.display='none';
+  document.getElementById('drawer').classList.add('show');
+  document.querySelector('.overlay').classList.add('show');
+}
+function closeDrawer(){document.getElementById('drawer').classList.remove('show');document.querySelector('.overlay').classList.remove('show');}
+function openCase(id){
+  const c=CASES.find(x=>x.id===id);
+  showDrawer(id+' · 结构化用例',{
+    id:c.id,target:'createOrder(OrderRequest, User)',category:c.cat,
+    precondition:[{type:'db_seed',fixture:'user_balance_100'}],
+    input:{scene:c.scene},
+    expected:{assertion:c.expect},
+    covers_branch:c.scene.includes('上限')?'amount > MAX_ORDER':c.cat==='permission'?'buyer.id == order.buyer_id':'amount > 0',
+    runner:'pytest + httpx (docker sandbox)',status:c.st==='repaired'?'修复后通过':'通过'
+  });
+}
+const FUNC_JSON={
+ 'FUNC-001':{id:'FUNC-001',title:'下单金额为负数应拒绝',module:'订单模块',category:'exception',
+   precondition:[{type:'db_seed',fixture:'user_balance_100'}],
+   steps:[{action:'api_call',method:'POST',path:'/api/orders',body:{sku:'A1',amount:-1},as_user:'buyer'}],
+   expected:[{type:'status',value:400},{type:'json_path',path:'$.code',value:'INVALID_AMOUNT'}],
+   runner:'httpx',status:'已入库',owner:'AI 生成 · 人工已审'},
+ 'FUNC-002':{id:'FUNC-002',title:'取消订单 15 分钟内免手续费',module:'订单模块',category:'normal',
+   precondition:[{type:'db_seed',fixture:'paid_order_created_5min_ago'}],
+   steps:[{action:'api_call',method:'GET',path:'/api/orders/{id}',as_user:'buyer',save:'order'},
+          {action:'api_call',method:'DELETE',path:'/api/orders/{id}',as_user:'buyer'},
+          {action:'db_assert',table:'refund_log',where:'fee = 0'}],
+   expected:[{type:'status',value:204},{type:'db_rows',op:'count_eq',value:1}],
+   runner:'httpx',status:'已入库'},
+ 'FUNC-003':{id:'FUNC-003',title:'买家越权查看他人订单被拒绝',module:'订单模块',category:'permission',
+   precondition:[{type:'db_seed',fixture:'two_buyers_each_one_order'}],
+   steps:[{action:'api_call',method:'GET',path:'/api/orders/{other_order_id}',as_user:'buyer_a'}],
+   expected:[{type:'status',value:403}],
+   runner:'httpx',status:'待人审'},
+ 'FUNC-004':{id:'FUNC-004',title:'库存不足下单失败页面提示',module:'订单模块',category:'exception',
+   precondition:[{type:'db_seed',fixture:'sku_A1_stock_0'},{action:'ui_open',page:'/shop/A1'}],
+   steps:[{action:'ui_click',selector:'#buy-now'},{action:'ui_wait',selector:'.error-toast'},
+          {action:'ui_assert_text',selector:'.error-toast',contains:'库存不足'}],
+   expected:[{type:'ui_text',selector:'.error-toast',contains:'库存不足'},{type:'api_no_call',path:'/api/orders'}],
+   runner:'playwright',status:'草稿'},
+ 'FUNC-005':{id:'FUNC-005',title:'支付超时订单自动关闭并释放库存',module:'支付模块',category:'normal',
+   precondition:[{type:'db_seed',fixture:'order_pending_payment_ttl_expired'}],
+   steps:[{action:'trigger',job:'payment_ttl_scanner'},{action:'db_assert',table:'orders',where:'status = CLOSED'},
+          {action:'db_assert',table:'inventory_lock',where:'released = true'}],
+   expected:[{type:'db_rows',op:'count_eq',value:1}],
+   runner:'httpx + job trigger',status:'已入库'},
+ 'FUNC-006':{id:'FUNC-006',title:'下单后 15 分钟未支付自动关单（跨服务）',module:'跨服务 · order + payment',category:'normal',
+   precondition:[
+     {type:'db_seed',fixture:'order_pending_payment_created_16min_ago'},
+     {type:'service_up',services:['order-service','payment-service'],env:'docker-compose'},
+     {type:'stub',downstream:'inventory.lock',by:'gRPC v1.8.0 契约自动生成'}],
+   steps:[
+     {action:'trigger',job:'payment_ttl_scanner'},
+     {action:'assert_api',method:'GET',path:'/api/orders/{id}',as_user:'buyer',expect:{status:409,code:'ORDER_CLOSED'}},
+     {action:'assert_stub',downstream:'inventory.lock',called_with:{op:'release'}}],
+   expected:[
+     {type:'db_rows',table:'orders',where:'status = CLOSED',op:'count_eq',value:1},
+     {type:'event',topic:'order.closed',at_least:1}],
+   runner:'docker-compose(2 真实服务) + 契约桩',status:'已入库'},
+ 'CTR-012':{id:'CTR-012',title:'Payment API v2.4.0 消费方契约测试',type:'consumer_contract',
+   provider:'payment-service',provider_version:'v2.4.0',consumer:'order-service',
+   interactions:[
+     {desc:'预授权成功',req:'按消费方实际调用报文生成',res:{status:200,body:{paymentId:'string',redirectUrl:'string (必填)'}}},
+     {desc:'预授权失败',res:{status:402,code:'PAY_FAILED'}}],
+   breaking_expectations:['Response.redirectUrl 必填','错误码 PAY_101 已弃用 → PAY_402'],
+   broker:'pact-broker · verification 回写',status:'待人审',
+   note:'由 v2.3.1 → v2.4.0 契约 diff 触发自动重生成（见服务地图影响分析）'},
+ 'UT-101':{id:'UT-101',title:'calcDiscount：VIP 与满减叠加边界',layer:'单元测试',target:'calcDiscount(User, List<Item>) · PriceService',framework:'pytest · docker 沙箱',
+   cases:[
+     {name:'test_vip_and_coupon_overlap',input:{vip:true,subtotal:1000,coupon:50},expect:'先 8 折后减 50，且不低于成本价'},
+     {name:'test_vip_zero_subtotal',input:{vip:true,subtotal:0},expect:'raises ValidationError'},
+     {name:'test_no_vip_no_coupon',input:{vip:false,subtotal:88},expect:'原价返回'}],
+   context:{wiki:'优惠券模块页（折扣规则）',similar:'检索到 2 个存量折扣用例 few-shot',coverage:'+6 分支'},status:'已入库'},
+ 'UT-102':{id:'UT-102',title:'cancelOrder：超 15 分钟收手续费',layer:'单元测试',target:'cancelOrder(orderId) · OrderService',framework:'pytest · docker 沙箱',
+   cases:[{name:'test_cancel_within_15min_free',expect:'fee=0'},{name:'test_cancel_after_15min',input:{elapsed_min:16},expect:'fee=订单金额×0.5%'},{name:'test_cancel_paid_order',expect:'进入退款流程而非直接关闭'}],
+   status:'已入库'},
+ 'UT-103':{id:'UT-103',title:'createOrder：科学计数法金额回归',layer:'单元测试',target:'createOrder(OrderRequest, User)',framework:'pytest · docker 沙箱',
+   cases:[{name:'test_amount_scientific_notation',input:{amount:'1e3'},expect:'按数值比较命中上限校验 → EXCEED_LIMIT'}],
+   bug_ref:'BUG-2213',status:'已入库'},
+ 'API-201':{id:'API-201',title:'POST /api/orders 参数校验矩阵',layer:'接口测试',target:'POST /api/orders',framework:'httpx · TestClient',
+   matrix:{amount:['-1','0','1e3','50000','50001','1.005'],sku:['存在','不存在','已下架'],qty:['0','1','9999'],auth:['买家','商家','未登录']},total:'14 组组合 · 断言 28 条',
+   note:'矩阵缺口由覆盖守卫自动补全：qty=0 与 1e3 来自历史缺陷 BUG-2213/1987',status:'已入库'},
+ 'API-202':{id:'API-202',title:'GET /api/payments/{id} 鉴权 + 幂等重放',layer:'接口测试',target:'GET /api/payments/{id}',framework:'httpx',
+   cases:['买家 A 读买家 B 支付单 → 403','同请求重放 ×3 → 返回同一 paymentId（幂等）','未登录 → 401'],
+   status:'待人审'},
+ 'E2E-301':{id:'E2E-301',title:'下单 → 支付 → 查看订单 完整旅程',layer:'E2E',env:'staging（全真实服务，无桩）',runner:'playwright + trace 归档',
+   steps:[
+     {action:'ui_open',page:'/shop/A1'},
+     {action:'ui_click',selector:'#buy-now'},
+     {action:'ui_fill',selector:'#address',value:'地址数据池（脱敏）'},
+     {action:'ui_click',selector:'#pay-alipay',note:'沙箱支付渠道'},
+     {action:'wait_event',topic:'order.paid',timeout:'30s'},
+     {action:'ui_assert',selector:'.order-status',text:'已支付'},
+     {action:'api_assert',method:'GET',path:'/api/orders/{id}',expect:{status:200,state:'PAID'}}],
+   data_pool:'trace 采样真实报文（已脱敏）',schedule:'每晚 02:30 · 失败自动截图 + trace 归档',last_run:'今日 02:30 · 41s 通过',status:'已入库'},
+ 'E2E-302':{id:'E2E-302',title:'未登录下单拦截 → 登录 → 续单',layer:'E2E',env:'staging',runner:'playwright',
+   steps:[
+     {action:'ui_click',selector:'#buy-now',expect:{toast:'请先登录'}},
+     {action:'ui_login',as:'buyer_pool[3]'},
+     {action:'assert_resume',cart:'购物车/下单草稿保留'}],
+   status:'草稿（待人审）'},
+ 'FUNC-011':{id:'FUNC-011',title:'积分抵扣 30% 上限（来自 REQ-105）',layer:'功能测试',module:'跨服务 · 订单+积分',category:'boundary',
+   precondition:[{type:'db_seed',fixture:'user_points_10000'},{type:'db_seed',fixture:'order_amount_1000'}],
+   steps:[{action:'api_call',method:'POST',path:'/api/orders',body:{sku:'A1',amount:1000,usePoints:true},as_user:'buyer'}],
+   expected:[{type:'json_path',path:'$.discount',value:300,note:'1000 × 30% 上限'},{type:'db_rows',table:'points_log',op:'count_eq',value:1}],
+   runner:'httpx',status:'草稿',source:'需求 REQ-105 解析生成'},
+ 'API-203':{id:'API-203',title:'积分抵扣后金额精度断言（来自 REQ-105）',layer:'接口测试',target:'POST /api/orders',framework:'httpx',
+   cases:['抵扣后金额保留 2 位小数','比例边界 30.00% vs 30.01%','积分为 0 时不走抵扣分支'],status:'待人审',source:'需求 REQ-105 解析生成'}
+};
+function openFunc(id){showDrawer(id+' · 用例详情（可执行 schema）',FUNC_JSON[id]||{id,note:'原型：该层详情结构同层内示例'});}
+function openRun(id){
+  const r=RUN_INDEX[id];
+  showDrawer(id+' · 沙箱执行日志（可回溯）',{
+    run:id,
+    sandbox:'docker --network none · mem 512m · cpu 1.0',
+    trace:(r&&r.trace)||'tr_9f03',
+    requirement:{source:(r&&r.req)||'REQ-101',backtrace:'到「日志 / 追溯」搜索该 traceID，可从执行反向回溯到需求源头'},
+    timeline:(r&&r.timeline)||[
+      {t:'0.0s',msg:'拉起容器 + DB seed (fixture ×3)'},
+      {t:'1.2s',msg:'pytest 收集 9 cases'},
+      {t:'19s',msg:'首轮 7/9 通过 · TC-006 AssertionError(期望 409 得到 500) · TC-007 同'},
+      {t:'27s',msg:'REPAIR 第1轮: 失败报错+实际响应回填 prompt → 重新生成 2 例'},
+      {t:'38s',msg:'第2轮 9/9 通过'}],
+    coverage:{branch:'92%',delta:'+22% vs 人工基线',gap:'无'},
+    next:'用例已写入 orders/test_create_order.py，挂 MR 待人审'
+  });
+}
+
+/* ================= 用例库筛选（分层 tab + 属性筛选） ================= */
+let curLayer='';
+['fModule','fCat','fStatus'].forEach(id=>document.getElementById(id).onchange=filterCases);
+function showLayer(l,el){
+  curLayer=l;
+  el.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  filterCases();
+}
+function filterCases(){
+  const m=fModule.value,c=fCat.value,s=fStatus.value;
+  document.querySelectorAll('#funcTable tbody tr').forEach(tr=>{
+    const okLayer=!curLayer||tr.dataset.layer===curLayer;
+    tr.style.display=(okLayer&&(!m||tr.dataset.m===m)&&(!c||tr.dataset.c===c)&&(!s||tr.dataset.s===s))?'':'none';
+  });
+}
+const LAYERS=[['','全部'],['ut','单元测试'],['api','接口测试'],['fn','功能测试'],['e2e','E2E 测试'],['contract','契约测试']];
+function updateCaseCounts(){
+  const rows=[...document.querySelectorAll('#funcBody tr')];
+  const tabs=document.querySelectorAll('#layerTabs .tab');
+  LAYERS.forEach(([k,label],i)=>{
+    const n=k?rows.filter(r=>r.dataset.layer===k).length:rows.length;
+    if(tabs[i])tabs[i].textContent=label+' '+n;
+  });
+}
+
+/* ================= 仓库接入：Git 拉取 / 克隆 ================= */
+const sleepMs=ms=>new Promise(r=>setTimeout(r,ms));
+async function typeLog(title,lines){
+  showDrawer(title);
+  const pre=document.getElementById('drawerJson');
+  pre.textContent='';
+  for(const l of lines){pre.textContent+=l+'\n';await sleepMs(150);}
+}
+async function pullRepo(btn,name){
+  btn.disabled=true;const old=btn.textContent;btn.textContent='拉取中…';
+  const tr='tr_'+Math.random().toString(16).slice(2,6);
+  await typeLog(`${name} · git pull 日志`,[
+    `$ git pull --ff-only origin main`,
+    `From github.com:mall/${name}`,
+    `   3f9d2c1..a81b7e2  main       -> origin/main`,
+    `Updating 3f9d2c1..a81b7e2`,
+    `Fast-forward · 4 files changed, 132 insertions(+)`,
+    `✓ tree-sitter 增量索引: 2 文件 · 9 函数更新`,
+    `✓ wiki-builder: 1 模块页 stale → 已重建 (rev +1)`,
+    `✓ 契约扫描: 无 breaking 变更`,
+    `✓ RAG 增量: 3 个新增用例向量化`,
+    `✓ 完成: 索引与 wiki 已同步 (8.2s)`]);
+  btn.disabled=false;btn.textContent=old;
+  logEvent('仓库','repo-svc',name+' 增量拉取: 9 函数更新 · wiki 已重建 (8.2s)',tr,'—');
+  toast(name+' 拉取完成：增量 9 函数 · wiki 已重建');
+}
+function rebuildRepo(btn){
+  btn.disabled=true;btn.textContent='重建中…';
+  setTimeout(()=>{btn.disabled=false;btn.textContent='重建';toast('wiki 已重建：1 模块页 · 9 函数卡片更新');},1100);
+}
+async function cloneRepo(btn){
+  const url=document.getElementById('repoUrl').value.trim();
+  if(!url){toast('先填 Git 地址（原型：随便填一个仓库 url 试试）');return;}
+  const name=(url.split('/').pop()||'new-repo').replace(/\.git$/,'');
+  btn.disabled=true;btn.textContent='克隆中…';
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td><b>${name}</b></td><td class="mono" style="font-size:11px">${url}</td><td class="mono">main</td><td>检测中…</td><td style="color:var(--faint)">—</td><td>—</td><td><span class="st amber">接入中</span></td><td></td>`;
+  document.getElementById('repoBody').prepend(tr);
+  await typeLog(`${name} · 首次克隆接入日志`,[
+    `$ git clone --depth 50 ${url}`,
+    `Cloning into '${name}'...`,
+    `remote: Enumerating objects: 4821, done.`,
+    `Receiving objects: 100% (4821/4821), 12.6 MiB | 8.4 MiB/s, done.`,
+    `Resolving deltas: 100% (2103/2103), done.`,
+    `✓ 构建体系: pom.xml → Java 17 / Spring Boot 3.1（自动检测）`,
+    `✓ tree-sitter 索引: 342 函数 · 88 端点 · 调用图 1,256 边`,
+    `✓ wiki-builder: 1 总览页 + 4 模块页 + 342 函数卡片 已生成`,
+    `✓ 契约扫描: OpenAPI 3 定义 ×1 → 已注册契约中心`,
+    `✓ RAG 向量化: 122 个历史用例入库`,
+    `✓ 完成: ${name} 接入成功（全流程 47s）`]);
+  tr.children[3].textContent='Java 17 · Spring Boot';
+  tr.children[4].textContent='刚刚';
+  tr.children[5].innerHTML='<span class="st green">5 页 ✓</span>';
+  tr.children[6].innerHTML='<span class="st green">已接入</span>';
+  tr.children[7].innerHTML=`<button class="btn btn-sm" onclick="pullRepo(this,'${name}')">拉取</button> <button class="btn btn-sm" onclick="rebuildRepo(this)">重建</button>`;
+  APP.repos++;const sr=document.getElementById('statRepos');if(sr)sr.textContent=APP.repos;
+  const ms=document.getElementById('mapSub');if(ms)ms.textContent=APP.repos+' 服务 · 5 契约 · 1 breaking';
+  const wh=document.getElementById('wikiHealthBody');
+  if(wh)wh.insertAdjacentHTML('afterbegin',`<tr><td><b>${name}</b></td><td><span class="st green">最新</span></td><td style="color:var(--faint)">刚刚</td></tr>`);
+  addServiceNode(name);
+  logEvent('仓库','repo-svc',name+' 克隆接入成功: 342 函数 · wiki 5 页 · 契约×1 已注册','tr_'+Math.random().toString(16).slice(2,6),'—');
+  btn.disabled=false;btn.textContent='⇣ 开始克隆并接入';
+  document.getElementById('repoUrl').value='';
+  toast(name+' 接入成功：wiki 已生成 · 服务地图已加节点 · 仪表盘已更新');
+}
+
+/* ================= 需求录入：解析 → Wiki diff → 用例草稿 ================= */
+function attachFile(el){
+  el.innerHTML='📎 PRD-积分抵扣下单.docx · 84 KB · <span style="color:var(--green)">已就绪</span>';
+  el.style.borderStyle='solid';
+  toast('附件已就绪（原型 mock，真实实现走文档解析器）');
+}
+async function ingestReq(btn){
+  const S=document.querySelectorAll('#ingestStepper .step');
+  S.forEach(s=>s.classList.remove('done','active'));
+  btn.disabled=true;btn.textContent='解析中…';
+  const trace='tr_'+Math.random().toString(16).slice(2,6);
+  const runI=async(i,ms)=>{S[i].classList.add('active');await sleepMs(ms);S[i].classList.remove('active');S[i].classList.add('done');};
+  await runI(0,900);   // 文档解析
+  await runI(1,900);   // 规则抽取
+  await runI(2,1000);  // Wiki diff
+  await runI(3,800);   // 用例生成
+  await typeLog('需求解析日志 · 积分抵扣下单',[
+    '✓ 文档解析: 12 页 · 文本 4,218 字（docx → 结构化）',
+    '✓ LLM 抽取: 用户故事 ×1 · 业务规则 ×5 · 验收条件 ×4 · 角色权限 ×2',
+    '✓ 边界候选: 抵扣比例上限 30% · 积分不足降级 · 叠加互斥矩阵',
+    '⚠ Wiki diff: 「下单→支付业务流页」新增 1 条规则 → 待确认',
+    '✓ 用例草稿: FUNC ×6 · API ×4 → 已入用例库（待人审）',
+    '✓ 完成: 全流程 23s · 需求进 wiki 待审队列']);
+  const tr=document.createElement('tr');
+  tr.style.cursor='pointer';tr.onclick=()=>openReq('REQ-105');
+  tr.innerHTML=`<td class="mono">REQ-105</td><td>新增积分抵扣下单</td><td>上传文件</td><td class="mono">v1</td><td>规则 ×5（1 待确认）</td><td>草稿 ×10</td><td><span class="st blue">待人审</span></td><td style="color:var(--faint)">刚刚</td>`;
+  document.querySelector('#view-reqs tbody').prepend(tr);
+  // 联动：用例库自动加草稿行 + 待审计数 + tab 计数
+  document.getElementById('funcBody').insertAdjacentHTML('beforeend',
+   `<tr data-layer="fn" data-m="跨服务" data-c="normal" data-s="草稿" onclick="openFunc('FUNC-011')"><td class="mono">FUNC-011</td><td>积分抵扣 30% 上限（来自 REQ-105）</td><td>跨服务</td><td><span class="st blue">boundary</span></td><td>API (httpx)</td><td>2</td><td><span class="st gray">草稿</span></td><td style="color:var(--faint)">—</td></tr>
+    <tr data-layer="api" data-m="订单" data-c="normal" data-s="待人审" onclick="openFunc('API-203')"><td class="mono">API-203</td><td>积分抵扣后金额精度断言（来自 REQ-105）</td><td>订单</td><td><span class="st blue">normal</span></td><td>httpx</td><td>断言×6</td><td><span class="st blue">待人审</span></td><td style="color:var(--faint)">—</td></tr>`);
+  APP.review+=2;syncReview();updateCaseCounts();
+  // 需求为源头：自动编排 生成 → 执行，并写入全链路日志
+  addRun('RUN-0425','REQ-105 自动编排（积分抵扣）','需求驱动编排','10/10','—','1 轮','41s','green','成功',trace,'REQ-105');
+  logEvent('需求','QA-张三','需求录入 REQ-105（源头 · 关联仓库 order-service）',trace,'REQ-105');
+  logEvent('需求','req-svc','解析 → 规则×5 · Wiki diff 1 条待确认',trace,'REQ-105');
+  logEvent('生成','testgen-svc','自动编排 GEN: FUNC-011/012 · API-203 草稿生成',trace,'REQ-105');
+  logEvent('执行','runner-svc','RUN-0425 沙箱执行: 首轮 8/10 → 修复1轮 → 10/10 ✅',trace,'REQ-105');
+  REQS['REQ-105'].trace=trace;
+  REQS['REQ-105'].pipeline=['① 录入（QA-张三 · docx · 关联仓库 order-service）— 源头','② 解析 → 规则×5 · Wiki diff 1 条待确认','③ 自动编排生成: FUNC-011/012 · API-203','④ 沙箱执行 RUN-0425: 首轮 8/10 → 修复1轮 → 10/10 ✅','⑤ 状态 → 待人审（用例库可见，trace '+trace+'）'];
+  btn.disabled=false;btn.textContent='▶ 解析并生成用例';
+  toast('联动完成：规则入 wiki 待审 · 用例 +2 · 自动编排 RUN-0425 · 日志可回溯 '+trace);
+}
+const REQS={
+ 'REQ-101':{id:'REQ-101',title:'订单金额上限调整 50,000 → 100,000',source:'飞书文档 · ver 3',trace:'tr_51b7',
+   pipeline:['① 录入（PO-李四 · 飞书文档）— 源头','② LLM 规则抽取×3 → Wiki 规则页更新（已审）→ 订单模块页重建','③ 生成 FUNC-007/008 · UT-103 扩展边界断言','④ 沙箱回归 3/3 ✅（trace tr_51b7）','⑤ 状态 → 已生效'],
+   story:'作为运营负责人，我希望单笔订单上限提升到 10 万，以便支持大额采购场景',
+   extracted_rules:[
+     {rule:'单笔金额上限 50,000 → 100,000',change:'MODIFIED',affects:'OrderController.MAX_ORDER · wiki 订单模块页 规则#1'},
+     {rule:'金额必须 > 0',change:'UNCHANGED'},
+     {rule:'超限错误码 EXCEED_LIMIT',change:'UNCHANGED'}],
+   wiki_diff:'订单模块页 1 条规则更新 → 待审（审核通过后自动重建）',
+   generated:['FUNC-007 大额下单 99,999 成功（boundary）','FUNC-008 上限 100,001 拒绝（boundary）','UT-103 补充 100,000 边界断言'],
+   status:'已生效'},
+ 'REQ-104':{id:'REQ-104',title:'支付超时关单 15min → 10min',source:'飞书文档 · ver 1',
+   story:'作为风控负责人，我希望缩短支付关单窗口到 10 分钟，以便降低库存占用',
+   conflict:{
+     type:'⚠ 规则冲突 · 需求 vs 现有实现',
+     detail:'需求要求 10 分钟关单；payment_ttl_scanner 当前实现为 15 分钟（代码与 wiki 一致，需求与代码不符）',
+     impact:['FUNC-005 / FUNC-006 断言中「15 分钟」相关预期','系统 Wiki「下单→支付业务流页」规则#1','payment_ttl_scanner 配置项'],
+     suggest:'确认后一键执行：更新 wiki 规则页 → 生成 scanner 配置变更工单 → 定向重生成受影响用例'},
+   status:'规则冲突待确认'},
+ 'REQ-102':{id:'REQ-102',title:'新增积分抵扣下单',source:'Confluence · PRD v2',status:'解析中',
+   progress:'文档解析完成 · 规则抽取 3/5（LLM 排队中）',
+   partial_rules:['抵扣比例 ≤ 订单金额 30%','积分不足按可用部分抵扣','叠加顺序：VIP → 满减 → 积分']},
+ 'REQ-103':{id:'REQ-103',title:'下单页改版：地址选择组件',source:'上传 docx · PRD v1.2',
+   extracted_rules:['地址必选校验前移到下单前','默认地址自动带出','历史地址上限 20 条 LRU'],
+   generated:['FUNC-009 默认地址带出','FUNC-010 未选地址拦截','E2E-303 下单选址旅程（草稿）'],status:'已生效'},
+ 'REQ-105':{id:'REQ-105',title:'新增积分抵扣下单',source:'上传文件 · PRD-积分抵扣下单.docx',
+   extracted_rules:[
+     {rule:'积分抵扣比例 ≤ 订单金额 30%',change:'NEW'},
+     {rule:'积分不足按可用部分抵扣',change:'NEW'},
+     {rule:'叠加顺序：VIP → 满减 → 积分',change:'NEW',note:'与 PriceService 现有叠加逻辑需对齐'},
+     {rule:'退款时积分按比例退回',change:'NEW'}],
+   wiki_diff:'「下单→支付业务流页」新增优惠叠加顺序规则 → 待确认',
+   generated:['FUNC-011 积分抵扣 30% 上限（boundary）','FUNC-012 积分不足降级（exception）','API-203 抵扣后金额精度断言 ×6'],
+   status:'待人审'}
+};
+function openReq(id){showDrawer(id+' · 需求解析结果',REQS[id]||{id,note:'原型：解析结果结构同列内示例'});}
+
+/* ================= 测试计划 / 报告 ================= */
+const REPORTS={
+ 'ITR-2025.09':{iteration:'ITR-2025.09',version:'v2.4.0',requirements:'REQ-103',
+   cases:{total:27,byLayer:{ut:9,api:6,fn:11,e2e:1},executed:'100%',passRate:'96.3%'},
+   defects:{total:4,fixedAndVerified:4,deferred:0,bySeverity:{致命:0,严重:1,一般:3}},
+   entry:'冒烟通过（12/12）· 用例评审通过率 94%',
+   exit:'用例执行 100% · 致命/严重清零 · 遗留 0 · 报告已输出',
+   aiMetrics:{aiGenerated:'68%','有效率':'92%','覆盖率增量':'+19%'},
+   conclusion:'通过，建议发布 v2.4.0'},
+ 'ITR-2025.10':{iteration:'ITR-2025.10',version:'v2.5.0',type:'中期报告',requirements:'REQ-101 · REQ-105',
+   cases:{total:37,executed:'62%',passRate:'91%'},
+   defects:{open:2,detail:'BUG-301 已确认（契约未同步）· BUG-302 待回归（配置漂移）'},
+   entry:'冒烟通过 · 已准入',
+   exit:'未到准出：回归待启动 · 遗留缺陷 2',
+   risk:'payment 契约 breaking 变更（tr_c41d）闭环中',
+   next:'回归启动条件：BUG-302 回归通过 + 功能轮执行 100%'}
+};
+function openReport(iter){showDrawer(iter+' · 测试报告',REPORTS[iter]||{iter,note:'原型'});}
+async function genReport(btn,iter){
+  btn.disabled=true;btn.textContent='生成中…';
+  await typeLog('测试报告生成 · '+iter,[
+    '✓ 汇总用例执行数据（按五层统计）',
+    '✓ 汇总缺陷统计与遗留分析（关联需求）',
+    '✓ 准入/准出标准逐项自动核对',
+    '✓ AI 质量度量: 生成占比 / 有效率 / 覆盖率增量',
+    '✓ LLM 撰写报告初稿完成（人工可修订后归档）']);
+  btn.disabled=false;btn.textContent='测试报告(中期)';
+  logEvent('计划','report-svc',iter+' 测试报告(中期)已生成，准入/准出自动核对','tr_rep10','—');
+  openReport(iter);
+}
+
+/* ================= 缺陷管理 ================= */
+const BUGS={
+ 'BUG-301':{id:'BUG-301',title:'POST /api/orders 契约未同步导致 2 用例失败',origin:'自动创建 · RUN-0419 失败',
+   cases:['API-201 #7','API-201 #12'],req:'REQ-101',severity:'严重',status:'已确认（指派 后端-小王）',
+   rootCause:'payment 契约 v2.4.0 redirectUrl 字段，消费方未同步',note:'与契约影响分析关联（trace tr_c41d）'},
+ 'BUG-302':{id:'BUG-302',title:'payment_ttl_scanner 配置漂移（实现 15min ≠ 需求 10min）',origin:'自动创建 · REQ-104 冲突确认后回归发现',
+   cases:['FUNC-005','FUNC-006'],req:'REQ-104',severity:'严重',status:'待回归（修复提交 PR #131）',
+   regression:'点「回归验证」→ 平台只重跑关联用例（非全量）→ 通过自动关闭 / 失败重开'},
+ 'BUG-303':{id:'BUG-303',title:'金额科学计数法绕过上限校验',origin:'人工提交 · AI 用例 TC-009/UT-103 首次暴露',
+   cases:['UT-103','TC-009'],req:'REQ-101',severity:'致命',status:'已关闭（v2.4.0 修复并回归验证）'}
+};
+function openBug(id){showDrawer(id+' · 缺陷详情',BUGS[id]||{id,note:'原型'});}
+async function regressionBug(btn,id){
+  btn.disabled=true;btn.textContent='回归中…';
+  await typeLog(id+' · 自动回归',[
+    '✓ 定位关联用例: FUNC-005 / FUNC-006（只回归缺陷关联用例，非全量）',
+    '✓ 拉起 docker 沙箱 + fixture seed',
+    '✓ 执行: FUNC-005 ✅ · FUNC-006 ✅',
+    '✓ 回归通过 → 缺陷状态: 待回归 → 已关闭',
+    '✓ 闭环: 修复提交 → 关闭 耗时 1m52s（全程留痕）']);
+  const tr=document.getElementById('row'+id);
+  if(tr){tr.children[6].innerHTML='<span class="st green">已关闭</span>';tr.children[8].textContent='—';}
+  addRun('RUN-0426',id+' 缺陷回归','缺陷回归','2/2','—','0 轮','7s','green','成功','tr_b302','REQ-104');
+  logEvent('缺陷','runner-svc',id+' 自动回归通过 → 已关闭（修复提交→关闭 1m52s）','tr_b302','REQ-104');
+  toast(id+' 回归通过，缺陷已关闭 · RUN-0426 已入执行记录');
+}
+
+async function confirmReq104(btn){
+  btn.disabled=true;btn.textContent='执行中…';
+  await typeLog('REQ-104 冲突确认 · 三方联动执行',[
+    '✓ 系统 Wiki「下单→支付业务流页」规则#1 已更新: 15min → 10min',
+    '✓ 工单 TASK-88 已创建: payment_ttl_scanner 配置变更 (15→10min)',
+    '✓ 定向重生成: FUNC-005 / FUNC-006 断言已按 10min 更新',
+    '✓ 沙箱回归: FUNC-005 ✅ · FUNC-006 ✅',
+    '✓ 完成: 需求 REQ-104 状态 → 已生效']);
+  const tr=btn.closest('tr');
+  if(tr){
+    tr.children[6].innerHTML='<span class="st green">已生效</span>';
+    tr.children[7].textContent='刚刚';
+  }
+  addRun('RUN-0424','FUNC-005/006 定向重生成','REQ-104 冲突确认','2/2','—','0 轮','9s','green','成功','tr_d90c','REQ-104');
+  logEvent('需求','QA-王五','REQ-104 冲突确认: wiki 规则 15min→10min 已更新','tr_d90c','REQ-104');
+  logEvent('需求','req-svc','工单 TASK-88 创建: payment_ttl_scanner 配置变更','tr_d90c','REQ-104');
+  logEvent('执行','runner-svc','RUN-0424 FUNC-005/006 定向重生成回归 2/2 ✅ → REQ-104 已生效','tr_d90c','REQ-104');
+  btn.remove();
+  toast('REQ-104 已生效：wiki 规则已更新 · 工单已建 · 用例已重生成');
+}
+
+/* ================= 需求质量流水线（质量档案） ================= */
+const RQ={
+ 'REQ-101':{req:'REQ-101',score:96,status:'已生效',
+   gates:[
+    {g:'G0 可测性准入',ai:'评分 94 ≥ 80，自动通过',human:'—'},
+    {g:'G1 知识就绪',ai:'order-service wiki 就绪 · 契约 2 份注册',human:'—'},
+    {g:'G2 用例覆盖',ai:'生成 FUNC-007/008 + UT-103 扩展 · 预估覆盖 +18%',human:'—'},
+    {g:'G3 执行验证',ai:'沙箱回归 3/3 通过',human:'—'},
+    {g:'G4 缺陷清零',ai:'关联缺陷 0（BUG-303 历史缺陷已关闭）',human:'—'},
+    {g:'G5 准出报告',ai:'报告已生成 · 结论「通过，建议发布」',human:'负责人签字发布'}],
+   efficiency:{传统投入:'6 人日',本平台:'0.4 人日（评审抽样 0.3 + 发布拍板 0.1）',周期:'1 天内（自动推进）',自动化率:'95%'},
+   trace:'tr_51b7'},
+ 'REQ-105':{req:'REQ-105',score:88,status:'AI 推进中（83%）',
+   gates:[
+    {g:'G0 可测性准入',ai:'评分 88 ≥ 80，自动通过',human:'—'},
+    {g:'G1 知识就绪',ai:'wiki 就绪 · 契约 2 份',human:'—'},
+    {g:'G2 用例覆盖',ai:'生成 12 例 · 守卫补 2 · 预估覆盖 +22%',human:'—'},
+    {g:'G3 执行验证',ai:'RUN-0425 修复 1 轮 → 10/10',human:'—'},
+    {g:'G4 缺陷清零',ai:'关联缺陷 0',human:'—'},
+    {g:'G5 准出报告',ai:'等待功能轮完成后自动出报告',human:'—'}],
+   efficiency:{传统投入:'5 人日',本平台:'预计 0.3 人日',周期:'已 2 小时走完 5/6 关',自动化率:'100%（至今 0 次人工）'},
+   trace:'tr_8a2f'},
+ 'REQ-104':{req:'REQ-104',score:61,status:'例外 · 遗留缺陷评审中',
+   gates:[
+    {g:'G0 可测性准入',ai:'评分 71 ≥ 80？否——但属可测规则变更，放行并标记',human:'—'},
+    {g:'G1 知识就绪',ai:'自动完成',human:'—'},
+    {g:'G2 用例覆盖',ai:'FUNC-005/006 生成',human:'—'},
+    {g:'G3 执行验证',ai:'回归 2/2 ✅',human:'—'},
+    {g:'G4 缺陷清零',ai:'检出配置漂移 → 自动建 BUG-302 → 回归通过已关闭',human:'⚠ 例外：需求与实现冲突，人工确认（已完成）'},
+    {g:'G5 准出报告',ai:'⛔ 遗留 1 项需评审结论',human:'待遗留评审'}],
+   efficiency:{传统投入:'3 人日',本平台:'0.6 人日（冲突确认 + 遗留评审）',周期:'半天',自动化率:'85%'},
+   human_log:[{ts:'今天 11:40',who:'QA-王五',what:'确认规则冲突 → 工单 TASK-88 → 定向重生成'}],
+   trace:'tr_d90c'},
+ 'REQ-102':{req:'REQ-102',score:72,status:'G0 自动打回 · 待产品修订',
+   gates:[
+    {g:'G0 可测性准入',ai:'评分 72 < 80 → 自动打回，附修订建议（『抵扣比例』未定义四舍五入规则 · 验收条件 3 不可验证）',human:'—（AI 打回，未耗测试人力）'},
+    {g:'G1~G5',ai:'G0 未过，后续关卡自动挂起',human:'—'}],
+   efficiency:{传统投入:'—（此类需求传统要到执行期才暴露问题，浪费 2~3 人日）',本平台:'录入即拦截，0 人力',周期:'录入后 30 秒即打回',自动化率:'100%'},
+   trace:'tr_8a2f'}
+};
+function openRQ(id){
+  const r=RQ[id]||{req:id,note:'原型'};
+  showDrawer(id+' · 需求质量档案（AI 自动沉淀）',r);
+}
+
+/* ================= URL 参数直达（便于截图/分享） ================= */
+const q=new URLSearchParams(location.search);
+if(q.get('view'))nav(q.get('view'));
+if(q.get('autorun')==='1')setTimeout(generate,300);
+if(q.get('stale')==='1'){staleOn=true;document.getElementById('staleBox').style.display='block';}
+syncReview();updateCaseCounts();renderLogs();
+document.getElementById('logType').onchange=renderLogs;
+document.getElementById('logSearch').oninput=renderLogs;
+if(q.get('wikipage')==='flow')showWikiPage('flow',document.querySelector('.tree .pg'));
+if(q.get('autorunmap')==='1')showImpact('breaking','Payment API v2.3.1 → v2.4.0');
+</script>
+</body>
+</html>

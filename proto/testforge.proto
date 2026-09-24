@@ -1,0 +1,362 @@
+// TestForge 服务间 gRPC 契约（唯一事实源，PRD 3.3）
+// 生成: make proto  →  services/shared/gen/testforge_pb2*.py
+syntax = "proto3";
+
+package testforge.v1;
+
+// ============ 通用 ============
+
+message PingReq {
+  string client = 1;
+}
+
+message PongRes {
+  string service = 1;
+  string version = 2;
+  bool db_ok = 3;
+}
+
+message Ack {
+  bool ok = 1;
+  string message = 2;
+}
+
+// 追溯事件：type ∈ 需求|生成|执行|仓库|契约|缺陷|计划
+message TraceEvent {
+  string trace_id = 1;
+  string type = 2;
+  string actor = 3;
+  string summary = 4;
+  string req_code = 5;
+  int64 ts = 6; // unix ms，0 = 服务端时间
+  map<string, string> extra = 7;
+}
+
+message AppendReq {
+  TraceEvent event = 1;
+}
+
+message TraceQuery {
+  string trace_id = 1;
+  string req_code = 2;
+  string type = 3;
+  int32 limit = 4;
+}
+
+// ============ 仓库 ============
+
+message RepoSpec {
+  string url = 1;
+  string branch = 2;
+  string credential_ref = 3;
+  bool webhook = 4;
+}
+
+message RepoInfo {
+  int64 id = 1;
+  string url = 2;
+  string branch = 3;
+  string status = 4;
+  string last_pull = 5;
+}
+
+message PullReq {
+  int64 repo_id = 1;
+  string trace_id = 2;
+}
+
+message PullRes {
+  RepoInfo repo = 1;
+  int32 functions = 2;
+  int32 call_edges = 3;
+  int32 wiki_pages = 4;
+  repeated string steps = 5;
+}
+
+message FunctionCard {
+  int64 id = 1;
+  int64 repo_id = 2;
+  string module = 3;
+  string name = 4;
+  string signature = 5;
+  string source = 6;
+  string file = 7;
+  int32 line = 8;
+}
+
+// ============ Wiki ============
+
+message RepoDiff {
+  int64 repo_id = 1;
+  string from_rev = 2;
+  string to_rev = 3;
+  repeated string changed_files = 4;
+  string trace_id = 5;
+}
+
+message RebuildResult {
+  int32 pages_rebuilt = 1;
+  int32 pages_stale = 2;
+  int32 rev_bumped = 3;
+}
+
+message PageQuery {
+  int64 repo_id = 1;
+  string level = 2;
+  string module = 3;
+  string function = 4;
+}
+
+message WikiPage {
+  int64 id = 1;
+  int64 repo_id = 2;
+  string level = 3;
+  string title = 4;
+  string content_md = 5;
+  int32 rev = 6;
+  bool stale = 7;
+  repeated int64 deps = 8;
+}
+
+// ============ 契约 ============
+
+message Contract {
+  int64 id = 1;
+  string name = 2;
+  string type = 3; // rest|grpc|topic
+  string provider_repo = 4;
+  string version = 5;
+  string spec = 6;
+  string status = 7;
+}
+
+message ContractVersion {
+  int64 contract_id = 1;
+  string version = 2;
+  bool breaking = 3;
+  repeated string changes = 4;
+}
+
+message ContractDiff {
+  int64 contract_id = 1;
+  string from_v = 2;
+  string to_v = 3;
+  string new_spec = 4;
+  string trace_id = 5;
+}
+
+message ImpactEvent {
+  string asset_type = 1; // case|wiki_page|service
+  string asset_id = 2;
+  string reason = 3;
+  bool stale_wiki = 4;
+  bool case_tagged = 5;
+}
+
+// ============ 生成 ============
+
+message GenTarget {
+  string function = 1;
+  string module = 2;
+  string layer = 3; // ut|api|fn|e2e|contract
+  int64 repo_id = 4;
+  string file = 5;
+  string source_req = 6;
+}
+
+message GenOptions {
+  int32 min_cases = 1;
+  bool repair = 2;
+  repeated string categories = 3;
+}
+
+message GenPlan {
+  string trace_id = 1;
+  GenTarget target = 2;
+  GenOptions options = 3;
+}
+
+// stage ∈ plan|guard|codegen|sandbox|coverage；type ∈ stage|log|result
+message GenEvent {
+  string stage = 1;
+  string message = 2;
+  string payload_json = 3;
+  float progress = 4;
+}
+
+message GenResult {
+  string generation_id = 1;
+  int32 cases_total = 2;
+  int32 guard_added = 3;
+  repeated string case_ids = 4;
+}
+
+message Scope {
+  int64 repo_id = 1;
+  repeated string case_ids = 2;
+  string trace_id = 3;
+  string reason = 4;
+  string target_function = 5;
+  string source_req = 6;
+}
+
+// ============ 执行 ============
+
+message TestCase {
+  string code = 1;
+  string layer = 2;
+  string title = 3;
+  string module = 4;
+  string category = 5; // normal|boundary|exception|permission|contract
+  string schema_json = 6;
+  string source_req = 7;
+}
+
+message TestSuite {
+  string run_id = 1;
+  repeated TestCase cases = 2;
+  int64 repo_id = 3;
+  string trace_id = 4;
+}
+
+message RunReport {
+  string run_id = 1;
+  string sandbox_status = 2;
+  int32 pass_total = 3;
+  int32 pass_count = 4;
+  float coverage = 5;
+  int32 repair_rounds = 6;
+  int32 cost_s = 7;
+  string status = 8;
+  string log_json = 9;
+}
+
+// ============ 需求 ============
+
+message RequirementDoc {
+  string code = 1;
+  string title = 2;
+  string source = 3;
+  string body = 4;
+  int64 repo_id = 5;
+  string trace_id = 6;
+}
+
+message ExtractedRule {
+  string rule = 1;
+  string change = 2; // ADDED|MODIFIED|UNCHANGED
+  string evidence = 3;
+}
+
+message ParseReport {
+  string req_code = 1;
+  string story = 2;
+  repeated ExtractedRule rules = 3;
+  bool conflict = 4;
+  string conflict_detail = 5;
+  float testability = 6;
+  string status = 7;
+  repeated string pipeline = 8;
+}
+
+// ============ 缺陷 ============
+
+message RunFailure {
+  string run_id = 1;
+  string case_codes_json = 2;
+  string req_code = 3;
+  string trace_id = 4;
+  string reason = 5;
+}
+
+message Defect {
+  int64 id = 1;
+  string code = 2;
+  string title = 3;
+  string status = 4;
+  string assignee = 5;
+}
+
+message DefectId {
+  int64 id = 1;
+  string trace_id = 2;
+}
+
+// ============ 计划 ============
+
+message Iteration {
+  string code = 1;
+  string version = 2;
+  repeated string req_codes = 3;
+  string trace_id = 4;
+}
+
+message ExitCheck {
+  bool entry_ok = 1;
+  bool exit_ok = 2;
+  repeated string checks = 3;
+  string report_json = 4;
+}
+
+// ============ 服务 ============
+
+// repo-svc：仓库接入/拉取/索引
+service RepoSvc {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc Register(RepoSpec) returns (RepoInfo);
+  rpc Pull(PullReq) returns (PullRes);
+  rpc ListFunctions(PageQuery) returns (stream FunctionCard);
+}
+
+// wiki-builder：tree-sitter 解析 + LLM 分层摘要
+service WikiBuilder {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc Rebuild(RepoDiff) returns (RebuildResult);
+  rpc GetModulePage(PageQuery) returns (WikiPage);
+}
+
+// contract-registry：契约注册/diff/breaking/影响分析
+service ContractRegistry {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc Register(Contract) returns (ContractVersion);
+  rpc Impact(ContractDiff) returns (stream ImpactEvent);
+}
+
+// testgen-svc：上下文组装 + 两阶段生成 + 覆盖守卫
+service TestGen {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc Generate(GenPlan) returns (stream GenEvent);
+  rpc RegenerateAffected(Scope) returns (GenResult);
+}
+
+// runner-svc：沙箱执行 + 修复循环 + 覆盖率
+service TestRunner {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc Execute(TestSuite) returns (RunReport);
+}
+
+// req-svc：需求解析四步管线
+service ReqIngest {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc Parse(RequirementDoc) returns (ParseReport);
+}
+
+// trace-svc：traceID 追加写 + 查询（同进程承载 DefectSvc/PlanSvc）
+service TraceLog {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc Append(AppendReq) returns (Ack);
+  rpc Query(TraceQuery) returns (stream TraceEvent);
+}
+
+// 缺陷闭环（trace-svc 进程承载）
+service DefectSvc {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc CreateFromRun(RunFailure) returns (Defect);
+  rpc TriggerRegression(DefectId) returns (RunReport);
+}
+
+// 迭代计划准入/准出（trace-svc 进程承载）
+service PlanSvc {
+  rpc Ping(PingReq) returns (PongRes);
+  rpc EvaluateExitPlan(Iteration) returns (ExitCheck);
+}

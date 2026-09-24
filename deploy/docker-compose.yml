@@ -1,0 +1,99 @@
+# TestForge 一键部署（docker compose）
+# 用法：cd deploy && docker compose up -d --build
+
+x-common: &common
+  environment: &common-env
+    DATABASE_URL: postgresql+psycopg://testforge:testforge@postgres:5432/testforge
+    REDIS_URL: redis://redis:6379/0
+    LLM_MODE: ${LLM_MODE:-mock}
+    LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+    LLM_API_KEY: ${LLM_API_KEY:-}
+    LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+    SANDBOX_MODE: ${SANDBOX_MODE:-fake}
+    LOG_LEVEL: INFO
+    SVC_HOST: ""
+    PYTHONPATH: /app
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_started
+  volumes:
+    - tf-data:/app/data
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: testforge
+      POSTGRES_PASSWORD: testforge
+      POSTGRES_DB: testforge
+    ports:
+      - "5432:5432"
+    volumes:
+      - tf-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testforge"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  repo-svc:
+    <<: *common
+    build: { context: .., dockerfile: deploy/Dockerfile.python }
+    command: python -m services.repo_svc.main
+
+  wiki-builder:
+    <<: *common
+    build: { context: .., dockerfile: deploy/Dockerfile.python }
+    command: python -m services.wiki_builder.main
+
+  contract-registry:
+    <<: *common
+    build: { context: .., dockerfile: deploy/Dockerfile.python }
+    command: python -m services.contract_registry.main
+
+  req-svc:
+    <<: *common
+    build: { context: .., dockerfile: deploy/Dockerfile.python }
+    command: python -m services.req_svc.main
+
+  testgen-svc:
+    <<: *common
+    build: { context: .., dockerfile: deploy/Dockerfile.python }
+    command: python -m services.testgen_svc.main
+
+  runner-svc:
+    <<: *common
+    build: { context: .., dockerfile: deploy/Dockerfile.python }
+    command: python -m services.runner_svc.main
+    # 真实沙箱模式需挂载 docker.sock：SANDBOX_MODE=docker
+    # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+
+  trace-svc:
+    <<: *common
+    build: { context: .., dockerfile: deploy/Dockerfile.python }
+    command: python -m services.trace_svc.main
+
+  gateway:
+    <<: *common
+    build: { context: .., dockerfile: deploy/Dockerfile.python }
+    command: python -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: { context: .., dockerfile: deploy/Dockerfile.frontend, args: { VITE_API_BASE: "" } }
+    ports:
+      - "5173:80"
+    depends_on:
+      - gateway
+
+volumes:
+  tf-pg:
+  tf-data:

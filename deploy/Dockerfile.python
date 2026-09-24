@@ -1,0 +1,30 @@
+# TestForge 后端镜像（全部 python 服务共用，按 command 区分）
+FROM python:3.12-slim
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
+
+# 依赖层
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir \
+    "fastapi>=0.115" "uvicorn[standard]>=0.30" "pydantic>=2.7" "pydantic-settings>=2.3" \
+    "grpcio>=1.62" "grpcio-tools>=1.62" "protobuf>=4.25" \
+    "sqlalchemy>=2.0" "psycopg[binary]>=3.1" "aiosqlite>=0.20" \
+    "httpx>=0.27" "python-docx>=1.1" "markdown-it-py>=3.0" \
+    "py-tree-sitter>=0.21" "tree-sitter-languages>=1.10.2" \
+    "docker>=7.0" "redis>=5.0" "python-multipart>=0.0.9"
+
+# 代码层
+COPY proto/ proto/
+COPY gateway/ gateway/
+COPY services/ services/
+COPY fixtures/ fixtures/
+COPY scripts/ scripts/
+COPY Makefile ./
+
+# proto stub 已随 services/shared/gen 提交；缺失时现场生成
+RUN python -m grpc_tools.protoc -Iproto --python_out=services/shared/gen --grpc_python_out=services/shared/gen proto/testforge.proto \
+    && sed -i 's/^import testforge_pb2 as testforge__pb2$/from services.shared.gen import testforge_pb2 as testforge__pb2/' services/shared/gen/testforge_pb2_grpc.py
+
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
