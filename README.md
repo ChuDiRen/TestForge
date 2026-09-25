@@ -70,7 +70,18 @@ TestForge/
 
 ## Windows 主机注意
 
-Windows 主机上开发验证时 asyncio 被三方软件注入破坏（uvicorn 无法启动），因此 `make dev` 在 Windows 自动采用 **WSL 后端 + Windows 前端**（`scripts/dev_up_win.py` → `scripts/dev_up_wsl.sh`）；Linux/macOS 直接 `python scripts/dev_up.py`。`make test` 同理走 WSL 的 `.venv-wsl`。
+## 双平台执行（Windows + Linux 服务器）
+
+全部业务代码跨平台可移植，两端均已验证：
+
+| 平台 | 后端 | 测试 | 业务链路验证 |
+| --- | --- | --- | --- |
+| Linux 服务器 / WSL | `python scripts/dev_up.py`（单体进程） | `pytest` 27 passed（全量含 TestClient） | `python scripts/verify_native.py` 11/11 |
+| Windows（健康环境） | 同上，原生运行 | 同上，原生运行 | 同上 |
+| Windows（本开发机：asyncio 被三方注入破坏） | `make dev` 自动切 WSL 后端 + Windows 前端 | TestClient 用例启动时探测 asyncio，不可用自动 skip（20 passed + 7 skipped） | `verify_native.py` 11/11（mono 直调，无 asyncio/HTTP） |
+
+- demo 验收脚本在两端通用：仓库 URL 按平台自动推导（Windows `file:///E:/...`，Linux `file:///mnt/e/...`），`TF_SAMPLE_REPO_URL` 可覆盖；
+- `MONO_MODE=0` 可切回微服务拓扑（各服务 `main.py` 保留独立 gRPC 入口）。
 
 依赖 PyPI 源慢时可 `UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple make install`。
 
