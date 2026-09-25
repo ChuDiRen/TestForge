@@ -133,20 +133,50 @@ async def confirm_requirement(req_id: int, request: Request):
         sess.commit()
 
     # 自动编排：需求驱动生成（后台）
-    target = _derive_target(report)
+    target = _derive_target(report, repo_id)
     gen = new_generation_threaded({"function": target, "repo_id": repo_id, "layer": "ut", "source_req": code})
     emit("需求", "req-svc", f"需求 {code} 已生效，自动编排生成 {gen['generation_id']}（目标 {target}）", req_code=code)
     return ok({"code": code, "status": "已生效", "generation_id": gen["generation_id"], "target": target})
 
 
-def _derive_target(report: dict) -> str:
-    """从解析报告推导生成目标函数（关键词路由到已精选的真实函数）。"""
-    story = json.dumps(report, ensure_ascii=False)
+def _derive_target(report: dict, repo_id: int = 0) -> str:
+    """从需求原文/抽取规则的关键词路由生成目标函数。
+
+    只对需求文本与规则匹配关键词（不看解析报告的 pipeline 字段，避免"规则抽取"等
+    流程字样劫持路由）；路由目标必须在该仓库已索引，否则回退仓库内调用边最多的函数
+    （需求绑定的仓库里总得有个可测目标，NOT_FOUND 不算编排完成）。
+    """
+    story = json.dumps(report.get("story") or "", ensure_ascii=False) + json.dumps(
+        report.get("rules") or [], ensure_ascii=False
+    )
+    candidates: list[str] = []
     if any(kw in story for kw in ("脱敏", "掩码", "sanitize", "泄露", "凭证", "令牌", "token")):
-        return "sanitize_text"
-    if any(kw in story for kw in ("规则抽取", "抽取规则", "需求解析", "结构化规则", "extract_rules")):
-        return "extract_rules"
-    return "create_order"
+        candidates.append("sanitize_text")
+    if any(kw in story for kw in ("规则抽取", "抽取规则", "结构化规则", "extract_rules")):
+        candidates.append("extract_rules")
+    candidates.append("create_order")
+
+    from sqlalchemy import func
+
+    from services.shared.models import CallEdges, Functions
+
+    with get_session() as sess:
+        if not repo_id:
+            return candidates[0]
+        for t in candidates:
+            if sess.query(Functions).filter(Functions.repo_id == repo_id, Functions.name == t).first() is not None:
+                return t
+        row = (
+            sess.query(Functions.id, Functions.name, func.count(CallEdges.id))
+            .outerjoin(CallEdges, CallEdges.caller_id == Functions.id)
+            .filter(Functions.repo_id == repo_id)
+            .group_by(Functions.id, Functions.name)
+            .order_by(func.count(CallEdges.id).desc())
+            .first()
+        )
+        if row is not None:
+            return row[1]
+    return candidates[0]
 
 
 def new_generation_threaded(payload: dict) -> dict:

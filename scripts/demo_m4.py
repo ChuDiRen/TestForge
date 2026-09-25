@@ -6,6 +6,7 @@
 import os
 import pathlib
 import sys
+import time
 import uuid
 
 import httpx
@@ -29,6 +30,17 @@ HEADERS: dict = {}
 def check(name: str, cond: bool, detail: str = "") -> None:
     CHECKS.append((name, cond, detail))
     print(f"  [{'PASS' if cond else 'FAIL'}] {name}" + (f"  {detail}" if detail else ""))
+
+
+def wait_generation_done(gen_id: str, timeout_s: float = 240) -> dict:
+    """轮询直到生成管线 done/failed（用例入库后才能被契约影响分析打标）。"""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        d = api("GET", f"/api/generations/{gen_id}")
+        if d["status"] in ("done", "failed"):
+            return d
+        time.sleep(3)
+    return api("GET", f"/api/generations/{gen_id}")
 
 
 def api(method: str, path: str, body: dict | None = None, timeout: float = 120) -> dict:
@@ -82,6 +94,11 @@ def main() -> int:
           any("payUrl" in c for c in changes) and any("redirectUrl" in c for c in changes) and any("PAY_101" in c for c in changes),
           f"{len(changes)} 项")
 
+    # ③b 先产出支付域真实用例（消费方 submit_payment），影响分析才有可打标资产
+    pay_gen = api("POST", "/api/generations", {"function": "submit_payment", "repo_id": int(api_repo["id"]), "layer": "ut"})
+    pay_done = wait_generation_done(pay_gen["generation_id"])
+    check("消费方支付用例已生成入库", pay_done["status"] == "done", f"gen={pay_gen['generation_id']} status={pay_done['status']}")
+
     # ④ 影响分析：传播链 + 资产清单
     impacts = api("POST", f"/api/contracts/{cid}/impact", {"to_v": "v2.4.0"})
     stale_pages = [e for e in impacts if e.get("stale_wiki") and e.get("asset_type") == "wiki_page"]
@@ -99,11 +116,10 @@ def main() -> int:
     regen = api("POST", "/api/regenerate", {"repo_id": int(order_repo["id"]), "target_function": "create_order", "case_ids": [t["asset_id"] for t in tagged[:3]], "reason": "contract-impact:Payment API@v2.4.0"})
     check("定向重生成受影响用例", regen.get("cases_total", 0) > 0, f"重生成清单 {regen.get('cases_total')} 条")
 
-    # ⑦ 跨服务上下文：testgen 组装包含 contract 路
-    gen = api("POST", "/api/generations", {"function": "submit_payment", "repo_id": int(api_repo["id"]), "layer": "ut"})
-    gdetail = api("GET", f"/api/generations/{gen['generation_id']}")
+    # ⑦ 跨服务上下文：testgen 组装包含 contract 路（复用 ③b 的真实生成）
+    gdetail = api("GET", f"/api/generations/{pay_gen['generation_id']}")
     ctx_event = next((e for e in gdetail["events"] if e["stage"] == "plan"), {})
-    check("跨服务上下文（生成目标含契约注册的第二仓）", gen["generation_id"].startswith("GEN"), f"ctx={ctx_event.get('message', '')[:50]}")
+    check("跨服务上下文（生成目标含契约注册的第二仓）", pay_gen["generation_id"].startswith("GEN"), f"ctx={ctx_event.get('message', '')[:50]}")
 
     # ⑧ trace 全链
     tr = api("GET", f"/api/traces/{HEADERS['X-Trace-Id']}")
