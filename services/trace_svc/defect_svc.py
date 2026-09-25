@@ -12,20 +12,12 @@ from services.shared.trace import emit
 
 log = logging.getLogger("trace-svc.defect")
 
-# 按模块自动指派（服务目录映射）
-ASSIGNEE_MAP = {
-    "orders": "研发-张三",
-    "payments": "研发-李四",
-    "payments_api": "研发-李四",
-    "inventory": "研发-王五",
-}
+# 平台没有真实人员目录，不编造指派对象——缺陷默认未指派，由 QA 在缺陷页人工流转
+DEFAULT_ASSIGNEE = "未指派"
 
 
 def _assignee(module: str) -> str:
-    for k, v in ASSIGNEE_MAP.items():
-        if k in (module or "").lower():
-            return v
-    return "研发-待指派"
+    return DEFAULT_ASSIGNEE
 
 
 def create_from_run(run_id: str, case_codes: list[str], req_code: str, trace_id: str, reason: str) -> dict:

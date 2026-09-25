@@ -19,6 +19,19 @@ NAME = "testgen-svc"
 log = logging.getLogger(NAME)
 
 
+def _confidence(cases: list) -> list[float]:
+    """置信度按证据分级（确定性规则，非拍脑袋数字）：
+
+    - 0.98：期望值有真实依据（探针对真实代码执行捕获 / 精选清单人工核实）；
+    - 0.90：仅输入设计（守卫补齐的宽松断言 / LLM 设计输入、断言待执行校正）。
+    """
+    out = []
+    for c in cases:
+        evidenced = bool(c.expected_error or c.expected_error_type or c.expected_fields or c.assert_return)
+        out.append(0.98 if evidenced else 0.9)
+    return out
+
+
 def _repo_checkout(repo_id: int) -> str:
     """仓库检出目录（探针执行用）；未注册退回 demo fixture。"""
     with get_session() as sess:
@@ -107,9 +120,9 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
                 "expected_fields": c.expected_fields,
                 "patches": [p.model_dump() for p in c.patches],
                 "covers": c.covers,
-                "confidence": 0.97 if c.category in ("normal", "boundary") else 0.94,
+                "confidence": conf,
             }
-            for c in plan.cases
+            for c, conf in zip(plan.cases, _confidence(plan.cases))
         ]
         yield pb2.GenEvent(
             stage="codegen",

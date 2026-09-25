@@ -22,6 +22,7 @@ from services.shared.db import get_session, init_db  # noqa: E402
 TABLES = [
     "generation_events",
     "generations",
+    "jobs",
     "trace_events",
     "defects",
     "iterations",
@@ -61,7 +62,7 @@ def main() -> int:
         d = ROOT / "data" / sub
         if d.exists():
             _rmtree_force(d)
-    print("[reset] 已清空 16 张业务表 + data/runs + data/repos 检出缓存")
+    print("[reset] 已清空 17 张业务表 + data/runs + data/repos 检出缓存（users 登录账号保留）")
     with get_session() as sess:
         repos = sess.execute(text("SELECT count(*) FROM repos")).scalar()
         cases = sess.execute(text("SELECT count(*) FROM cases")).scalar()
