@@ -144,7 +144,14 @@ def main() -> int:
             cwd=ROOT,
             stdout=logf,
             stderr=subprocess.STDOUT,
-            env={**os.environ, "PYTHONPATH": str(ROOT), "MONO_MODE": os.environ.get("MONO_MODE", "1")},
+            env={
+                **os.environ,
+                "PYTHONPATH": str(ROOT),
+                "MONO_MODE": os.environ.get("MONO_MODE", "1"),
+                # 本地开发/验收夹具（seed_real、demo-mX 用 file:// 本地仓库）需要显式开启；
+                # 生产 compose 不设置该变量，仓库接入只收远程 Git URL
+                "TF_ALLOW_LOCAL_REPO_URL": os.environ.get("TF_ALLOW_LOCAL_REPO_URL", "1"),
+            },
         )
         (RUN / "gateway.pid").write_text(str(proc.pid))
         print(f"  + backend pid={proc.pid} -> :{gateway_port}")

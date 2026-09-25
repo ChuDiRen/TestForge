@@ -346,10 +346,17 @@ def list_repos():
 
 @app.post("/api/repos")
 async def create_repo(request: Request):
+    from services.repo_svc.gitops import GitError, validate_remote_url
+    from services.shared.config import get_settings as _gs
+
     body = await request.json()
     url = (body.get("url") or "").strip()
     if not url:
         raise ApiError(1001, "url 必填")
+    try:
+        validate_remote_url(url, allow_local=_gs().allow_local_repo_url)
+    except GitError as exc:
+        raise ApiError(1003, str(exc), 400) from exc
     res = grpc_call(
         "repo-svc",
         GRPC_PORTS["repo-svc"],

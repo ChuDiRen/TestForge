@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Card, Form, Input, Table, Tag, message } from "antd";
+import { Alert, Button, Card, Form, Input, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../api";
 
@@ -10,6 +10,26 @@ interface RepoRow {
   status: string;
   last_pull: string | null;
   head_rev: string;
+}
+
+/** 远程 Git URL 校验：file:// 与本地/盘符路径一律拒绝 */
+const REMOTE_URL_RE = /^(https?:\/\/|git:\/\/|ssh:\/\/|git@[\w.-]+:)\S+/;
+
+function validateRemoteUrl(_rule: unknown, value: string): Promise<void> {
+  const u = (value || "").trim();
+  if (!u) return Promise.resolve(); // required 规则负责必填
+  const lowered = u.toLowerCase();
+  const isLocal =
+    lowered.startsWith("file:") ||
+    lowered.startsWith("\\\\") ||
+    u.startsWith("/") ||
+    u.startsWith("\\") ||
+    u.startsWith("~") ||
+    /^[a-zA-Z]:/.test(u);
+  if (isLocal || !REMOTE_URL_RE.test(u)) {
+    return Promise.reject("仅支持远程 Git URL（https://… 或 git@host:repo.git），不允许本地路径");
+  }
+  return Promise.resolve();
 }
 
 export function RepoAdd() {
@@ -38,10 +58,24 @@ export function RepoAdd() {
 
   return (
     <div>
-      <Card title="接入仓库（Git URL / 本地路径 / file://）" style={{ marginBottom: 16 }}>
+      <Card title="接入仓库（远程 Git URL）" style={{ marginBottom: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="仅支持远程 Git 仓库（https://… 或 git@host:repo.git）"
+          description="出于安全考虑，平台不接受本地路径 / file:// 上传——网关不会读取服务器本地任意目录。"
+        />
         <Form form={form} layout="vertical" onFinish={(v) => add.mutate(v)}>
-          <Form.Item name="url" rules={[{ required: true, message: "仓库地址必填" }]} style={{ marginBottom: 8 }}>
-            <Input style={{ width: 420, maxWidth: "100%" }} placeholder="https://… 或 file:///path/to/repo" />
+          <Form.Item
+            name="url"
+            rules={[
+              { required: true, message: "仓库地址必填" },
+              { validator: validateRemoteUrl },
+            ]}
+            style={{ marginBottom: 8 }}
+          >
+            <Input style={{ width: 420, maxWidth: "100%" }} placeholder="https://github.com/user/repo.git 或 git@host:user/repo.git" />
           </Form.Item>
           <Form.Item name="branch" initialValue="main" style={{ marginBottom: 8 }}>
             <Input style={{ width: 120, maxWidth: "100%" }} placeholder="分支" />

@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # 执行记录保留条数（超出自动清理最旧记录）
     runs_retention: int = 500
 
+    # 仓库接入是否允许本地路径（file:///盘符/绝对路径）。生产必须 False；
+    # 仅本地开发/验收夹具经 TF_ALLOW_LOCAL_REPO_URL=1 显式开启
+    allow_local_repo_url: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

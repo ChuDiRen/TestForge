@@ -16,6 +16,9 @@ log = logging.getLogger("repo-svc")
 
 
 def register(url: str, branch: str, credential_ref: str, webhook: bool) -> dict:
+    from services.shared.config import get_settings
+
+    gitops.validate_remote_url(url, allow_local=get_settings().allow_local_repo_url)
     tid = get_trace_id() or new_trace_id()
     local_path = gitops.repo_local_path(url)
     with get_session() as sess:

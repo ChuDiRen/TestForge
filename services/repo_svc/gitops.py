@@ -20,6 +20,29 @@ class GitError(RuntimeError):
     pass
 
 
+_REMOTE_URL_RE = re.compile(r"^(https?://|git://|ssh://|git@[\w.-]+:)\S+", re.IGNORECASE)
+
+
+def validate_remote_url(url: str, allow_local: bool = False) -> None:
+    """仓库接入只认远程 Git URL；本地路径（file:// / 盘符 / 绝对相对路径）默认拒绝。
+
+    allow_local 仅限本地开发/验收夹具场景（TF_ALLOW_LOCAL_REPO_URL=1）显式开启。
+    """
+    u = (url or "").strip()
+    if allow_local:
+        return
+    lowered = u.lower()
+    is_local = (
+        lowered.startswith("file:")
+        or lowered.startswith("\\\\")  # UNC
+        or u.startswith(("/", "\\", "./", "../", "~"))
+        or (len(u) >= 2 and u[1] == ":" and u[0].isalpha())  # Windows 盘符 C:\…
+        or not _REMOTE_URL_RE.match(u)
+    )
+    if is_local:
+        raise GitError("仅支持远程 Git URL（https://… 或 git@host:repo.git），不允许本地路径/file:// 上传")
+
+
 def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 120) -> str:
     proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
