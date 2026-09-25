@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TestForge · AI 测试用例生成平台 · 原型 v0.1</title>
+<title>TestForge · AI 测试用例生成平台 · 原型 v2.0（对照实测 UI）</title>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --border:#30363d;
@@ -188,13 +188,15 @@
   <div class="logo">⚡ Test<b>Forge</b></div>
   <div class="logo-sub">AI 测试用例生成平台 · 原型 v0.1</div>
   <div class="nav-item active" data-view="dashboard">📊 仪表盘</div>
+  <div class="nav-item" data-view="graph">🕸 知识图谱</div>
   <div class="nav-item" data-view="wiki">📚 代码库 / Wiki</div>
-  <div class="nav-item" data-view="map">🗺 服务地图 / 契约 <span class="badge" style="background:var(--red);color:#fff">1</span></div>
+  <div class="nav-item" data-view="map">🗺 服务地图 / 契约</div>
   <div class="nav-item" data-view="repos">📥 仓库接入</div>
   <div class="nav-item" data-view="reqs">📝 需求录入</div>
   <div class="nav-item" data-view="plans">🎯 测试计划</div>
   <div class="nav-item" data-view="workbench">🛠 生成工作台 <span class="badge">核心</span></div>
-  <div class="nav-item" data-view="cases">🗂 用例库（分层）</div>
+  <div class="nav-item" data-view="jobs">⚙ 任务队列</div>
+  <div class="nav-item" data-view="cases">🗂 用例库（三层）</div>
   <div class="nav-item" data-view="runs">🧪 执行记录</div>
   <div class="nav-item" data-view="defects">🐞 缺陷管理</div>
   <div class="nav-item" data-view="logs">📜 日志 / 追溯</div>
@@ -214,9 +216,11 @@
     <span class="branch">⎇ order-service@main @ 3f9d2c1</span>
     <span class="chip mock">原型 · mock 数据</span>
     <span class="spacer"></span>
-    <button class="btn btn-sm">接入真实后端</button>
-    <span class="chip" id="reviewChip" style="border-color:var(--amber);color:var(--amber)">待人审 37</span>
-    <span class="chip">海鸥</span>
+    <span style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <span style="width:30px;height:30px;border-radius:50%;background:#4f46e5;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">A</span>
+      <span>admin · 管理员</span>
+      <span style="color:var(--muted);font-size:12px">▾ 退出登录</span>
+    </span>
   </div>
 
   <!-- ============ 视图1: 仪表盘 ============ -->
@@ -499,7 +503,8 @@ service ReqIngest {
   <!-- ============ 视图3: 生成工作台 ============ -->
   <section class="view" id="view-workbench">
     <h2 class="page-title">生成工作台</h2>
-    <div class="page-desc">上下文组装（code &gt; wiki &gt; similar &gt; bugs）→ 两阶段生成（PLAN → 覆盖守卫 → CodeGen）→ 沙箱验证闭环</div>
+    <div class="page-desc">用例层选择（单元 ut / 接口 api / E2E e2e）→ 上下文组装（code &gt; wiki &gt; trace &gt; similar &gt; bugs）→ 两阶段生成（PLAN → 覆盖守卫 → 探针捕获 → CodeGen）→ 沙箱验证闭环（失败真回填修复 ≤3 轮）</div>
+    <div class="page-desc" style="margin-top:-6px">层说明：单元=函数级（精选/探针/DeepSeek 智能体规划）；接口=实时 OpenAPI 契约推导、对运行中服务真发 HTTP；E2E=跨端点真实旅程（登录→数据一致性 / 录入→打回）</div>
     <div class="wb">
 
       <!-- 左列: 目标选择 -->

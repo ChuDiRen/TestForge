@@ -51,7 +51,7 @@ def mark_stale(repo_id: int, changed_functions: list[str]) -> list[str]:
         return []
     names = set(changed_functions)
     with get_session() as sess:
-        rows = sess.query(Cases).filter(Cases.repo_id == repo_id).all()
+        rows = sess.query(Cases).filter(Cases.repo_id == repo_id, Cases.status != "已替换").all()
         hit = []
         for c in rows:
             tf = (c.target_function or "").rsplit(".", 1)[-1]

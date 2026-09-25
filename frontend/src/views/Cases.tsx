@@ -87,7 +87,12 @@ export function Cases() {
         { title: "编码", dataIndex: "code", width: 170 },
         { title: "标题", dataIndex: "title", ellipsis: true },
         { title: "类别", dataIndex: "category", width: 100, render: (c: string) => <Tag color={CAT_COLOR[c]}>{c}</Tag> },
-        { title: "状态", dataIndex: "status", width: 90, render: (s: string) => <Tag color={s === "已入库" ? "green" : "orange"}>{s}</Tag> },
+        {
+          title: "状态",
+          dataIndex: "status",
+          width: 90,
+          render: (s: string) => <Tag color={s === "已入库" ? "green" : s === "已替换" ? "default" : "orange"}>{s}</Tag>,
+        },
         {
           title: "回归",
           dataIndex: "stale",

@@ -10,8 +10,8 @@
 
 ## 2. 必读材料（动码前先读完）
 
-- `docs/TestForge-PRD-v1.2.md` —— 唯一需求来源，与本提示词冲突时以 PRD 为准；
-- `prototype/testforge-prototype.html` —— UI 布局与交互的视觉基准（12 个视图，浏览器打开对照）；
+- `docs/TestForge-PRD-v2.0.md` —— **唯一需求来源（as-built 基准）**，与本提示词冲突时以 PRD 为准；v1.2 仅作历史设计稿存档；
+- `prototype/testforge-prototype.html` —— UI 布局与交互的视觉基准（**14 个视图**，v2.0 已对照实测 UI 同步）；
 - 本提示词的「技术栈锁定」优先级高于你自己的技术偏好。
 
 ## 3. 产品目标（一句话）
@@ -33,8 +33,8 @@
   - `runner-svc`：docker-py 沙箱执行 + pytest-cov 覆盖率解析 + 修复循环；
   - `trace-svc`：traceID 日志追加写（Postgres）；
 - **存储**：PostgreSQL 16（结构化）+ 本地文件（wiki Markdown / 日志归档）+ pgvector（相似用例 RAG）；
-- **LLM**：OpenAI 兼容 API（`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` 全配置化）；结构化输出必须过 pydantic JSON Schema 校验；**必须提供 mock 实现**（`LLM_MODE=mock` 返回固定样例），保证无 Key 也能全流程跑通；
-- **沙箱**：docker（--network none，mem 512m，cpu 1.0），同样提供 `SANDBOX_MODE=fake` 假执行器；
+- **LLM**：OpenAI 兼容 API（`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` 全配置化）；结构化输出必须过 pydantic JSON Schema 校验；当前直连 **DeepSeek**（真实 Key），系统**不存在 mock LLM 实现**——Key 未配置时显式报错（PRD v2.0 无 mock 原则）；
+- **沙箱**：真实执行双模式——`SANDBOX_MODE=local`（宿主机子进程 pytest，默认）/ `docker`（--network none，mem 512m，cpu 1.0）；无 fake 执行器；
 - **部署**：docker-compose 一键起 pg/redis/全部服务/前端；根 Makefile：`make dev` / `make proto` / `make test` / `make up` / `make demo-m1`。
 
 ## 5. 仓库结构（按此创建）

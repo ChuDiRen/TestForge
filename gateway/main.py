@@ -203,7 +203,7 @@ def stats_summary():
         scalars = sess.execute(
             select(
                 select(func.count()).select_from(Repos).scalar_subquery(),
-                select(func.count()).select_from(Cases).scalar_subquery(),
+                select(func.count()).select_from(Cases).where(Cases.status != "已替换").scalar_subquery(),
                 select(func.count()).select_from(Cases).where(Cases.status == "待人审").scalar_subquery(),
                 select(func.count()).select_from(Runs).scalar_subquery(),
                 select(func.count()).select_from(Runs).where(Runs.status == "success").scalar_subquery(),
@@ -608,6 +608,8 @@ def list_cases(
             q = q.filter(Cases.module.contains(module))
         if status:
             q = q.filter(Cases.status == status)
+        else:
+            q = q.filter(Cases.status != "已替换")  # 默认隐藏被新版本替换的历史用例
         if category:
             q = q.filter(Cases.category == category)
         if source_req:
@@ -619,7 +621,9 @@ def list_cases(
         page_size = min(max(1, page_size), 200)
         rows = q.order_by(Cases.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
         by_layer = {lay: 0 for lay in ("ut", "api", "fn", "e2e", "contract")}
-        by_layer.update({k: v for k, v in sess.query(Cases.layer, func.count()).group_by(Cases.layer).all()})
+        by_layer.update(
+            {k: v for k, v in sess.query(Cases.layer, func.count()).filter(Cases.status != "已替换").group_by(Cases.layer).all()}
+        )
         return ok(
             {
                 "total": total,

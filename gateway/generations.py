@@ -219,6 +219,19 @@ def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_re
                     log_json=report.get("log_json", ""),
                 )
             )
+            # 同仓库+同目标+同层的旧用例置"已替换"——重新生成是资产更新而非重复堆积
+            superseded = (
+                sess.query(Cases)
+                .filter(
+                    Cases.repo_id == (repo_id or None),
+                    Cases.target_function == target,
+                    Cases.layer == layer,
+                    Cases.status != "已替换",
+                )
+                .update({"status": "已替换"}, synchronize_session=False)
+            )
+            if superseded:
+                emit("生成", "gateway", f"目标 {target} 重新生成，{superseded} 条旧用例置已替换")
             for c, sc in zip(cases, suite_cases):
                 ok = case_results.get(c["code"]) == "passed"
                 code = f"CASE-{gen_code[-6:]}-{c['code']}"
