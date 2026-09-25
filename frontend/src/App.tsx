@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Avatar, Button, ConfigProvider, Dropdown, Drawer, Grid, Layout, Menu, Spin, Typography } from "antd";
+import { Avatar, Button, ConfigProvider, Dropdown, Drawer, Grid, Layout, Menu, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { useQuery } from "@tanstack/react-query";
 import { get, setToken } from "./api";
@@ -203,11 +203,8 @@ export function App() {
   });
 
   if (me.isLoading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Spin size="large" />
-      </div>
-    );
+    // 认证校验通常 <100ms：渲染空白而不是全屏 Spin，避免刷新时的转圈动画
+    return null;
   }
   if (me.isError || !me.data) {
     return <ConfigProvider locale={zhCN}>{<Login onLogin={() => me.refetch()} />}</ConfigProvider>;
