@@ -61,6 +61,9 @@ reset-data:
 seed-real:
 	$(PY) scripts/seed_real.py
 
+llm-check:
+	$(PY) scripts/llm_check.py
+
 demo-m0:
 	$(PY) scripts/demo_m0.py
 

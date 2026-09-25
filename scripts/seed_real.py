@@ -62,10 +62,17 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def api(method: str, path: str, body: dict | None = None, timeout: float = 120) -> dict:
-    r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout)
-    data = r.json()
-    assert data.get("code") == 0, f"{path} -> {data}"
-    return data["data"]
+    """GET 幂等重试：WSL PG 直连偶发瞬时断流时等待自愈，不把抖动当失败。"""
+    last: dict = {}
+    for attempt in range(3 if method == "GET" else 1):
+        r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout)
+        last = r.json()
+        if last.get("code") == 0:
+            return last["data"]
+        if method == "GET":
+            time.sleep(2)
+    assert last.get("code") == 0, f"{path} -> {last}"
+    return last["data"]
 
 
 def wait_generation(gcode: str, timeout_s: int = 240) -> dict:

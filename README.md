@@ -50,8 +50,8 @@ netsh advfirewall firewall add rule name="TestForge Vite 5173" dir=in action=all
 - **前端**：React 18 + TypeScript + Ant Design 5 + React Query + Zustand + ECharts；
 - **后端单体**：一个 FastAPI 进程 = REST/SSE 网关 + 全部 9 个服务（repo/wiki/契约/需求/生成/执行/trace/缺陷/计划），服务间经进程内直调（`MONO_MODE=1` 默认）；模块边界与 proto 契约保持不变，`MONO_MODE=0` 可退回微服务拓扑（各 `services/*/main.py` 仍可独立起 gRPC 进程）；
 - **proto**：`proto/testforge.proto` 为消息与服务契约唯一事实源，`make proto` 生成 stub；
-- **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）+ 本地文件；SQLite 可经 `DATABASE_URL` 切换（本机开发默认，WSL NAT 不稳时不依赖网络；RAG 自动退化为本地余弦检索）；
-- **LLM**：OpenAI 兼容 API 全配置化（`LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`），**`LLM_MODE=mock` 无 Key 全流程可跑**；结构化输出过 pydantic 校验；
+- **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）。本机开发库跑在 WSL docker（`testforge-pg`，host 网络，镜像网络经局域网 IP 直达）；`make dev` 启动时自动做 PG 握手健康检查，不通则依次回退 wsl 控制台隧道（`scripts/pg_tunnel.py`）与直连候选；
+- **LLM**：DeepSeek（OpenAI 兼容：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-chat`）。填入 `LLM_API_KEY` → `make llm-check` 验证 → `.env` 中 `LLM_MODE=real` 即全管线切换真实推理；`LLM_MODE=mock` 无 Key 全流程可跑（确定性样例做输入设计，沙箱执行与期望值仍为真实数据）；
 - **沙箱**：`SANDBOX_MODE=local`（默认，本机子进程**真实执行 pytest**，junit/coverage 真解析）/ `docker`（--network none / 512m / 1cpu）/ `fake`（确定性模拟，仅演示）；
 - **部署**：`deploy/docker-compose.yml` 一键起 postgres + redis + backend(单体) + frontend；`make stack-up`。
 
@@ -87,7 +87,7 @@ TestForge/
 4. **traceID 全链路**：网关 `tr_` 前缀，gRPC metadata 透传，全部写操作进 `trace_events`（入库前过脱敏钩子）；
 5. **增量索引**：`git diff` → 仅重建受影响页，调用方页跨模块置 stale；
 6. **质量关卡 G0~G5**：可测性<80 自动打回 / 知识就绪 / 覆盖达标 / 执行通过 / 缺陷清零 / 准出，`GET /api/quality/requirements` 返回六关卡+质量分+人工介入次数；
-7. **mock 优先**：LLM 与沙箱双实现环境变量切换，全 mock 无外部依赖跑通全部 demo。
+7. **mock 优先**：LLM 与沙箱双实现环境变量切换；mock 下无外部依赖跑通全部 demo，接入 DeepSeek 后 `LLM_MODE=real` 一键切换真实推理。
 
 ## Windows 主机注意
 

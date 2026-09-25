@@ -56,10 +56,8 @@ def get_settings() -> Settings:
 
 
 def _stable_db_url(url: str) -> str:
-    """Windows + WSL postgres 拓扑：localhost 中继不稳定时自动改写 host 为可达的 WSL IP。
-
-    每进程只探测一次；非 127.0.0.1/localhost（docker 网络/远程）或本机可达时原样返回。
-    """
+    """Windows + WSL postgres 拓扑：localhost 中继数据面不稳（TCP 通但握手死）时，
+    用真实 PG 握手探测，失败则改写 host 为可达的 WSL IP。每进程只探测一次。"""
     from urllib.parse import urlsplit
 
     parts = urlsplit(url)
@@ -67,18 +65,30 @@ def _stable_db_url(url: str) -> str:
         return url
     if parts.hostname not in ("127.0.0.1", "localhost"):
         return url
-    import socket
-
-    port = parts.port or 5432
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.8)
-        if s.connect_ex(("127.0.0.1", port)) == 0:
-            return url
-    ip = _wsl_db_ip(port)
+    if _pg_alive(url, 3.0):
+        return url
+    ip = _wsl_db_ip(parts.port or 5432)
     if not ip:
         return url
-    print(f"[config] localhost:{port} 不可达，DATABASE_URL 改走 WSL 直连 {ip}:{port}")
-    return url.replace(parts.netloc, parts.netloc.replace(parts.hostname, ip, 1), 1)
+    new_url = url.replace(parts.netloc, parts.netloc.replace(parts.hostname, ip, 1), 1)
+    if _pg_alive(new_url, 3.0):
+        print(f"[config] localhost 中继数据面不通，DATABASE_URL 改走 WSL 直连 {ip}:{parts.port or 5432}")
+        return new_url
+    return url
+
+
+def _pg_alive(url: str, timeout: float) -> bool:
+    """真实 PG 握手探测（裸 TCP 通不代表数据面通——WSL 中继的典型症状）。"""
+    from sqlalchemy import create_engine, text
+
+    try:
+        eng = create_engine(url, connect_args={"connect_timeout": timeout, "pool_pre_ping": False})
+        with eng.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        eng.dispose()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _wsl_db_ip(port: int) -> str:

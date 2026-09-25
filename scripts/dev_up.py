@@ -50,10 +50,73 @@ def lan_ip() -> str:
             return "127.0.0.1"
 
 
-def _tcp_ok(host: str, port: int, timeout: float) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(timeout)
-        return s.connect_ex((host, port)) == 0
+PG_TUNNEL_PORT = 15432
+PG_TUNNEL_URL = f"postgresql+psycopg://admin:testforge@127.0.0.1:{PG_TUNNEL_PORT}/testforge"
+
+
+def _pg_handshake_ok(url: str, timeout: float = 4.0) -> bool:
+    """真实 PG 握手探测（WSL 中继/网络的典型病：TCP 通但数据面死）。"""
+    try:
+        from sqlalchemy import create_engine, text
+
+        eng = create_engine(url, connect_args={"connect_timeout": timeout, "pool_pre_ping": False})
+        with eng.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        eng.dispose()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def ensure_pg_tunnel() -> bool:
+    """确保 wsl 控制台管道隧道活着（PG 数据面最稳的通道）。健康返回 True。"""
+    if _pg_handshake_ok(PG_TUNNEL_URL):
+        return True
+    tunnel = ROOT / "scripts" / "pg_tunnel.py"
+    logf = open(LOGS / "pg_tunnel.log", "ab")
+    subprocess.Popen(
+        [sys.executable, "-u", str(tunnel)],
+        cwd=ROOT,
+        stdout=logf,
+        stderr=subprocess.STDOUT,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    for _ in range(10):
+        time.sleep(1)
+        if _pg_handshake_ok(PG_TUNNEL_URL):
+            print(f"  ~ PG 隧道已建立：127.0.0.1:{PG_TUNNEL_PORT} -> wsl:5432")
+            return True
+    print("  ! PG 隧道未能建立（见 .run/logs/pg_tunnel.log）")
+    return False
+
+
+def resolve_db_url(env_url: str) -> str:
+    """env/.env 的 DATABASE_URL 不健康时，依次尝试镜像模式 LAN IP 与 WSL NAT IP 直连。"""
+    candidates: list[str] = [lan_ip()]
+    try:
+        out = subprocess.run(
+            ["wsl", "-e", "bash", "-lc", "hostname -I"],
+            capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace",
+        ).stdout.split()
+        candidates += [x for x in out if x.count(".") == 3]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    for ip in dict.fromkeys(candidates):  # 去重保序
+        if ip == "127.0.0.1":
+            continue
+        url = f"postgresql+psycopg://admin:testforge@{ip}:5432/testforge"
+        if _pg_handshake_ok(url):
+            return url
+    return ""
+
+
+def _env_database_url() -> str:
+    env_file = ROOT / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("DATABASE_URL="):
+                return line.split("=", 1)[1].strip()
+    return os.environ.get("DATABASE_URL", "")
 
 
 def main() -> int:
@@ -63,7 +126,18 @@ def main() -> int:
 
     print("[dev_up] 启动后端（单体：gateway + 9 服务进程内）…")
     if not port_open(gateway_port):
-        # DB 兜底（WSL 中继故障自动直连）在 services.shared.config 统一处理
+        env = {**os.environ, "PYTHONPATH": str(ROOT), "MONO_MODE": os.environ.get("MONO_MODE", "1")}
+        env_url = os.environ.get("DATABASE_URL") or _env_database_url()
+        if not _pg_handshake_ok(env_url):
+            # .env 指向的 PG 不可达：优先 wsl 控制台隧道，其次各直连候选
+            if ensure_pg_tunnel():
+                env["DATABASE_URL"] = PG_TUNNEL_URL
+                print(f"  ~ DATABASE_URL 走隧道：127.0.0.1:{PG_TUNNEL_PORT}")
+            else:
+                db_url = resolve_db_url(env_url)
+                if db_url:
+                    env["DATABASE_URL"] = db_url
+                    print(f"  ~ .env DATABASE_URL 不健康，已切换直连：{db_url.split('@')[1]}")
         logf = open(LOGS / "gateway.log", "ab")
         proc = subprocess.Popen(
             [sys.executable, "-u", "-m", "uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", str(gateway_port)],
