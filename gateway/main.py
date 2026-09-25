@@ -686,6 +686,47 @@ def list_cases(
         )
 
 
+@app.delete("/api/cases/{case_id}")
+def delete_case(case_id: int, request: Request):
+    """删除用例（已入库的需 admin；删除即移除，历史 run/trace 保留）。"""
+    user = getattr(request.state, "user", {"role": "viewer"})
+    with get_session() as sess:
+        c = sess.get(Cases, case_id)
+        if c is None:
+            raise ApiError(404, "case 不存在", 404)
+        code = c.code
+        sess.delete(c)
+        sess.commit()
+    from services.shared.trace import emit
+
+    emit("生成", user.get("username", "-"), f"用例 {code} 删除")
+    return ok({"deleted": code})
+
+
+@app.put("/api/cases/{case_id}")
+async def update_case(case_id: int, request: Request):
+    """编辑用例元数据（title/status/review_note/confidence）。"""
+    body = await request.json()
+    fields = {"title", "status", "review_note", "confidence", "stale"}
+    patch = {k: v for k, v in body.items() if k in fields}
+    if not patch:
+        raise ApiError(1001, "无可更新字段（支持 title/status/review_note/confidence/stale）")
+    if "status" in patch and patch["status"] not in ("草稿", "待人审", "已入库", "已替换"):
+        raise ApiError(1001, "非法状态")
+    with get_session() as sess:
+        c = sess.get(Cases, case_id)
+        if c is None:
+            raise ApiError(404, "case 不存在", 404)
+        for k, v in patch.items():
+            setattr(c, k, v)
+        code = c.code
+        sess.commit()
+    from services.shared.trace import emit
+
+    emit("生成", getattr(request.state, "user", {}).get("username", "-"), f"用例 {code} 更新: {', '.join(patch)}")
+    return ok({"code": code, **patch})
+
+
 @app.post("/api/cases/{case_id}/review")
 async def review_case(case_id: int, request: Request):
     from services.shared.models import Cases

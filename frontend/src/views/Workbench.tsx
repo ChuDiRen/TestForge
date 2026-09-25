@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Col, Progress, Row, Select, Space, Steps, Table, Tag, message } from "antd";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { Button, Card, Col, Input, Popconfirm, Progress, Row, Select, Space, Steps, Table, Tag, message } from "antd";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post, sseUrl } from "../api";
 import { Json } from "../components/Json";
 
@@ -9,6 +9,121 @@ const STAGES = ["plan", "guard", "codegen", "sandbox", "coverage"];
 interface BatchResult {
   queued: number;
   targets: string[];
+}
+
+interface LibraryCase {
+  id: number;
+  code: string;
+  title: string;
+  category: string;
+  status: string;
+  confidence: number;
+  target_function: string;
+}
+
+const CAT_COLOR: Record<string, string> = {
+  normal: "blue",
+  boundary: "cyan",
+  exception: "orange",
+  permission: "red",
+  contract: "purple",
+};
+
+/** 当前生成批次入库后的真实用例（数据源 = 用例库 API，非 SSE 临时产物） */
+function GeneratedCases({ genId }: { genId: string | null }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<LibraryCase | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const library = useQuery({
+    queryKey: ["library-cases", genId],
+    queryFn: () => get<{ items: LibraryCase[]; total: number }>("/api/cases?page=1&page_size=200"),
+    enabled: !!genId,
+    refetchInterval: 3000,
+  });
+  const rows = (library.data?.items ?? []).filter((c) => genId && c.code.includes(genId.slice(-6)));
+
+  const del = useMutation({
+    mutationFn: (id: number) => fetch(`/api/cases/${id}`, { method: "DELETE" }).then((r) => r.json()),
+    onSuccess: () => {
+      message.success("用例已删除");
+      qc.invalidateQueries({ queryKey: ["library-cases"] });
+      qc.invalidateQueries({ queryKey: ["cases"] });
+    },
+  });
+  const update = useMutation({
+    mutationFn: ({ id, title }: { id: number; title: string }) =>
+      fetch(`/api/cases/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }).then((r) => r.json()),
+    onSuccess: () => {
+      message.success("用例已更新");
+      setEditing(null);
+      qc.invalidateQueries({ queryKey: ["library-cases"] });
+      qc.invalidateQueries({ queryKey: ["cases"] });
+    },
+  });
+
+  if (!genId) return null;
+  return (
+    <Card
+      title={`本次生成入库用例（${rows.length} 条 · 与用例库同源）`}
+      size="small"
+      style={{ marginTop: 16 }}
+      extra={<Button size="small" onClick={() => (window.location.search = "?view=cases")}>去用例库 →</Button>}
+    >
+      <Table<LibraryCase>
+        rowKey="id"
+        size="small"
+        scroll={{ x: 640 }}
+        pagination={false}
+        loading={library.isLoading}
+        dataSource={rows}
+        columns={[
+          { title: "编码", dataIndex: "code", width: 190 },
+          { title: "标题", dataIndex: "title", ellipsis: true },
+          { title: "类别", dataIndex: "category", width: 100, render: (c: string) => <Tag color={CAT_COLOR[c]}>{c}</Tag> },
+          { title: "置信度", dataIndex: "confidence", width: 80, render: (v: number) => v?.toFixed(2) },
+          {
+            title: "状态",
+            dataIndex: "status",
+            width: 90,
+            render: (s: string) => <Tag color={s === "已入库" ? "green" : s === "已替换" ? "default" : "orange"}>{s}</Tag>,
+          },
+          {
+            title: "操作",
+            width: 150,
+            render: (_, c) => (
+              <Space size={4}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setEditing(c);
+                    setEditTitle(c.title);
+                  }}
+                >
+                  改名
+                </Button>
+                <Popconfirm title="删除该用例？" onConfirm={() => del.mutate(c.id)}>
+                  <Button size="small" danger loading={del.isPending}>
+                    删除
+                  </Button>
+                </Popconfirm>
+              </Space>
+            ),
+          },
+        ]}
+      />
+      {editing && (
+        <Card size="small" style={{ marginTop: 8 }} title={`编辑 ${editing.code}`}>
+          <Space.Compact style={{ width: "100%", maxWidth: 560 }}>
+            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+            <Button type="primary" onClick={() => update.mutate({ id: editing.id, title: editTitle })} loading={update.isPending}>
+              保存
+            </Button>
+            <Button onClick={() => setEditing(null)}>取消</Button>
+          </Space.Compact>
+        </Card>
+      )}
+    </Card>
+  );
 }
 
 export function Workbench() {
@@ -25,7 +140,7 @@ export function Workbench() {
   const [stage, setStage] = useState(-1);
   const [logs, setLogs] = useState<string[]>([]);
   const [result, setResult] = useState<any>(null);
-  const [cases, setCases] = useState<any[]>([]);
+  const [genId, setGenId] = useState<string | null>(null);
   const [batchModule, setBatchModule] = useState<string>();
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
 
@@ -41,7 +156,7 @@ export function Workbench() {
     setStage(0);
     setLogs([]);
     setResult(null);
-    setCases([]);
+    setGenId(null);
     try {
       const gen = await post<{ generation_id: string; job_code: string; trace_id: string }>("/api/generations", {
         function: isWeb ? `web-${layer}` : fn,
@@ -55,19 +170,12 @@ export function Workbench() {
         setLogs((l) => [...l, `[${d.stage}] ${d.message}`]);
         const idx = STAGES.indexOf(d.stage);
         if (idx >= 0) setStage(idx + 1);
-        if (d.stage === "codegen") {
-          try {
-            const payload = JSON.parse(d.payload_json);
-            setCases(payload.cases ?? []);
-          } catch {
-            /* ignore */
-          }
-        }
       });
       es.addEventListener("result", (ev) => {
         const d = JSON.parse((ev as MessageEvent).data);
         setLogs((l) => [...l, `[result] ${d.message}`]);
         setResult(JSON.parse(d.payload_json || "{}"));
+        setGenId(gen.generation_id);
         setStage(5);
         setRunning(false);
         es.close();
@@ -173,30 +281,11 @@ export function Workbench() {
           {batchResult && <Tag color="blue">已入队 {batchResult.queued} 个：{batchResult.targets.slice(0, 5).join(", ")}{batchResult.targets.length > 5 ? "…" : ""}</Tag>}
         </Space>
       </Card>
-      {cases.length > 0 && (
-        <Card title={`结构化用例表（${cases.length} 条，点行看可执行 JSON）`} size="small">
-          <Table
-            rowKey="code"
-            size="small"
-            scroll={{ x: 460 }}
-            pagination={{ pageSize: 10 }}
-            dataSource={cases}
-            expandable={{
-              expandedRowRender: (r: any) => <Json data={r} maxHeight={320} />,
-            }}
-            columns={[
-              { title: "ID", dataIndex: "code", width: 90 },
-              { title: "标题", dataIndex: "title", ellipsis: true },
-              { title: "类别", dataIndex: "category", width: 110, render: (c: string) => <Tag>{c}</Tag> },
-              { title: "置信度", dataIndex: "confidence", width: 80, render: (v: number) => v?.toFixed(2) },
-            ]}
-          />
-        </Card>
-      )}
+      <GeneratedCases genId={genId} />
       {result && (
         <Card title="闭环结果" size="small" style={{ marginTop: 16 }}>
           <Row gutter={12}>
-            <Col>
+            <Col span={24}>
               <Space size="large" wrap>
                 <Tag color="green">通过 {result.passed}/{result.total}</Tag>
                 <Tag color="blue">覆盖率 {result.coverage}%</Tag>
@@ -205,6 +294,7 @@ export function Workbench() {
               </Space>
             </Col>
           </Row>
+          <Json data={result} maxHeight={240} />
         </Card>
       )}
     </div>

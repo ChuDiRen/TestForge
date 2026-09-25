@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Card, Drawer, Table, Tabs, Tag, Typography } from "antd";
-import { useQuery } from "@tanstack/react-query";
+import { Button, Card, Drawer, Input, Popconfirm, Space, Table, Tabs, Tag, Typography, message } from "antd";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get } from "../api";
 import { Json } from "../components/Json";
 import { Markdown } from "../components/Markdown";
@@ -64,6 +64,32 @@ export function Cases() {
     refetchInterval: 10000,
     placeholderData: (prev) => prev,
   });
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<CaseRow | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ["cases"] });
+  const del = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await fetch(`/api/cases/${id}`, { method: "DELETE" });
+      return r.json();
+    },
+    onSuccess: () => {
+      message.success("用例已删除");
+      refresh();
+    },
+  });
+  const update = useMutation({
+    mutationFn: async ({ id, title }: { id: number; title: string }) => {
+      const r = await fetch(`/api/cases/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) });
+      return r.json();
+    },
+    onSuccess: () => {
+      message.success("用例已更新");
+      setEditing(null);
+      refresh();
+    },
+  });
 
   const tab = (
     <Table<CaseRow>
@@ -100,7 +126,29 @@ export function Cases() {
           width: 76,
           render: (v: boolean) => (v ? <Tag color="volcano">待回归</Tag> : <Tag>—</Tag>),
         },
-        { title: "来源需求", dataIndex: "source_req", width: 100 },
+        { title: "来源需求", dataIndex: "source_req", width: 100, render: (v: string) => v || "-" },
+        {
+          title: "操作",
+          width: 150,
+          render: (_, c) => (
+            <Space size={4} onClick={(e) => e.stopPropagation()}>
+              <Button
+                size="small"
+                onClick={() => {
+                  setEditing(c);
+                  setEditTitle(c.title);
+                }}
+              >
+                改名
+              </Button>
+              <Popconfirm title="删除该用例？" onConfirm={() => del.mutate(c.id)}>
+                <Button size="small" danger loading={del.isPending}>
+                  删除
+                </Button>
+              </Popconfirm>
+            </Space>
+          ),
+        },
       ]}
     />
   );
@@ -150,6 +198,17 @@ export function Cases() {
           }))}
         />
       </Card>
+      {editing && (
+        <Card size="small" style={{ marginBottom: 12 }} title={`编辑 ${editing.code}`}>
+          <Space.Compact style={{ width: "100%", maxWidth: 560 }}>
+            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+            <Button type="primary" onClick={() => update.mutate({ id: editing.id, title: editTitle })} loading={update.isPending}>
+              保存
+            </Button>
+            <Button onClick={() => setEditing(null)}>取消</Button>
+          </Space.Compact>
+        </Card>
+      )}
       <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={isMobile ? "100%" : 620}>
         {detail && (
           <>
