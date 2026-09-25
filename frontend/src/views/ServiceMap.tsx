@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Card, Col, Row, Table, Tag } from "antd";
+import { useMemo, useState } from "react";
+import { Card, Col, Empty, Row, Table, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { get, post } from "../api";
 
@@ -14,42 +14,81 @@ interface ContractRow {
   last_diff: string[];
 }
 
-/** 服务依赖图（静态布局，边标契约名+版本；breaking 红色） */
+/** 服务依赖拓扑：节点与边全部由契约中心真实数据构建（消费方 → 提供方），无写死拓扑 */
 function ServiceMap({ contracts, onImpact }: { contracts: ContractRow[]; onImpact: (c: ContractRow) => void }) {
-  const nodes = [
-    { id: "frontend", x: 80, y: 150, label: "前端" },
-    { id: "gateway", x: 230, y: 150, label: "gateway" },
-    { id: "order-svc", x: 420, y: 80, label: "order-svc" },
-    { id: "payment-svc", x: 420, y: 220, label: "payment-svc" },
-  ];
+  const consumers = useMemo(() => {
+    const out: string[] = [];
+    for (const c of contracts) for (const u of c.consumers || []) if (!out.includes(u)) out.push(u);
+    return out;
+  }, [contracts]);
+  const providers = useMemo(() => {
+    const out: string[] = [];
+    for (const c of contracts) if (c.provider_repo && !out.includes(c.provider_repo)) out.push(c.provider_repo);
+    return out;
+  }, [contracts]);
+
+  const W = 480;
+  const rows = Math.max(consumers.length, providers.length, 1);
+  const H = Math.max(200, rows * 80);
+  const y = (i: number, n: number) => ((i + 0.5) * H) / Math.max(n, 1);
+  const posOf = (name: string, list: string[], x: number) => {
+    const i = list.indexOf(name);
+    return i >= 0 ? { x, y: y(i, list.length) } : null;
+  };
+
+  if (!contracts.length) {
+    return <Empty description="暂无契约数据——注册契约后自动生成真实拓扑" style={{ margin: "32px 0" }} />;
+  }
+
   return (
-    <svg viewBox="0 0 480 300" preserveAspectRatio="xMidYMin meet" style={{ width: "100%", height: "auto", background: "#fafafa", borderRadius: 6 }}>
-      {nodes.map((n) => (
-        <g key={n.id}>
-          <rect x={n.x - 55} y={n.y - 22} width={110} height={44} rx={8} fill="#4f46e5" opacity={0.92} />
-          <text x={n.x} y={n.y + 5} textAnchor="middle" fill="#fff" fontSize={13}>
-            {n.label}
-          </text>
-        </g>
-      ))}
-      <line x1={135} y1={150} x2={175} y2={150} stroke="#666" strokeWidth={2} markerEnd="url(#arrow)" />
-      {contracts.slice(0, 3).map((c, i) => {
-        const breaking = c.last_breaking;
-        return (
-          <g key={c.id} onClick={() => onImpact(c)} style={{ cursor: "pointer" }}>
-            <line x1={285} y1={150} x2={365} y2={i === 0 ? 80 : i === 1 ? 220 : 150} stroke={breaking ? "#f5222d" : "#999"} strokeWidth={breaking ? 2.5 : 1.5} strokeDasharray={breaking ? "6 3" : undefined} markerEnd="url(#arrow)" />
-            <text x={320} y={i === 0 ? 105 : i === 1 ? 195 : 140} fontSize={11} fill={breaking ? "#f5222d" : "#555"}>
-              {c.name}@{c.version}
-              {breaking ? " ⚠breaking" : ""}
-            </text>
-          </g>
-        );
-      })}
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMin meet" style={{ width: "100%", height: "auto", background: "#fafafa", borderRadius: 6 }}>
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="2" orient="auto">
           <path d="M0,0 L0,4 L7,2 z" fill="#666" />
         </marker>
       </defs>
+      {contracts.flatMap((c) =>
+        (c.consumers || []).map((u) => {
+          const a = posOf(u, consumers, 105);
+          const b = posOf(c.provider_repo, providers, 375);
+          if (!a || !b) return null;
+          const breaking = c.last_breaking;
+          return (
+            <g key={`${c.id}-${u}`} onClick={() => onImpact(c)} style={{ cursor: "pointer" }}>
+              <line
+                x1={a.x + 55}
+                y1={a.y}
+                x2={b.x - 55}
+                y2={b.y}
+                stroke={breaking ? "#f5222d" : "#999"}
+                strokeWidth={breaking ? 2.5 : 1.5}
+                strokeDasharray={breaking ? "6 3" : undefined}
+                markerEnd="url(#arrow)"
+              />
+              <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} textAnchor="middle" fontSize={10} fill={breaking ? "#f5222d" : "#555"}>
+                {c.name}@{c.version}
+                {breaking ? " ⚠breaking" : ""}
+              </text>
+            </g>
+          );
+        })
+      )}
+      {consumers.map((n, i) => (
+        <g key={n}>
+          <rect x={50} y={y(i, consumers.length) - 20} width={110} height={40} rx={8} fill="#0b1021" opacity={0.85} />
+          <text x={105} y={y(i, consumers.length) + 5} textAnchor="middle" fill="#fff" fontSize={12}>
+            {n}
+          </text>
+        </g>
+      ))}
+      {providers.map((n, i) => (
+        <g key={n}>
+          <rect x={320} y={y(i, providers.length) - 20} width={110} height={40} rx={8} fill="#4f46e5" opacity={0.92} />
+          <text x={375} y={y(i, providers.length) + 5} textAnchor="middle" fill="#fff" fontSize={12}>
+            {n}
+          </text>
+        </g>
+      ))}
     </svg>
   );
 }
@@ -72,7 +111,7 @@ export function Map() {
   return (
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={14}>
-        <Card title="服务地图（点 breaking 边看影响分析）">
+        <Card title="服务地图（真实契约拓扑 · 点 breaking 边看影响分析）">
           <ServiceMap contracts={contracts.data ?? []} onImpact={runImpact} />
         </Card>
       </Col>
@@ -81,6 +120,7 @@ export function Map() {
           <Table<ContractRow>
             rowKey="id"
             size="small"
+            scroll={{ x: 480 }}
             pagination={false}
             dataSource={contracts.data ?? []}
             columns={[

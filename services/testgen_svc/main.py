@@ -13,11 +13,20 @@ from services.shared.gen import testforge_pb2_grpc as pb2_grpc
 from services.shared.grpc_server import run_server
 from services.shared.llm import get_llm
 from services.shared.logutil import setup_logging
-from services.shared.models import Functions, Generations
+from services.shared.models import Functions, Generations, Repos
 from services.shared.trace import emit
 
 NAME = "testgen-svc"
 log = logging.getLogger(NAME)
+
+
+def _repo_checkout(repo_id: int) -> str:
+    """仓库检出目录（探针执行用）；未注册退回 demo fixture。"""
+    with get_session() as sess:
+        repo = sess.get(Repos, repo_id) if repo_id else None
+        if repo is not None and repo.local_path:
+            return repo.local_path
+    return "fixtures/sample-repo"
 
 
 def _load_fn(repo_id: int, function: str, module: str):
@@ -65,6 +74,13 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
         options = {"min_cases": request.options.min_cases or 9, "repair": request.options.repair}
         plan = plan_cases(llm, fn, target, layer, options)
         yield pb2.GenEvent(stage="plan", message=f"用例清单 {len(plan.cases)} 条（{', '.join(sorted(plan.categories))}）", progress=0.2, payload_json=plan.model_dump_json())
+
+        # ②b 探针捕获：期望值来自对真实代码的实际执行（特征化），不来自人工模板
+        from services.testgen_svc.probe import fill_probe_expectations
+
+        plan, probe_note = fill_probe_expectations(plan, _repo_checkout(repo_id))
+        if probe_note:
+            yield pb2.GenEvent(stage="plan", message=f"探针期望值: {probe_note}", progress=0.3)
 
         # ③ 覆盖守卫：静态检查表，缺类自动补
         plan, report = guard(plan, fn)

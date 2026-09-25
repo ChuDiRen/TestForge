@@ -144,6 +144,8 @@ def _derive_target(report: dict) -> str:
     story = json.dumps(report, ensure_ascii=False)
     if any(kw in story for kw in ("脱敏", "掩码", "sanitize", "泄露", "凭证", "令牌", "token")):
         return "sanitize_text"
+    if any(kw in story for kw in ("规则抽取", "抽取规则", "需求解析", "结构化规则", "extract_rules")):
+        return "extract_rules"
     return "create_order"
 
 

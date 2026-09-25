@@ -99,6 +99,8 @@ def diff_specs(old_spec: str, new_spec: str, ctype: str) -> tuple[list[str], boo
 
     if not changes:
         changes.append("无结构变更")
+    else:
+        changes.sort()  # 集合迭代序跨进程不确定；diff 审计输出必须确定
     return changes, breaking
 
 

@@ -23,6 +23,45 @@ _P = lambda **kw: Patch(**kw)  # noqa: E731
 
 _BUYER = {"id": "u-1", "role": "buyer", "active": True}
 
+# 探针式生成靶标（本仓库真实函数）：这里只设计【输入】，期望值由 probe 对真实代码
+# 执行捕获（特征化）。exception 类输入同时预压覆盖守卫的 NULL/空/类型错补齐规则。
+_R = "作为买家，我希望下单数量不超过 999。验收条件：数量 1~999 允许下单。"
+_REST_SPEC_V1 = '{"paths": {"/api/orders": {"post": {"__fields__": {"id": {"required": true}}}}, "/api/orders/{id}": {"get": {"__fields__": {}}}}, "error_codes": ["ORDER_NOT_FOUND"]}'
+_REST_SPEC_V2_DELETED = '{"paths": {"/api/orders": {"post": {"__fields__": {"id": {"required": true}}}}}, "error_codes": ["ORDER_NOT_FOUND"]}'
+_GRPC_V1 = '{"rpcs": ["Generate", "Execute"], "fields": {"case": {"code": "string"}}}'
+_GRPC_V2_RPC_DELETED = '{"rpcs": ["Generate"], "fields": {"case": {"code": "string"}}}'
+_TOPIC_V1 = '{"fields": {"case_code": {"type": "string"}, "status": {"type": "string"}}}'
+_TOPIC_V2_TYPE_CHANGED = '{"fields": {"case_code": {"type": "string"}, "status": {"type": "int"}}}'
+
+PROBE_INPUT_DESIGNS: dict[str, list[dict]] = {
+    # services/shared/rag.py：确定性词袋 hash 向量
+    "embed": [
+        {"title": "中文混合数字文本的向量确定性", "category": "normal", "input": {"text": "订单 数量 上限 999"}, "covers": "主流程：中文+数字 token 哈希"},
+        {"title": "英文文本的向量确定性", "category": "normal", "input": {"text": "hello world sanitize"}, "covers": "主流程：英文小写化 token"},
+        {"title": "超长文本向量维度恒定", "category": "boundary", "input": {"text": "密度" * 5000}, "covers": "边界：10000 字输入维度不变"},
+        {"title": "空文本应返回零向量", "category": "exception", "input": {"text": ""}, "covers": "异常：空输入（预压守卫空串）"},
+        {"title": "错误类型输入应抛 AttributeError", "category": "exception", "input": {"text": ["not-str"]}, "covers": "异常：list 无 lower（预压守卫类型错）"},
+    ],
+    # services/req_svc/parser.py：需求规则抽取（纯 regex）
+    "extract_rules": [
+        {"title": "完整用户故事应抽取故事/边界/验收三类规则", "category": "normal", "input": {"text": _R}, "covers": "主流程：三类规则一次抽全"},
+        {"title": "权限关键词应产生权限规则", "category": "permission", "input": {"text": "管理员账号禁止越权操作"}, "covers": "权限语义：关键词命中"},
+        {"title": "空文本应返回待确认规则", "category": "exception", "input": {"text": ""}, "covers": "异常：空输入返回待确认（预压守卫空串）"},
+        {"title": "错误类型输入应抛 TypeError", "category": "exception", "input": {"text": ["非法输入"]}, "covers": "异常：list 进 regex（预压守卫类型错）"},
+    ],
+    # services/contract_registry/service.py：契约 diff/breaking 判定（真实契约结构 JSON）
+    "diff_specs": [
+        {"title": "结构无变化应判定非 breaking", "category": "normal", "input": {"old_spec": _REST_SPEC_V1, "new_spec": _REST_SPEC_V1, "ctype": "rest"}, "covers": "主流程：同 spec diff"},
+        {"title": "REST 端点删除应判定 breaking", "category": "normal", "input": {"old_spec": _REST_SPEC_V1, "new_spec": _REST_SPEC_V2_DELETED, "ctype": "rest"}, "covers": "breaking：端点删除"},
+        {"title": "gRPC rpc 删除应判定 breaking", "category": "normal", "input": {"old_spec": _GRPC_V1, "new_spec": _GRPC_V2_RPC_DELETED, "ctype": "grpc"}, "covers": "breaking：rpc 删除"},
+        {"title": "topic 字段类型变更应判定 breaking", "category": "normal", "input": {"old_spec": _TOPIC_V1, "new_spec": _TOPIC_V2_TYPE_CHANGED, "ctype": "topic"}, "covers": "breaking：事件字段类型"},
+        {"title": "旧 spec 为空应只报新增非 breaking", "category": "exception", "input": {"old_spec": "", "new_spec": _REST_SPEC_V1, "ctype": "rest"}, "covers": "异常：旧契约为空（预压守卫空串）"},
+        {"title": "新 spec 为空应判定全部端点删除 breaking", "category": "exception", "input": {"old_spec": _REST_SPEC_V1, "new_spec": "", "ctype": "rest"}, "covers": "异常：新契约丢失"},
+        {"title": "未知契约类型应跳过 diff", "category": "exception", "input": {"old_spec": _REST_SPEC_V1, "new_spec": _REST_SPEC_V1, "ctype": ""}, "covers": "异常：ctype 未匹配（预压守卫空串）"},
+        {"title": "三个参数全为 list 应安全返回无结构变更", "category": "exception", "input": {"old_spec": [], "new_spec": [], "ctype": []}, "covers": "异常：falsy 输入走 {} 兜底（预压守卫类型错）"},
+    ],
+}
+
 
 def _curated_create_order() -> list[PlannedCase]:
     """create_order 精选清单：正常/边界/异常/权限/幂等，输入与断言一一对应实现分支。"""
@@ -90,6 +129,12 @@ def plan_cases(llm: LLMClient, fn: FnInfo, target: str, layer: str, options: dic
             cases = _curated_create_order()
         elif fn.name == "sanitize_text":
             cases = _curated_sanitize_text()
+        elif fn.name in PROBE_INPUT_DESIGNS:
+            # 探针式：只设计输入，期望值由 probe 对真实代码执行捕获
+            cases = [
+                PlannedCase(id=f"TC-{i:03d}", source="plan", **design)
+                for i, design in enumerate(PROBE_INPUT_DESIGNS[fn.name], 1)
+            ]
         else:
             # 通用兜底：happy + 交给覆盖守卫补齐
             from services.testgen_svc.fninfo import build_kwargs

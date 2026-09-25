@@ -25,9 +25,11 @@ make test           # ⑤ 单测（23 passed，含 gateway TestClient 接口测�
 
 ```bash
 make reset-data      # 清空演示/历史数据，只留真实产生
-make seed-real       # 以 TestForge 本仓库为示例：接入→索引 412 个真实函数→Wiki 编译→
-                     # 为 services/shared/sanitize_text 两阶段生成→local 沙箱真跑 pytest
-                     # （覆盖率来自 coverage.json 真实统计）→需求→自动编排→计划→报告
+make seed-real       # 以 TestForge 本仓库为示例：接入→索引 425 个真实函数→Wiki 编译→
+                     # 4 个真实函数套件生成并 local 沙箱真跑 pytest（sanitize_text 精选 +
+                     # embed/extract_rules/diff_specs 探针式特征化：期望值来自对真实代码
+                     # 的实际执行）→ 真实需求×2 → 自动编排 → 真实契约（proto+openapi）→
+                     # 迭代计划 → 测试报告
 ```
 
 前端：打开 http://127.0.0.1:5173 —— 12 个视图全部来自真实接口（需求录入→工作台 SSE 管线动画→用例库→执行记录→缺陷回归→测试计划报告→日志追溯→质量流水线）。
