@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Drawer, Table, Tabs, Tag } from "antd";
+import { Card, Drawer, Table, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../api";
 import { Json } from "../components/Json";
@@ -155,11 +155,29 @@ export function Cases() {
             <p>
               <Tag>{detail.code}</Tag>
               <Tag color={CAT_COLOR[detail.category]}>{detail.category}</Tag>
-              <Tag color={detail.status === "已入库" ? "green" : "orange"}>{detail.status}</Tag>
+              <Tag color={detail.status === "已入库" ? "green" : detail.status === "已替换" ? "default" : "orange"}>{detail.status}</Tag>
               {detail.stale && <Tag color="volcano">待回归</Tag>}
               <Tag>trace {detail.trace_id}</Tag>
             </p>
-            <Json data={detail.schema} maxHeight={520} />
+            {(() => {
+              // 入库 schema = 元数据 + code_file（整份生成测试源码）。源码不是 JSON，
+              // 混在一起会把转义串糊成一坨——拆开：元数据走 JSON 组件，源码单独成块
+              const schema = (detail.schema ?? {}) as Record<string, unknown>;
+              const { code_file, ...meta } = schema;
+              return (
+                <>
+                  <Json data={meta} maxHeight={340} />
+                  {typeof code_file === "string" && code_file.trim() && (
+                    <>
+                      <Typography.Title level={5} style={{ margin: "14px 0 8px" }}>
+                        生成的测试代码
+                      </Typography.Title>
+                      <Json data={code_file} maxHeight={460} />
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </>
         )}
       </Drawer>
