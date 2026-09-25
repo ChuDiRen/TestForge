@@ -29,6 +29,16 @@ def wait_port(port: int, timeout: float, label: str) -> bool:
     return False
 
 
+def lan_ip() -> str:
+    """取局域网出口 IP（不真正发包，仅路由探测），用于提示手机访问地址。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.connect(("192.168.255.255", 1))
+            return s.getsockname()[0]
+        except OSError:
+            return "127.0.0.1"
+
+
 def main() -> int:
     LOGS.mkdir(parents=True, exist_ok=True)
     RUN.mkdir(parents=True, exist_ok=True)
@@ -58,7 +68,7 @@ def main() -> int:
             if pnpm:
                 logf = open(LOGS / "frontend.log", "ab")
                 proc = subprocess.Popen(
-                    [pnpm, "--dir", "frontend", "dev", "--port", str(fe_port), "--strictPort", "--host", "127.0.0.1"],
+                    [pnpm, "--dir", "frontend", "dev", "--port", str(fe_port), "--strictPort", "--host", "0.0.0.0"],
                     cwd=ROOT,
                     stdout=logf,
                     stderr=subprocess.STDOUT,
@@ -70,7 +80,9 @@ def main() -> int:
             print(f"  = frontend 已在 :{fe_port}，跳过")
         wait_port(fe_port, 40, "frontend")
 
-    print(f"[dev_up] 完成：backend=http://127.0.0.1:{gateway_port}  frontend=http://127.0.0.1:{os.environ.get('FRONTEND_PORT', '5173')}")
+    fe_port = os.environ.get("FRONTEND_PORT", "5173")
+    print(f"[dev_up] 完成：backend=http://127.0.0.1:{gateway_port}  frontend=http://127.0.0.1:{fe_port}")
+    print(f"[dev_up] 手机访问（同一 Wi-Fi）：http://{lan_ip()}:{fe_port}")
     return 0
 
 

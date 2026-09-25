@@ -35,6 +35,7 @@ export function Runs() {
       <Table<RunRow>
         rowKey="code"
         size="small"
+        scroll={{ x: 980 }}
         pagination={{ pageSize: 12 }}
         loading={runs.isLoading}
         dataSource={runs.data ?? []}

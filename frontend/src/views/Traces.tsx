@@ -34,9 +34,9 @@ export function Logs() {
     <Card
       title="日志 / 追溯（traceID 全链路）"
       extra={
-        <span>
+        <span style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           <Input
-            style={{ width: 280, marginRight: 8 }}
+            style={{ width: 280, maxWidth: "100%" }}
             placeholder="输入 traceID（tr_xxx）回溯全链路"
             value={tid}
             onChange={(e) => setTid(e.target.value)}
@@ -56,6 +56,7 @@ export function Logs() {
           <Table<TraceEvent>
             rowKey={(_, i) => String(i)}
             size="small"
+            scroll={{ x: 640 }}
             pagination={false}
             loading={tr.isFetching}
             dataSource={tr.data?.events ?? []}

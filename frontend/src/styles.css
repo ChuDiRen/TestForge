@@ -1,0 +1,27 @@
+/* 手机端全局微调：卡片头允许换行、内边距收紧；不干扰桌面布局 */
+@media (max-width: 640px) {
+  .ant-card-head {
+    min-height: 48px;
+    padding: 0 12px;
+  }
+  .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .ant-card-extra {
+    width: 100%;
+    margin-left: 0;
+  }
+  .ant-card-body {
+    padding: 12px;
+  }
+  .ant-layout-header {
+    line-height: 1;
+  }
+}
+
+/* JSON / 报告代码块在窄屏内换行而不是横向溢出 */
+pre.json-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

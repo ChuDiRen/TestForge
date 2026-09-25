@@ -24,6 +24,7 @@ export function Quality() {
       <Table<QualityRow>
         rowKey="code"
         size="small"
+        scroll={{ x: 860 }}
         pagination={false}
         loading={q.isLoading}
         dataSource={q.data ?? []}

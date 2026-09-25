@@ -23,7 +23,7 @@ function ServiceMap({ contracts, onImpact }: { contracts: ContractRow[]; onImpac
     { id: "payment-svc", x: 420, y: 220, label: "payment-svc" },
   ];
   return (
-    <svg width="100%" height={300} style={{ background: "#fafafa", borderRadius: 6 }}>
+    <svg viewBox="0 0 480 300" preserveAspectRatio="xMidYMin meet" style={{ width: "100%", height: "auto", background: "#fafafa", borderRadius: 6 }}>
       {nodes.map((n) => (
         <g key={n.id}>
           <rect x={n.x - 55} y={n.y - 22} width={110} height={44} rx={8} fill="#4f46e5" opacity={0.92} />
@@ -71,12 +71,12 @@ export function Map() {
 
   return (
     <Row gutter={[16, 16]}>
-      <Col span={14}>
+      <Col xs={24} lg={14}>
         <Card title="服务地图（点 breaking 边看影响分析）">
           <ServiceMap contracts={contracts.data ?? []} onImpact={runImpact} />
         </Card>
       </Col>
-      <Col span={10}>
+      <Col xs={24} lg={10}>
         <Card title="契约中心" size="small">
           <Table<ContractRow>
             rowKey="id"

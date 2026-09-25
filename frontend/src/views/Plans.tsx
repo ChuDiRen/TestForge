@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, Card, Drawer, Select, Space, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../api";
+import { useIsMobile } from "../hooks";
 
 interface PlanRow {
   code: string;
@@ -19,6 +20,7 @@ export function Plans() {
   const plans = useQuery({ queryKey: ["plans"], queryFn: () => get<PlanRow[]>("/api/plans"), refetchInterval: 8000 });
   const [sel, setSel] = useState<string[]>([]);
   const [detail, setDetail] = useState<PlanRow | null>(null);
+  const isMobile = useIsMobile();
   const detailQ = useQuery({
     queryKey: ["plan", detail?.code],
     queryFn: () => get<any>(`/api/plans/${detail!.code}`),
@@ -46,8 +48,8 @@ export function Plans() {
         title="测试计划（以迭代为纲，准入/准出自动判定）"
         style={{ marginBottom: 16 }}
         extra={
-          <Space>
-            <Select mode="multiple" style={{ width: 420 }} placeholder="关联需求" value={sel} onChange={setSel}
+          <Space wrap>
+            <Select mode="multiple" style={{ width: 420, maxWidth: "100%" }} placeholder="关联需求" value={sel} onChange={setSel}
               options={(reqs.data?.items ?? []).map((r) => ({ value: r.code, label: `${r.code} ${r.title}` }))} />
             <Button type="primary" disabled={!sel.length} onClick={() => create.mutate()} loading={create.isPending}>
               建迭代并核对准入
@@ -58,6 +60,7 @@ export function Plans() {
         <Table<PlanRow>
           rowKey="code"
           size="small"
+          scroll={{ x: 640 }}
           pagination={false}
           loading={plans.isLoading}
           dataSource={plans.data ?? []}
@@ -72,7 +75,7 @@ export function Plans() {
           ]}
         />
       </Card>
-      <Drawer title={`迭代 ${detail?.code}`} open={!!detail} onClose={() => setDetail(null)} width={640}>
+      <Drawer title={`迭代 ${detail?.code}`} open={!!detail} onClose={() => setDetail(null)} width={isMobile ? "100%" : 640}>
         {detailQ.data && (
           <>
             <Space style={{ marginBottom: 12 }}>
@@ -93,7 +96,7 @@ export function Plans() {
             {detailQ.data.report && (
               <>
                 <b>测试报告</b>
-                <pre style={{ background: "#f6f8fa", padding: 12, borderRadius: 6, fontSize: 12 }}>
+                <pre className="json-pre" style={{ background: "#f6f8fa", padding: 12, borderRadius: 6, fontSize: 12 }}>
                   {JSON.stringify(detailQ.data.report, null, 2)}
                 </pre>
               </>

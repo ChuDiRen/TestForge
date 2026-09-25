@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Badge, Button, Card, Drawer, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../api";
+import { useIsMobile } from "../hooks";
 
 interface WikiPageRow {
   id: number;
@@ -16,6 +17,7 @@ interface WikiPageRow {
 
 export function Wiki() {
   const qc = useQueryClient();
+  const isMobile = useIsMobile();
   const [repoId, setRepoId] = useState(0);
   const [detail, setDetail] = useState<WikiPageRow | null>(null);
   const repos = useQuery({ queryKey: ["repos"], queryFn: () => get<any[]>("/api/repos") });
@@ -43,6 +45,7 @@ export function Wiki() {
     <Table<WikiPageRow>
       rowKey="id"
       size="small"
+      scroll={{ x: 480 }}
       pagination={{ pageSize: 10 }}
       dataSource={data.filter((p) => p.level === level)}
       onRow={(r) => ({ onClick: () => setDetail(r), style: { cursor: "pointer" } })}
@@ -65,7 +68,7 @@ export function Wiki() {
       <Card
         title="代码库 / Wiki（预编译知识层）"
         extra={
-          <Space>
+          <Space wrap>
             <select value={repoId} onChange={(e) => setRepoId(Number(e.target.value))} style={{ padding: 4 }}>
               <option value={0}>全部仓库</option>
               {(repos.data ?? []).map((r) => (
@@ -100,7 +103,7 @@ export function Wiki() {
           ]}
         />
       </Card>
-      <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={640}>
+      <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={isMobile ? "100%" : 640}>
         {detailQ.data && (
           <>
             <Space style={{ marginBottom: 12 }}>

@@ -34,6 +34,7 @@ export function Defects() {
       <Table<DefectRow>
         rowKey="id"
         size="small"
+        scroll={{ x: 940 }}
         pagination={{ pageSize: 12 }}
         loading={defects.isLoading}
         dataSource={defects.data ?? []}

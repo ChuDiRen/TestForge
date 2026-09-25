@@ -68,16 +68,16 @@ export function Workbench() {
   return (
     <div>
       <Card title="生成工作台（六路上下文 + 两阶段生成 + 沙箱闭环）" style={{ marginBottom: 16 }}>
-        <Space>
+        <Space wrap>
           <Select
-            style={{ width: 240 }}
+            style={{ width: 240, maxWidth: "100%" }}
             placeholder="选择仓库"
             value={repoId}
             onChange={setRepoId}
             options={(repos.data ?? []).map((r) => ({ value: r.id, label: `#${r.id} ${String(r.url).split("/").pop()}` }))}
           />
           <Select
-            style={{ width: 320 }}
+            style={{ width: 320, maxWidth: "100%" }}
             placeholder="选择目标函数"
             value={fn}
             onChange={setFn}
@@ -114,11 +114,12 @@ export function Workbench() {
           <Table
             rowKey="code"
             size="small"
+            scroll={{ x: 460 }}
             pagination={{ pageSize: 10 }}
             dataSource={cases}
             expandable={{
               expandedRowRender: (r: any) => (
-                <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>
+                <pre style={{ fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{JSON.stringify(r, null, 2)}</pre>
               ),
             }}
             columns={[
@@ -132,7 +133,7 @@ export function Workbench() {
       )}
       {result && (
         <Card title="闭环结果" size="small" style={{ marginTop: 16 }}>
-          <Space size="large">
+          <Space size="large" wrap>
             <Tag color="green">通过 {result.passed}/{result.total}</Tag>
             <Tag color="blue">覆盖率 {result.coverage}%</Tag>
             <Tag>修复 {result.repair_rounds} 轮</Tag>

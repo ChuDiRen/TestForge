@@ -23,6 +23,16 @@ make test           # ⑤ 单测（23 passed，含 gateway TestClient 接口测�
 
 前端：打开 http://127.0.0.1:5173 —— 12 个视图全部来自真实接口（需求录入→工作台 SSE 管线动画→用例库→执行记录→缺陷回归→测试计划报告→日志追溯→质量流水线）。
 
+### 手机访问（同一 Wi-Fi）
+
+vite 监听 `0.0.0.0`，手机直接访问 `http://<本机局域网IP>:5173`（`make dev` 启动时会打印该地址；API/SSE 经 vite 代理转发，无需暴露后端）。首次使用需放行 Windows 防火墙：
+
+```powershell
+netsh advfirewall firewall add rule name="TestForge Vite 5173" dir=in action=allow protocol=TCP localport=5173
+```
+
+前端已做移动端自适应（<768px 自动切换为抽屉导航，表格横向滚动，卡片纵向堆叠），手机/平板/桌面共用同一套视图。
+
 ## 技术栈（锁定）
 
 - **仓库形态**：monorepo。后端 Python 3.12（uv），前端 pnpm + Vite；

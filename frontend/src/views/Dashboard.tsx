@@ -37,22 +37,22 @@ export function Dashboard() {
   return (
     <div>
       <Row gutter={[16, 16]}>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic title="接入仓库" value={s?.repos ?? 0} suffix="个" />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic title="用例总数" value={s?.cases_total ?? 0} suffix="条" />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic title="执行通过率" value={s?.runs_pass_rate ?? 0} precision={1} suffix="%" />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
               title="Wiki 健康"
@@ -77,6 +77,7 @@ export function Dashboard() {
         <Table<ServiceStatus>
           rowKey="name"
           size="small"
+          scroll={{ x: 620 }}
           pagination={false}
           loading={services.isLoading}
           dataSource={services.data?.services ?? []}

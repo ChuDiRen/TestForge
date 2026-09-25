@@ -39,12 +39,12 @@ export function RepoAdd() {
   return (
     <div>
       <Card title="接入仓库（Git URL / 本地路径 / file://）" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="inline" onFinish={(v) => add.mutate(v)}>
-          <Form.Item name="url" rules={[{ required: true, message: "仓库地址必填" }]}>
-            <Input style={{ width: 420 }} placeholder="https://… 或 file:///path/to/repo" />
+        <Form form={form} layout="vertical" onFinish={(v) => add.mutate(v)}>
+          <Form.Item name="url" rules={[{ required: true, message: "仓库地址必填" }]} style={{ marginBottom: 8 }}>
+            <Input style={{ width: 420, maxWidth: "100%" }} placeholder="https://… 或 file:///path/to/repo" />
           </Form.Item>
-          <Form.Item name="branch" initialValue="main">
-            <Input style={{ width: 120 }} placeholder="分支" />
+          <Form.Item name="branch" initialValue="main" style={{ marginBottom: 8 }}>
+            <Input style={{ width: 120, maxWidth: "100%" }} placeholder="分支" />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={add.isPending}>
             接入（克隆→索引→Wiki 编译）
@@ -55,6 +55,7 @@ export function RepoAdd() {
         <Table<RepoRow>
           rowKey="id"
           size="small"
+          scroll={{ x: 720 }}
           pagination={false}
           loading={repos.isLoading}
           dataSource={repos.data ?? []}
@@ -83,7 +84,7 @@ export function RepoAdd() {
         />
         {Object.entries(steps).map(([id, st]) =>
           st.length ? (
-            <Card key={id} size="small" title={`仓库 #{id} 流水线`} style={{ marginTop: 12 }}>
+            <Card key={id} size="small" title={`仓库 #${id} 流水线`} style={{ marginTop: 12 }}>
               {st.map((s, i) => (
                 <Tag key={i} style={{ marginBottom: 4 }}>
                   {i + 1}. {s}

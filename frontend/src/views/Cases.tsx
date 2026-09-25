@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, Drawer, Table, Tabs, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../api";
+import { useIsMobile } from "../hooks";
 
 interface CaseRow {
   id: number;
@@ -26,6 +27,7 @@ const CAT_COLOR: Record<string, string> = {
 
 export function Cases() {
   const cases = useQuery({ queryKey: ["cases"], queryFn: () => get<{ items: CaseRow[]; by_layer: Record<string, number>; by_category: Record<string, number> }>("/api/cases"), refetchInterval: 10000 });
+  const isMobile = useIsMobile();
   const [detail, setDetail] = useState<CaseRow | null>(null);
   const [filters, setFilters] = useState<{ category?: string; status?: string }>({});
 
@@ -36,6 +38,7 @@ export function Cases() {
     <Table<CaseRow>
       rowKey="id"
       size="small"
+      scroll={{ x: 560 }}
       pagination={{ pageSize: 10 }}
       dataSource={data.filter((c) => c.layer === layer)}
       onRow={(r) => ({ onClick: () => setDetail(r), style: { cursor: "pointer" } })}
@@ -54,7 +57,7 @@ export function Cases() {
       <Card
         title="用例库（五层，全部可执行 schema）"
         extra={
-          <span>
+          <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
             {Object.entries(cases.data?.by_category ?? {}).map(([k, v]) => (
               <Tag key={k} color={CAT_COLOR[k]} style={{ cursor: "pointer" }} onClick={() => setFilters((f) => ({ ...f, category: f.category === k ? undefined : k }))}>
                 {k} {v}
@@ -73,7 +76,7 @@ export function Cases() {
           ]}
         />
       </Card>
-      <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={620}>
+      <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={isMobile ? "100%" : 620}>
         {detail && (
           <>
             <p>
@@ -82,7 +85,7 @@ export function Cases() {
               <Tag color={detail.status === "已入库" ? "green" : "orange"}>{detail.status}</Tag>
               <Tag>trace {detail.trace_id}</Tag>
             </p>
-            <pre style={{ background: "#f6f8fa", padding: 12, borderRadius: 6, fontSize: 12 }}>{JSON.stringify(detail.schema, null, 2)}</pre>
+            <pre className="json-pre" style={{ background: "#f6f8fa", padding: 12, borderRadius: 6, fontSize: 12 }}>{JSON.stringify(detail.schema, null, 2)}</pre>
           </>
         )}
       </Drawer>

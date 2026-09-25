@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, Card, Drawer, Input, Select, Steps, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../api";
+import { useIsMobile } from "../hooks";
 
 interface ReqRow {
   id: number;
@@ -26,6 +27,7 @@ export function Requirements() {
   const [form, setForm] = useState({ title: "", body: "", repo_id: 0 });
   const [pipeline, setPipeline] = useState<string[]>([]);
   const [detail, setDetail] = useState<ReqRow | null>(null);
+  const isMobile = useIsMobile();
   const repos = useQuery({ queryKey: ["repos"], queryFn: () => get<any[]>("/api/repos") });
   const reqs = useQuery({ queryKey: ["reqs"], queryFn: () => get<{ items: ReqRow[] }>("/api/requirements"), refetchInterval: 6000 });
 
@@ -57,7 +59,7 @@ export function Requirements() {
           style={{ marginBottom: 8 }}
         />
         <Select
-          style={{ width: 260, marginRight: 8 }}
+          style={{ width: 260, maxWidth: "100%", marginRight: 8 }}
           placeholder="绑定仓库（必选）"
           value={form.repo_id || undefined}
           onChange={(v) => setForm({ ...form, repo_id: v })}
@@ -79,6 +81,7 @@ export function Requirements() {
         <Table<ReqRow>
           rowKey="id"
           size="small"
+          scroll={{ x: 560 }}
           pagination={{ pageSize: 10 }}
           loading={reqs.isLoading}
           dataSource={reqs.data?.items ?? []}
@@ -113,7 +116,7 @@ export function Requirements() {
           ]}
         />
       </Card>
-      <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={560}>
+      <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={isMobile ? "100%" : 560}>
         {detail && (
           <>
             <p>

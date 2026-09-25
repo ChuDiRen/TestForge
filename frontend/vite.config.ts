@@ -16,6 +16,8 @@ export default defineConfig({
     },
   },
   server: {
+    // 监听 0.0.0.0：手机/局域网设备可通过本机 IP 直接访问
+    host: true,
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",

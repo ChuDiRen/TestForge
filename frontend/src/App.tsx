@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Badge, ConfigProvider, Layout, Menu, Typography } from "antd";
+import { useMemo, useState } from "react";
+import { Badge, Button, ConfigProvider, Drawer, Grid, Layout, Menu, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "./api";
@@ -58,6 +58,9 @@ const VIEW_COMPONENTS: Partial<Record<ViewKey, () => JSX.Element>> = {
 
 export function App() {
   const view = currentView();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  const [navOpen, setNavOpen] = useState(false);
   const { data: stats } = useQuery({
     queryKey: ["stats"],
     queryFn: () => get<Record<string, number>>("/api/stats/summary"),
@@ -71,35 +74,35 @@ export function App() {
     return C ? <C /> : <Placeholder view={meta.label} milestone={meta.milestone} />;
   }, [view]);
 
+  const menuItems = VIEWS.map((v) => ({
+    key: v.key,
+    icon: <span>{v.icon}</span>,
+    label:
+      v.key === "cases" || v.key === "requirements" ? (
+        <Badge count={pendingReviews} size="small" offset={[8, 0]}>
+          {v.label}
+        </Badge>
+      ) : (
+        v.label
+      ),
+  }));
+  const onMenuClick = (e: { key: string }) => {
+    setNavOpen(false);
+    window.location.search = `?view=${e.key}`;
+  };
+
   return (
     <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: "#4f46e5", borderRadius: 6 } }}>
       <Layout style={{ minHeight: "100vh" }}>
-        <Sider theme="dark" width={216}>
-          <div style={{ color: "#fff", padding: "18px 16px 12px", fontWeight: 700, fontSize: 17 }}>
-            ⚒ TestForge
-            <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.65 }}>AI 测试用例生成平台</div>
-          </div>
-          <Menu
-            theme="dark"
-            mode="inline"
-            selectedKeys={[view]}
-            items={VIEWS.map((v) => ({
-              key: v.key,
-              icon: <span>{v.icon}</span>,
-              label:
-                v.key === "cases" || v.key === "requirements" ? (
-                  <Badge count={pendingReviews} size="small" offset={[8, 0]}>
-                    {v.label}
-                  </Badge>
-                ) : (
-                  v.label
-                ),
-            }))}
-            onClick={(e) => {
-              window.location.search = `?view=${e.key}`;
-            }}
-          />
-        </Sider>
+        {!isMobile && (
+          <Sider theme="dark" width={216}>
+            <div style={{ color: "#fff", padding: "18px 16px 12px", fontWeight: 700, fontSize: 17 }}>
+              ⚒ TestForge
+              <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.65 }}>AI 测试用例生成平台</div>
+            </div>
+            <Menu theme="dark" mode="inline" selectedKeys={[view]} items={menuItems} onClick={onMenuClick} />
+          </Sider>
+        )}
         <Layout>
           <Header
             style={{
@@ -108,18 +111,48 @@ export function App() {
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              padding: "0 24px",
+              padding: isMobile ? "0 12px" : "0 24px",
+              gap: 8,
             }}
           >
-            <Typography.Text strong style={{ fontSize: 16 }}>
-              {VIEWS.find((v) => v.key === view)?.label}
-            </Typography.Text>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+              {isMobile && (
+                <Button
+                  type="text"
+                  aria-label="打开导航菜单"
+                  style={{ fontSize: 18, padding: "0 8px" }}
+                  onClick={() => setNavOpen(true)}
+                >
+                  ☰
+                </Button>
+              )}
+              <Typography.Text strong style={{ fontSize: 16 }} ellipsis>
+                {isMobile ? "TestForge · " : ""}
+                {VIEWS.find((v) => v.key === view)?.label}
+              </Typography.Text>
+            </div>
             <Badge count={pendingReviews} overflowCount={99}>
               <span style={{ fontSize: 13 }}>待人审</span>
             </Badge>
           </Header>
-          <Content style={{ padding: 20, background: "#f5f6fa", overflow: "auto" }}>{body}</Content>
+          <Content style={{ padding: isMobile ? 12 : 20, background: "#f5f6fa", overflow: "auto" }}>{body}</Content>
         </Layout>
+        <Drawer
+          title={<span style={{ fontWeight: 700 }}>⚒ TestForge</span>}
+          placement="left"
+          width={280}
+          open={navOpen}
+          onClose={() => setNavOpen(false)}
+          styles={{ body: { padding: 0 } }}
+        >
+          <Menu
+            mode="inline"
+            selectedKeys={[view]}
+            items={menuItems}
+            onClick={onMenuClick}
+            style={{ borderInlineEnd: "none" }}
+          />
+        </Drawer>
       </Layout>
     </ConfigProvider>
   );
