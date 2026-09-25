@@ -6,7 +6,7 @@ import { get } from "./api";
 import { Dashboard } from "./views/Dashboard";
 import { Placeholder } from "./views/Placeholder";
 import { Wiki } from "./views/Wiki";
-import { Map } from "./views/Map";
+import { Map } from "./views/ServiceMap";
 import { RepoAdd } from "./views/RepoAdd";
 import { Requirements } from "./views/Requirements";
 import { Plans } from "./views/Plans";
@@ -14,7 +14,7 @@ import { Workbench } from "./views/Workbench";
 import { Cases } from "./views/Cases";
 import { Runs } from "./views/Runs";
 import { Defects } from "./views/Defects";
-import { Logs } from "./views/Logs";
+import { Logs } from "./views/Traces";
 import { Quality } from "./views/Quality";
 
 const { Sider, Header, Content } = Layout;

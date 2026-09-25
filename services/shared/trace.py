@@ -9,7 +9,7 @@ from datetime import datetime
 
 from services.shared.config import GRPC_PORTS, get_settings
 from services.shared.grpc_client import grpc_call
-from services.shared.logging import get_trace_id, new_trace_id
+from services.shared.logutil import get_trace_id, new_trace_id
 from services.shared.sanitize import sanitize_text
 
 log = logging.getLogger("shared.trace")

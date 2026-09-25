@@ -12,7 +12,7 @@ import uuid
 from services.shared.config import GRPC_PORTS, get_settings
 from services.shared.db import get_session
 from services.shared.grpc_client import grpc_call, grpc_stream
-from services.shared.logging import get_trace_id, set_trace_id
+from services.shared.logutil import get_trace_id, set_trace_id
 from services.shared.models import Cases, GenerationEvents, Generations, Runs
 from services.shared.trace import emit
 

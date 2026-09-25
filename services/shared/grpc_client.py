@@ -7,7 +7,7 @@ from typing import Any
 import grpc
 
 from services.shared.config import get_settings
-from services.shared.logging import get_trace_id
+from services.shared.logutil import get_trace_id
 
 log = logging.getLogger("shared.grpc")
 

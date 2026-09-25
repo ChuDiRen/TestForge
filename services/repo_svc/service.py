@@ -4,11 +4,11 @@ import logging
 from datetime import datetime
 
 from services.repo_svc import gitops
-from services.repo_svc.indexer import index_repo
+from services.repo_svc.indexer import index_repo, parse_python_file
 from services.shared.config import GRPC_PORTS
 from services.shared.db import get_session
 from services.shared.grpc_client import grpc_call
-from services.shared.logging import get_trace_id, new_trace_id
+from services.shared.logutil import get_trace_id, new_trace_id
 from services.shared.models import CallEdges, Functions, Repos
 from services.shared.trace import emit
 
@@ -87,9 +87,20 @@ def pull(repo_id: int) -> dict:
 
 
 def _reindex(repo_id: int, dest, rev: str, steps: list[str], changed_files: list[str] | None = None, from_rev: str = "") -> dict:
-    """tree-sitter 索引 + 调用图入库 + Wiki 编译（经 gRPC 调 wiki-builder）。"""
-    cards = index_repo(dest)
-    steps.append(f"tree-sitter 索引: {len(cards)} 函数")
+    """tree-sitter 索引 + 调用图入库 + Wiki 编译（经 gRPC 调 wiki-builder）。
+
+    增量模式（changed_files 非空）只解析变更文件，不再全仓重解析。
+    """
+
+    if changed_files:
+        py_files = [dest / f for f in changed_files if f.endswith(".py") and (dest / f).exists()]
+        cards = []
+        for py in py_files:
+            cards.extend(parse_python_file(py, dest))
+        steps.append(f"tree-sitter 增量索引: {len(cards)} 函数（{len(py_files)} 文件）")
+    else:
+        cards = index_repo(dest)
+        steps.append(f"tree-sitter 索引: {len(cards)} 函数")
 
     with get_session() as sess:
         old = {f.name: f for f in sess.query(Functions).filter(Functions.repo_id == repo_id).all()}

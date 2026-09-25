@@ -12,7 +12,7 @@ from services.shared.db import get_session
 from services.shared.gen import testforge_pb2 as pb2
 from services.shared.gen import testforge_pb2_grpc as pb2_grpc
 from services.shared.grpc_server import run_server
-from services.shared.logging import setup_logging
+from services.shared.logutil import setup_logging
 from services.shared.models import TraceEvents
 from services.shared.sanitize import sanitize_text
 
@@ -67,13 +67,13 @@ class DefectServicer(pb2_grpc.DefectSvcServicer):
         return pong(NAME)
 
     def CreateFromRun(self, request, context):  # noqa: N802
-        from services.trace_svc import loop
+        from services.trace_svc import defect_svc
 
         try:
             case_codes = json.loads(request.case_codes_json or "[]")
         except json.JSONDecodeError:
             case_codes = []
-        res = loop.create_from_run(
+        res = defect_svc.create_from_run(
             run_id=request.run_id,
             case_codes=case_codes,
             req_code=request.req_code,
@@ -83,10 +83,10 @@ class DefectServicer(pb2_grpc.DefectSvcServicer):
         return pb2.Defect(id=res["id"], code=res["code"], title=f"run {request.run_id} 失败", status=res["status"], assignee=res["assignee"])
 
     def TriggerRegression(self, request, context):  # noqa: N802
-        from services.trace_svc import loop
+        from services.trace_svc import defect_svc
 
         try:
-            res = loop.trigger_regression(request.id, trace_id=request.trace_id)
+            res = defect_svc.trigger_regression(request.id, trace_id=request.trace_id)
         except KeyError as exc:
             context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
         return pb2.RunReport(
@@ -104,9 +104,9 @@ class PlanServicer(pb2_grpc.PlanSvcServicer):
         return pong(NAME)
 
     def EvaluateExitPlan(self, request, context):  # noqa: N802
-        from services.trace_svc import loop
+        from services.trace_svc import plan_svc
 
-        res = loop.evaluate_plan(request.code, request.version, list(request.req_codes), trace_id=request.trace_id)
+        res = plan_svc.evaluate_plan(request.code, request.version, list(request.req_codes), trace_id=request.trace_id)
         return pb2.ExitCheck(entry_ok=res["entry_ok"], exit_ok=res["exit_ok"], checks=res["checks"], report_json=json.dumps(res.get("case_stats", {}), ensure_ascii=False))
 
 

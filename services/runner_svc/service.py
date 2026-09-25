@@ -9,7 +9,7 @@ from services.runner_svc import sandbox
 from services.shared.config import GRPC_PORTS
 from services.shared.db import get_session
 from services.shared.grpc_client import grpc_call
-from services.shared.logging import get_trace_id
+from services.shared.logutil import get_trace_id
 from services.shared.models import Repos
 from services.shared.trace import emit
 

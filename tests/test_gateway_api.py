@@ -77,7 +77,7 @@ def test_requirement_ingest_requires_fields():
 
 
 def test_create_from_run_triage_and_assignee():
-    from services.trace_svc.loop import create_from_run
+    from services.trace_svc.defect_svc import create_from_run
 
     res = create_from_run(
         run_id="RUN-TEST-TRIAGE",
@@ -106,7 +106,7 @@ def test_create_from_run_triage_and_assignee():
 
 
 def test_triage_severity_escalates_with_failure_count():
-    from services.trace_svc.loop import create_from_run
+    from services.trace_svc.defect_svc import create_from_run
 
     many = create_from_run("RUN-TRIAGE-BIG", [f"C{i}" for i in range(8)], "REQ-T2", "tr_t2", "批量失败")
     few = create_from_run("RUN-TRIAGE-SMALL", ["C1"], "REQ-T2", "tr_t2", "单条失败")

@@ -7,13 +7,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import Integer, func
+from sqlalchemy import Integer, func, select
 
 from gateway.envelope import ApiError, err, ok
 from services.shared.config import GRPC_PORTS, VERSION, get_settings
 from services.shared.db import get_session, init_db
 from services.shared.grpc_client import grpc_call
-from services.shared.logging import new_trace_id, set_trace_id, setup_logging
+from services.shared.logutil import new_trace_id, set_trace_id, setup_logging
 from services.shared.models import (
     Cases,
     Contracts,
@@ -120,21 +120,37 @@ def system_services():
 
 @app.get("/api/stats/summary")
 def stats_summary():
+    """仪表盘统计：标量计数合并为单条 SQL（子查询一次往返），分组计数各一条。"""
     with get_session() as sess:
+        scalars = sess.execute(
+            select(
+                select(func.count()).select_from(Repos).scalar_subquery(),
+                select(func.count()).select_from(Cases).scalar_subquery(),
+                select(func.count()).select_from(Cases).where(Cases.status == "待人审").scalar_subquery(),
+                select(func.count()).select_from(Runs).scalar_subquery(),
+                select(func.count()).select_from(Runs).where(Runs.status == "success").scalar_subquery(),
+                select(func.count()).select_from(Requirements).scalar_subquery(),
+                select(func.count()).select_from(Defects).where(Defects.status.notin_(["已关闭"])).scalar_subquery(),
+                select(func.count()).select_from(WikiPages).scalar_subquery(),
+                select(func.count()).select_from(WikiPages).where(WikiPages.stale.is_(True)).scalar_subquery(),
+                select(func.count()).select_from(Contracts).scalar_subquery(),
+            )
+        ).one()
+        (repos, cases_total, pending, runs_total, runs_ok, reqs_total, defects_open, wiki_pages, wiki_stale, contracts) = scalars
         return ok(
             {
-                "repos": sess.query(Repos).count(),
-                "cases_total": sess.query(Cases).count(),
+                "repos": repos,
+                "cases_total": cases_total,
                 "cases_by_layer": _count_by(sess, Cases.layer),
                 "cases_by_status": _count_by(sess, Cases.status),
-                "pending_reviews": sess.query(Cases).filter(Cases.status == "待人审").count(),
-                "runs_total": sess.query(Runs).count(),
-                "runs_pass_rate": _pass_rate(sess),
-                "requirements_total": sess.query(Requirements).count(),
-                "defects_open": sess.query(Defects).filter(Defects.status.notin_(["已关闭"])).count(),
-                "wiki_pages": sess.query(WikiPages).count(),
-                "wiki_stale": sess.query(WikiPages).filter(WikiPages.stale.is_(True)).count(),
-                "contracts": sess.query(Contracts).count(),
+                "pending_reviews": pending,
+                "runs_total": runs_total,
+                "runs_pass_rate": round(runs_ok / runs_total * 100, 1) if runs_total else 0.0,
+                "requirements_total": reqs_total,
+                "defects_open": defects_open,
+                "wiki_pages": wiki_pages,
+                "wiki_stale": wiki_stale,
+                "contracts": contracts,
             }
         )
 
@@ -142,14 +158,6 @@ def stats_summary():
 def _count_by(sess, column) -> dict:  # type: ignore[no-untyped-def]
     rows = sess.query(column, func.count()).group_by(column).all()
     return {k or "": v for k, v in rows}
-
-
-def _pass_rate(sess) -> float:  # type: ignore[no-untyped-def]
-    total = sess.query(Runs).count()
-    if not total:
-        return 0.0
-    passed = sess.query(Runs).filter(Runs.status == "success").count()
-    return round(passed / total * 100, 1)
 
 
 # ---------------- Wiki（M2） ----------------
@@ -404,9 +412,8 @@ def list_cases(layer: str = "", module: str = "", status: str = "", category: st
         if source_req:
             q = q.filter(Cases.source_req == source_req)
         rows = q.order_by(Cases.id.desc()).limit(1000).all()
-        by_layer = {}
-        for lay in ("ut", "api", "fn", "e2e", "contract"):
-            by_layer[lay] = sess.query(Cases).filter(Cases.layer == lay).count()
+        by_layer = {lay: 0 for lay in ("ut", "api", "fn", "e2e", "contract")}
+        by_layer.update({k: v for k, v in sess.query(Cases.layer, func.count()).group_by(Cases.layer).all()})
         return ok(
             {
                 "total": len(rows),

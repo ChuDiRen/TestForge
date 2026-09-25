@@ -3,6 +3,18 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        // 按依赖分块：主包变小、vendor 利用浏览器缓存
+        manualChunks: {
+          react: ["react", "react-dom"],
+          antd: ["antd"],
+          query: ["@tanstack/react-query"],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": {

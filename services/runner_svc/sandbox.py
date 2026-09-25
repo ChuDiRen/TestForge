@@ -238,10 +238,10 @@ def _ensure_image(client) -> None:  # type: ignore[no-untyped-def]
         return
     except Exception:  # noqa: BLE001
         pass
-    dockerfile = Path("deploy") / "sandbox.Dockerfile"
+    dockerfile = Path("deploy") / "Dockerfile.sandbox"
     if dockerfile.exists():
         log.info("building sandbox image %s …", SANDBOX_IMAGE)
         client.images.build(path=".", dockerfile=str(dockerfile), tag=SANDBOX_IMAGE, rm=True)
     else:
         client.images.pull("python:3.12-slim")
-        log.warning("使用裸 python:3.12-slim（无 pytest，可能失败）；建议提供 deploy/sandbox.Dockerfile")
+        log.warning("使用裸 python:3.12-slim（无 pytest，可能失败）；建议提供 deploy/Dockerfile.sandbox")

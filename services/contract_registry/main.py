@@ -9,7 +9,7 @@ from services.shared.config import GRPC_PORTS
 from services.shared.gen import testforge_pb2 as pb2
 from services.shared.gen import testforge_pb2_grpc as pb2_grpc
 from services.shared.grpc_server import run_server
-from services.shared.logging import setup_logging
+from services.shared.logutil import setup_logging
 
 NAME = "contract-registry"
 log = logging.getLogger(NAME)

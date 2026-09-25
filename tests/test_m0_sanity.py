@@ -12,7 +12,7 @@ def test_sanitize_masks_credentials():
 
 
 def test_trace_id_format():
-    from services.shared.logging import new_trace_id
+    from services.shared.logutil import new_trace_id
 
     tid = new_trace_id()
     assert tid.startswith("tr_") and len(tid) == 15

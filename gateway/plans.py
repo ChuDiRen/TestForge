@@ -190,7 +190,7 @@ def build_report(iter_code: str):
         it = sess.query(Iterations).filter(Iterations.code == iter_code).first()
         if it is None:
             raise ApiError(404, "迭代不存在", 404)
-    from services.trace_svc.loop import build_report as _build
+    from services.trace_svc.plan_svc import build_report as _build
 
     data = _build(iter_code, trace_id="")
     return ok(data)

@@ -6,6 +6,7 @@ LLM_MODE=mock 不依赖外部 embedding API：token-hash 词袋向量（归一�
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -18,6 +19,21 @@ log = logging.getLogger("shared.rag")
 
 DIM = 256
 _TOKEN = re.compile(r"[A-Za-z_]{2,}|[\u4e00-\u9fff]")
+
+
+_EMBED_CACHE: dict[str, list[float]] = {}
+_EMBED_CACHE_MAX = 10_000
+
+
+def _embed_cached(content: str) -> list[float]:
+    key = hashlib.md5(content.encode("utf-8")).hexdigest()
+    vec = _EMBED_CACHE.get(key)
+    if vec is None:
+        vec = embed(content)
+        if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
+            _EMBED_CACHE.clear()  # 简单防膨胀：满则整体换血
+        _EMBED_CACHE[key] = vec
+    return vec
 
 
 def embed(text: str) -> list[float]:
@@ -65,8 +81,10 @@ def index_case(case_code: str, content: str) -> None:
 
 
 def similar_cases(content: str, limit: int = 5, layer: str = "") -> list[dict]:
-    """检索 top-k 相似已入库用例。"""
-    qvec = embed(content)
+    """检索 top-k 相似已入库用例（embedding 进程内缓存，避免每次重算）。"""
+    from services.shared.models import Cases
+
+    qvec = _embed_cached(content)
     codes: list[tuple[str, float]] = []
     with get_session() as sess:
         if _pgvector_available(sess):
@@ -80,42 +98,36 @@ def similar_cases(content: str, limit: int = 5, layer: str = "") -> list[dict]:
             ).all()
             codes = [(str(r[0]), float(r[1])) for r in rows]
         if not codes:
-            # python 余弦兜底：全量已入库用例
-            from services.shared.models import Cases
-
-            q = sess.query(Cases).filter(Cases.status == "已入库")
+            # python 余弦兜底：全量已入库用例（向量逐条缓存，二次查询零重算）
+            q = sess.query(Cases.code, Cases.title, Cases.category, Cases.target_function, Cases.schema_json).filter(
+                Cases.status == "已入库"
+            )
             if layer:
                 q = q.filter(Cases.layer == layer)
-            cands = q.limit(500).all()
-            scored = []
-            for c in cands:
-                cvec = embed(f"{c.title} {c.category} {c.target_function} {(c.schema_json or '')[:500]}")
+            scored: list[tuple[str, float]] = []
+            for code, title, category, target_fn, schema_json in q.limit(500):
+                cvec = _embed_cached(f"{title} {category} {target_fn} {(schema_json or '')[:500]}")
                 score = sum(a * b for a, b in zip(qvec, cvec))
-                scored.append((c.code, -score))
+                scored.append((code, -score))
             scored.sort(key=lambda x: x[1])
             codes = scored[: max(limit * 3, 15)]
 
-    # 补全用例详情
-    out: list[dict] = []
-    if not codes:
-        return out
-    from services.shared.models import Cases
-
-    wanted = [c for c, _ in codes]
-    with get_session() as sess:
+        if not codes:
+            return []
+        wanted = [c for c, _ in codes]
         rows = sess.query(Cases).filter(Cases.code.in_(wanted)).all()
-        dist_map = {c: d for c, d in codes}
-        for r in rows:
-            out.append(
-                {
-                    "code": r.code,
-                    "title": r.title,
-                    "layer": r.layer,
-                    "category": r.category,
-                    "target_function": r.target_function,
-                    "score": round(1.0 / (1.0 + dist_map.get(r.code, 1.0)), 4),
-                }
-            )
+    dist_map = dict(codes)
+    out = [
+        {
+            "code": r.code,
+            "title": r.title,
+            "layer": r.layer,
+            "category": r.category,
+            "target_function": r.target_function,
+            "score": round(1.0 / (1.0 + dist_map.get(r.code, 1.0)), 4),
+        }
+        for r in rows
+    ]
     out.sort(key=lambda x: -x["score"])
     return out[:limit]
 

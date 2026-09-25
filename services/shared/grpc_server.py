@@ -6,7 +6,7 @@ from typing import Callable
 
 import grpc
 
-from services.shared.logging import set_trace_id
+from services.shared.logutil import set_trace_id
 
 log = logging.getLogger("shared.grpc_server")
 
