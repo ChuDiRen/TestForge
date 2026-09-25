@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Badge, Button, ConfigProvider, Drawer, Grid, Layout, Menu, Spin, Typography } from "antd";
+import { Avatar, Button, ConfigProvider, Dropdown, Drawer, Grid, Layout, Menu, Spin, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { useQuery } from "@tanstack/react-query";
 import { get, setToken } from "./api";
@@ -67,17 +67,11 @@ interface Me {
   role: string;
 }
 
-function Shell() {
+function Shell({ user }: { user: Me }) {
   const view = currentView();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const [navOpen, setNavOpen] = useState(false);
-  const { data: stats } = useQuery({
-    queryKey: ["stats"],
-    queryFn: () => get<Record<string, number>>("/api/stats/summary"),
-    refetchInterval: 10000,
-  });
-  const pendingReviews = stats?.pending_reviews ?? 0;
 
   const body = useMemo(() => {
     const C = VIEW_COMPONENTS[view];
@@ -87,14 +81,7 @@ function Shell() {
   const menuItems = VIEWS.map((v) => ({
     key: v.key,
     icon: <span>{v.icon}</span>,
-    label:
-      v.key === "cases" || v.key === "requirements" ? (
-        <Badge count={pendingReviews} size="small" offset={[8, 0]}>
-          {v.label}
-        </Badge>
-      ) : (
-        v.label
-      ),
+    label: v.label,
   }));
   const onMenuClick = (e: { key: string }) => {
     setNavOpen(false);
@@ -104,17 +91,28 @@ function Shell() {
     setToken("");
     window.location.reload();
   };
+  const userMenu = {
+    items: [{ key: "logout", label: "退出登录" }],
+    onClick: logout,
+  };
 
   return (
     <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: "#4f46e5", borderRadius: 6 } }}>
       <Layout style={{ minHeight: "100vh" }}>
         {!isMobile && (
-          <Sider theme="dark" width={216}>
+          <Sider theme="dark" width={216} style={{ overflow: "hidden" }}>
             <div style={{ color: "#fff", padding: "18px 16px 12px", fontWeight: 700, fontSize: 17 }}>
               ⚒ TestForge
               <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.65 }}>AI 测试用例生成平台</div>
             </div>
-            <Menu theme="dark" mode="inline" selectedKeys={[view]} items={menuItems} onClick={onMenuClick} />
+            <Menu
+              theme="dark"
+              mode="inline"
+              selectedKeys={[view]}
+              items={menuItems}
+              onClick={onMenuClick}
+              style={{ height: "calc(100vh - 78px)", overflowY: "auto", scrollbarWidth: "thin" }}
+            />
           </Sider>
         )}
         <Layout>
@@ -145,19 +143,35 @@ function Shell() {
                 {VIEWS.find((v) => v.key === view)?.label}
               </Typography.Text>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <Badge count={pendingReviews} overflowCount={99}>
-                <span style={{ fontSize: 13 }}>待人审</span>
-              </Badge>
-              <Button type="text" size="small" onClick={logout}>
-                退出
-              </Button>
-            </div>
+            <Dropdown menu={userMenu} placement="bottomRight">
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "4px 6px", borderRadius: 6 }}
+              >
+                <Avatar style={{ background: "#4f46e5", flexShrink: 0 }} size={30}>
+                  {(user.username || "U").slice(0, 1).toUpperCase()}
+                </Avatar>
+                {!isMobile && (
+                  <Typography.Text>
+                    {user.username}
+                    <span style={{ color: "#999", marginLeft: 6, fontSize: 12 }}>
+                      {user.role === "admin" ? "管理员" : "只读"}
+                    </span>
+                  </Typography.Text>
+                )}
+              </div>
+            </Dropdown>
           </Header>
           <Content style={{ padding: isMobile ? 12 : 20, background: "#f5f6fa", overflow: "auto" }}>{body}</Content>
         </Layout>
         <Drawer
-          title={<span style={{ fontWeight: 700 }}>⚒ TestForge</span>}
+          title={
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Avatar style={{ background: "#4f46e5" }} size={28}>
+                {(user.username || "U").slice(0, 1).toUpperCase()}
+              </Avatar>
+              <span style={{ fontWeight: 700 }}>⚒ TestForge</span>
+            </div>
+          }
           placement="left"
           width={280}
           open={navOpen}
@@ -195,5 +209,5 @@ export function App() {
   if (me.isError || !me.data) {
     return <ConfigProvider locale={zhCN}>{<Login onLogin={() => me.refetch()} />}</ConfigProvider>;
   }
-  return <Shell />;
+  return <Shell user={me.data} />;
 }
