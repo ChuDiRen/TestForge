@@ -4,6 +4,7 @@
 """
 
 import os
+import pathlib
 import subprocess
 import sys
 import time
@@ -12,7 +13,11 @@ from pathlib import Path
 import httpx
 
 GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
-REPO_URL = os.environ.get("TF_SAMPLE_REPO_URL", "file:///mnt/e/TestForge/fixtures/sample-repo")
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+REPO_URL = os.environ.get(
+    "TF_SAMPLE_REPO_URL",
+    (_ROOT / "fixtures" / "sample-repo").as_uri() if os.name == "nt" else "file:///mnt/e/TestForge/fixtures/sample-repo",
+)
 # Windows 侧运行 demo 时，sample-repo 的源目录（fixtures）路径
 SRC = Path(os.environ.get("TF_SAMPLE_REPO_SRC", "fixtures/sample-repo")).resolve()
 

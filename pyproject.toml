@@ -40,6 +40,9 @@ package = false
 pythonpath = ["."]
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "needs_asyncio: 依赖事件循环的用例（TestClient/uvicorn）；主机 asyncio 不可用时自动跳过",
+]
 
 [tool.ruff]
 line-length = 110

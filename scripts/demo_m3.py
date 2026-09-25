@@ -4,6 +4,7 @@
 """
 
 import os
+import pathlib
 import sys
 import time
 import uuid
@@ -11,7 +12,11 @@ import uuid
 import httpx
 
 GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
-REPO_URL = os.environ.get("TF_SAMPLE_REPO_URL", "file:///mnt/e/TestForge/fixtures/sample-repo")
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+REPO_URL = os.environ.get(
+    "TF_SAMPLE_REPO_URL",
+    (_ROOT / "fixtures" / "sample-repo").as_uri() if os.name == "nt" else "file:///mnt/e/TestForge/fixtures/sample-repo",
+)
 
 CHECKS: list[tuple[str, bool, str]] = []
 HEADERS: dict = {}

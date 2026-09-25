@@ -1,19 +1,55 @@
 """gateway 接口测试（PROMPT §11：httpx TestClient）+ 失败分诊（CreateFromRun）单测。
 
-在 WSL 环境 `make test` 下运行（Windows 主机 asyncio 受三方注入破坏，TestClient 不可用）。
+跨平台：TestClient 用例依赖 asyncio——健康 Windows/Linux 服务器/WSL 上正常执行；
+Windows 主机 asyncio 被三方注入破坏时自动 skip（启动时 3 秒探测）。
+失败分诊用例不依赖 asyncio，任何平台都执行。
 """
 
 import json
+import os
+import threading
 
-from fastapi.testclient import TestClient
+import pytest
 
 
-def _client() -> TestClient:
+def _asyncio_usable() -> bool:
+    """3 秒内跑完一个平凡 asyncio.run 即认为事件循环可用。"""
+    result: dict[str, bool] = {}
+
+    def probe() -> None:
+        try:
+            import asyncio
+
+            async def m() -> int:
+                await asyncio.sleep(0.05)
+                return 1
+
+            result["ok"] = asyncio.run(m()) == 1
+        except Exception:  # noqa: BLE001
+            result["ok"] = False
+
+    t = threading.Thread(target=probe, daemon=True)
+    t.start()
+    t.join(3)
+    return result.get("ok", False)
+
+
+_ASYNCIO_OK = _asyncio_usable()
+needs_asyncio = pytest.mark.skipif(
+    os.name == "nt" and not _ASYNCIO_OK,
+    reason="主机 asyncio 被三方软件注入破坏（uvicorn/TestClient 不可用）；WSL/健康 Windows/服务器上正常执行",
+)
+
+
+def _client():
+    from fastapi.testclient import TestClient
+
     from gateway.main import app
 
     return TestClient(app)
 
 
+@needs_asyncio
 def test_health_envelope_shape():
     with _client() as client:
         r = client.get("/api/health")
@@ -24,12 +60,14 @@ def test_health_envelope_shape():
         assert "version" in body["data"]
 
 
+@needs_asyncio
 def test_trace_middleware_headers():
     with _client() as client:
         r = client.post("/api/repos", json={"url": ""})  # 校验失败路径也带 trace 头
         assert r.headers.get("X-Trace-Id", "").startswith("tr_")
 
 
+@needs_asyncio
 def test_repo_validation_error_1001():
     with _client() as client:
         r = client.post("/api/repos", json={"url": ""})
@@ -37,6 +75,7 @@ def test_repo_validation_error_1001():
         assert r.json()["code"] == 1001
 
 
+@needs_asyncio
 def test_cases_endpoint_envelope_and_fields():
     with _client() as client:
         r = client.get("/api/cases")
@@ -50,6 +89,7 @@ def test_cases_endpoint_envelope_and_fields():
             assert {"code", "layer", "title", "category", "status", "trace_id"} <= set(item)
 
 
+@needs_asyncio
 def test_runs_and_quality_endpoints():
     with _client() as client:
         r1 = client.get("/api/runs")
@@ -61,12 +101,14 @@ def test_runs_and_quality_endpoints():
             assert 0 <= row["quality_score"] <= 100
 
 
+@needs_asyncio
 def test_unknown_case_review_404():
     with _client() as client:
         r = client.post("/api/cases/99999999/review", json={"action": "approve"})
         assert r.status_code == 404 and r.json()["code"] == 404
 
 
+@needs_asyncio
 def test_requirement_ingest_requires_fields():
     with _client() as client:
         r = client.post("/api/requirements/ingest", json={"title": "", "body": ""})

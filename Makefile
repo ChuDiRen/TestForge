@@ -28,8 +28,13 @@ proto:
 	$(PY) scripts/fix_proto_imports.py
 	@echo "proto stubs generated -> services/shared/gen/"
 
+ifeq ($(OS),Windows_NT)
 dev:
 	$(PY) scripts/dev_up_win.py
+else
+dev:
+	$(PY) scripts/dev_up.py
+endif
 
 up: dev
 	@$(PY) scripts/healthcheck.py
