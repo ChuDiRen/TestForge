@@ -28,13 +28,10 @@ proto:
 	$(PY) scripts/fix_proto_imports.py
 	@echo "proto stubs generated -> services/shared/gen/"
 
-ifeq ($(OS),Windows_NT)
-dev:
-	$(PY) scripts/dev_up_win.py
-else
 dev:
 	$(PY) scripts/dev_up.py
-endif
+# Windows 主机 asyncio 被三方注入破坏时的备选（WSL 后端 + Windows 前端）：
+# 	$(PY) scripts/dev_up_win.py
 
 up: dev
 	@$(PY) scripts/healthcheck.py
@@ -46,11 +43,7 @@ down:
 restart: down dev
 
 test:
-ifeq ($(OS),Windows_NT)
-	wsl.exe -e bash -lc "cd /mnt/e/TestForge && UV_PROJECT_ENVIRONMENT=.venv-wsl uv run --no-sync pytest -q"
-else
 	$(UV) run pytest -q
-endif
 
 lint:
 	$(UV) run ruff check gateway services scripts tests
