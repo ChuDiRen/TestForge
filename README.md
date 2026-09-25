@@ -27,13 +27,12 @@ make test           # ⑤ 单测（23 passed，含 gateway TestClient 接口测�
 
 - **仓库形态**：monorepo。后端 Python 3.12（uv），前端 pnpm + Vite；
 - **前端**：React 18 + TypeScript + Ant Design 5 + React Query + Zustand + ECharts；
-- **网关**：FastAPI，对外 REST + SSE，对内 gRPC 客户端；
-- **服务间**：gRPC（grpcio），proto 统一放 `proto/`，`make proto` 一次生成两端 stub；
-- **微服务（7）**：repo-svc / wiki-builder / contract-registry / req-svc / testgen-svc / runner-svc / trace-svc（同进程承载 DefectSvc + PlanSvc，共 9 个 PRD 3.3 服务）；
+- **后端单体**：一个 FastAPI 进程 = REST/SSE 网关 + 全部 9 个服务（repo/wiki/契约/需求/生成/执行/trace/缺陷/计划），服务间经进程内直调（`MONO_MODE=1` 默认）；模块边界与 proto 契约保持不变，`MONO_MODE=0` 可退回微服务拓扑（各 `services/*/main.py` 仍可独立起 gRPC 进程）；
+- **proto**：`proto/testforge.proto` 为消息与服务契约唯一事实源，`make proto` 生成 stub；
 - **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）+ 本地文件；SQLite 可经 `DATABASE_URL` 切换（开发兜底）；
 - **LLM**：OpenAI 兼容 API 全配置化（`LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`），**`LLM_MODE=mock` 无 Key 全流程可跑**；结构化输出过 pydantic 校验；
 - **沙箱**：`SANDBOX_MODE=docker`（--network none / 512m / 1cpu）/ `local`（本机 pytest）/ `fake`（确定性模拟）；
-- **部署**：`deploy/docker-compose.yml` 一键起 pg/redis/8 服务/前端；`make stack-up`。
+- **部署**：`deploy/docker-compose.yml` 一键起 postgres + redis + backend(单体) + frontend；`make stack-up`。
 
 ## 目录结构
 
@@ -70,7 +69,7 @@ TestForge/
 
 ## Windows 主机注意
 
-本仓库在 Windows 上开发验证时，主机 Python asyncio 被三方软件注入破坏（uvicorn 无法启动），因此 `make dev` 自动采用 **WSL 后端 + Windows 前端** 拓扑（`scripts/dev_up_win.py` → `scripts/dev_up_wsl.sh`）；Linux/macOS 直接 `python scripts/dev_up.py`。`make test` 同理走 WSL 的 `.venv-wsl`。
+Windows 主机上开发验证时 asyncio 被三方软件注入破坏（uvicorn 无法启动），因此 `make dev` 在 Windows 自动采用 **WSL 后端 + Windows 前端**（`scripts/dev_up_win.py` → `scripts/dev_up_wsl.sh`）；Linux/macOS 直接 `python scripts/dev_up.py`。`make test` 同理走 WSL 的 `.venv-wsl`。
 
 依赖 PyPI 源慢时可 `UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple make install`。
 

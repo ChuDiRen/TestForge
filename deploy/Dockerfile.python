@@ -28,3 +28,4 @@ RUN python -m grpc_tools.protoc -Iproto --python_out=services/shared/gen --grpc_
 
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV MONO_MODE=1

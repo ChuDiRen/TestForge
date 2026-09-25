@@ -19,8 +19,9 @@ def main() -> None:
         run(["git", "init", "-b", "main"], REPO)
     run(["git", "add", "-A"], REPO)
     done = subprocess.run(["git", *GIT_ID, "commit", "-m", "sample-repo baseline"], cwd=REPO, capture_output=True)
-    if done.returncode != 0 and b"nothing to commit" not in done.stderr:
-        raise SystemExit(done.stderr.decode(errors="ignore"))
+    out = (done.stdout or b"") + (done.stderr or b"")
+    if done.returncode != 0 and b"nothing to commit" not in out:
+        raise SystemExit(out.decode(errors="ignore"))
     print(f"sample-repo ready at {REPO}")
 
 

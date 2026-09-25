@@ -19,7 +19,15 @@ def _metadata() -> list[tuple[str, str]]:
 
 
 def grpc_call(service: str, port: int, svc_name: str, method: str, request: dict[str, Any], timeout: float | None = None) -> dict:
-    """按服务名调用 RPC，返回 dict（JSON 透传）。连接类失败丢弃缓存 channel 后重试一次。"""
+    """按服务名调用 RPC，返回 dict（JSON 透传）。单体外进程内直调；否则网络调用+故障重试。"""
+    if get_settings().mono:
+        from services.shared.mono import dispatch
+
+        result = dispatch(svc_name, method, request)
+        if hasattr(result, "__iter__") and hasattr(result, "__next__"):  # 服务端流式被 unary 调用
+            return {"_stream": [_to_dict(m) for m in result]}
+        return _to_dict(result)
+
     for attempt in (1, 2):
         try:
             return _call_once(service, port, svc_name, method, request, timeout)
@@ -61,7 +69,17 @@ def _call_once(service: str, port: int, svc_name: str, method: str, request: dic
 
 
 def grpc_stream(service: str, port: int, svc_name: str, method: str, request: dict[str, Any], timeout: float | None = None):
-    """服务端流式 RPC：逐条 yield dict。"""
+    """服务端流式 RPC：逐条 yield dict。单体外进程内直调生成器。"""
+    if get_settings().mono:
+        from services.shared.mono import dispatch
+
+        result = dispatch(svc_name, method, request)
+        if hasattr(result, "__iter__") and hasattr(result, "__next__"):
+            yield from (_to_dict(m) for m in result)
+        else:
+            yield _to_dict(result)
+        return
+
     from services.shared.gen import testforge_pb2 as pb2
     from services.shared.gen import testforge_pb2_grpc as pb2_grpc
 

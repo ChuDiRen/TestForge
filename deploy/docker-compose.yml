@@ -1,5 +1,6 @@
-# TestForge 一键部署（docker compose）
+# TestForge 部署（单体后端 + Postgres + Redis + 前端）
 # 用法：cd deploy && docker compose up -d --build
+# 微服务模式：设置 MONO_MODE=0 并启用下方各 svc 容器（镜像相同，command 不同）
 
 x-common: &common
   environment: &common-env
@@ -11,7 +12,7 @@ x-common: &common
     LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
     SANDBOX_MODE: ${SANDBOX_MODE:-fake}
     LOG_LEVEL: INFO
-    SVC_HOST: ""
+    MONO_MODE: "1"
     PYTHONPATH: /app
   depends_on:
     postgres:
@@ -43,56 +44,21 @@ services:
     ports:
       - "6379:6379"
 
-  repo-svc:
-    <<: *common
-    build: { context: .., dockerfile: deploy/Dockerfile.python }
-    command: python -m services.repo_svc.main
-
-  wiki-builder:
-    <<: *common
-    build: { context: .., dockerfile: deploy/Dockerfile.python }
-    command: python -m services.wiki_builder.main
-
-  contract-registry:
-    <<: *common
-    build: { context: .., dockerfile: deploy/Dockerfile.python }
-    command: python -m services.contract_registry.main
-
-  req-svc:
-    <<: *common
-    build: { context: .., dockerfile: deploy/Dockerfile.python }
-    command: python -m services.req_svc.main
-
-  testgen-svc:
-    <<: *common
-    build: { context: .., dockerfile: deploy/Dockerfile.python }
-    command: python -m services.testgen_svc.main
-
-  runner-svc:
-    <<: *common
-    build: { context: .., dockerfile: deploy/Dockerfile.python }
-    command: python -m services.runner_svc.main
-    # 真实沙箱模式需挂载 docker.sock：SANDBOX_MODE=docker
-    # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
-
-  trace-svc:
-    <<: *common
-    build: { context: .., dockerfile: deploy/Dockerfile.python }
-    command: python -m services.trace_svc.main
-
-  gateway:
+  backend:
     <<: *common
     build: { context: .., dockerfile: deploy/Dockerfile.python }
     command: python -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
+    # 真实沙箱模式需挂载 docker.sock：SANDBOX_MODE=docker
+    # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
 
   frontend:
     build: { context: .., dockerfile: deploy/Dockerfile.frontend, args: { VITE_API_BASE: "" } }
     ports:
       - "5173:80"
     depends_on:
-      - gateway
+      - backend
 
 volumes:
   tf-pg:

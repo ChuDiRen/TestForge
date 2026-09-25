@@ -41,7 +41,13 @@ SERVICE_LIST = [
 async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     setup_logging("gateway", get_settings().log_level)
     init_db()
-    log.info("gateway v%s up on :%d", VERSION, get_settings().gateway_port)
+    if get_settings().mono:
+        from services.shared.mono import register_all
+
+        svc_list = register_all()
+        log.info("backend v%s (MONO) up on :%d — in-process services: %s", VERSION, get_settings().gateway_port, ", ".join(svc_list))
+    else:
+        log.info("gateway v%s up on :%d (microservice mode)", VERSION, get_settings().gateway_port)
     yield
 
 
@@ -88,15 +94,25 @@ def health():
 
 @app.get("/api/system/services")
 def system_services():
-    """M0 验收点：网关逐个 Ping 全部 gRPC 服务，打通网关→gRPC 链路。"""
+    """M0 验收点：网关→服务链路状态。单体外=进程内直调 Ping；微服务模式下走网络 Ping。"""
     items = []
+    from services.shared.mono import _REGISTRY
+
+    in_process = get_settings().mono and all(svc in _REGISTRY for _, svc in SERVICE_LIST)
     for name, svc in SERVICE_LIST:
+        if in_process:
+            try:
+                res = grpc_call(name, GRPC_PORTS[name], svc, "Ping", {"client": "gateway"})
+                items.append({"name": name, "port": GRPC_PORTS[name], "ok": True, "db_ok": res.get("db_ok", False), "version": res.get("version", "")})
+            except Exception as exc:  # noqa: BLE001
+                items.append({"name": name, "port": GRPC_PORTS[name], "ok": False, "db_ok": False, "error": str(exc)[:120]})
+            continue
         try:
             res = grpc_call(name, GRPC_PORTS[name], svc, "Ping", {"client": "gateway"}, timeout=3.0)
             items.append({"name": name, "port": GRPC_PORTS[name], "ok": True, "db_ok": res.get("db_ok", False), "version": res.get("version", "")})
         except Exception as exc:  # noqa: BLE001
             items.append({"name": name, "port": GRPC_PORTS[name], "ok": False, "db_ok": False, "error": str(exc)[:120]})
-    return ok({"services": items, "all_green": all(i["ok"] and i["db_ok"] for i in items)})
+    return ok({"services": items, "all_green": all(i["ok"] and i["db_ok"] for i in items), "mode": "mono" if in_process else "micro"})
 
 
 # ---------------- 统计（仪表盘） ----------------

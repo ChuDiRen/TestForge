@@ -4,6 +4,7 @@
 """
 
 import os
+import pathlib
 import sys
 import uuid
 
@@ -30,6 +31,11 @@ def api(method: str, path: str, body: dict | None = None, timeout: float = 120) 
 
 
 def main() -> int:
+    # 确保被测源仓库为 git 仓库（幂等；新环境克隆后也能直接跑）
+    import subprocess
+    seed = pathlib.Path(__file__).resolve().parent / ("seed_api_repo.py" if "m4" in __file__ else "seed.py")
+    subprocess.run([sys.executable, str(seed)], check=True, cwd=str(pathlib.Path(__file__).resolve().parents[1]))
+
     print("== TestForge M4 验收（契约+多仓）==")
     global HEADERS
     HEADERS = {"X-Trace-Id": f"tr_{uuid.uuid4().hex[:12]}"}

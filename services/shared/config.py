@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # 本地仓库检出根目录
     repo_root: str = "data/repos"
 
+    # 单体模式：全部服务并入一个进程（gRPC 调用改为进程内直调，仅暴露网关端口）
+    mono: bool = True
+
     # gRPC 目标主机：空 = 按服务名解析（docker 网络）；本地默认 127.0.0.1
     service_host: str = "127.0.0.1"
 

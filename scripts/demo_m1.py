@@ -7,6 +7,7 @@
 
 import json
 import os
+import pathlib
 import sys
 import time
 
@@ -33,6 +34,11 @@ def api(method: str, path: str, body: dict | None = None, timeout: float = 60) -
 
 
 def main() -> int:
+    # 确保被测源仓库为 git 仓库（幂等；新环境克隆后也能直接跑）
+    import subprocess
+    seed = pathlib.Path(__file__).resolve().parent / ("seed_api_repo.py" if "m4" in __file__ else "seed.py")
+    subprocess.run([sys.executable, str(seed)], check=True, cwd=str(pathlib.Path(__file__).resolve().parents[1]))
+
     print("== TestForge M1 验收（单仓闭环，全 mock）==")
     global HEADERS
     import uuid
