@@ -68,7 +68,8 @@ interface Me {
 }
 
 function Shell({ user }: { user: Me }) {
-  const view = currentView();
+  // 视图切换用 React 状态（SPA），URL 仅作刷新恢复用——绝不全页 reload
+  const [view, setView] = useState<ViewKey>(currentView);
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const [navOpen, setNavOpen] = useState(false);
@@ -84,8 +85,10 @@ function Shell({ user }: { user: Me }) {
     label: v.label,
   }));
   const onMenuClick = (e: { key: string }) => {
+    const key = e.key as ViewKey;
     setNavOpen(false);
-    window.location.search = `?view=${e.key}`;
+    setView(key);
+    window.history.replaceState(null, "", `?view=${key}`);
   };
   const logout = () => {
     setToken("");
