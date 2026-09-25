@@ -99,3 +99,18 @@
   border-top: 1px solid #eee;
   margin: 12px 0;
 }
+
+/* 代码块语法高亮（rehype-highlight / highlight.js，浅色对齐 Json 组件色板） */
+.md-body pre code.hljs {
+  padding: 12px;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.md-body .hljs-keyword, .md-body .hljs-built_in, .md-body .hljs-meta { color: #a626a4; }
+.md-body .hljs-string { color: #22863a; }
+.md-body .hljs-number, .md-body .hljs-literal { color: #005cc5; }
+.md-body .hljs-comment, .md-body .hljs-quote { color: #8b949e; font-style: italic; }
+.md-body .hljs-title, .md-body .hljs-function, .md-body .hljs-name { color: #e36209; }
+.md-body .hljs-attr, .md-body .hljs-attribute { color: #005cc5; }

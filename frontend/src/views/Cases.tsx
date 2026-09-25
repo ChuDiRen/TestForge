@@ -3,6 +3,7 @@ import { Card, Drawer, Table, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../api";
 import { Json } from "../components/Json";
+import { Markdown } from "../components/Markdown";
 import { useIsMobile } from "../hooks";
 
 interface CaseRow {
@@ -172,7 +173,9 @@ export function Cases() {
                       <Typography.Title level={5} style={{ margin: "14px 0 8px" }}>
                         生成的测试代码
                       </Typography.Title>
-                      <Json data={code_file} maxHeight={460} />
+                      <Markdown>{`\`\`\`python
+${code_file}
+\`\`\`}`}</Markdown>
                     </>
                   )}
                 </>
