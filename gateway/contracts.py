@@ -140,6 +140,8 @@ async def contract_regenerate(contract_id: int, request: Request):
 @app.get("/api/contracts/{contract_id}/diffs")
 def contract_diffs(contract_id: int):
     with get_session() as sess:
+        if sess.get(Contracts, contract_id) is None:
+            raise ApiError(404, "契约不存在", 404)
         rows = sess.query(ContractDiffs).filter(ContractDiffs.contract_id == contract_id).order_by(ContractDiffs.id.desc()).all()
         return ok(
             [

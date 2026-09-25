@@ -105,7 +105,12 @@ def _target_of(cases: list[dict]) -> str:
 
 
 def _cov_pkg(cases: list[dict]) -> str:
-    """覆盖率统计目标：优先用例 module 全路径（只统计被测模块，口径精确）。"""
+    """覆盖率统计目标：优先用例 module 全路径（只统计被测模块，口径精确）。
+
+    web 层用例（api/e2e/contract）对真实运行的服务发请求，对检出代码统计覆盖无意义 → "off"。
+    """
+    if any(str(c.get("layer") or "") in ("api", "e2e", "contract") for c in cases):
+        return "off"
     for c in cases:
         mod = str(c.get("module") or "")
         if mod:

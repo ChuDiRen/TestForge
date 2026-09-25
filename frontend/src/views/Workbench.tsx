@@ -20,6 +20,7 @@ export function Workbench() {
     enabled: !!repoId,
   });
   const [fn, setFn] = useState<string>();
+  const [layer, setLayer] = useState<string>("ut");
   const [running, setRunning] = useState(false);
   const [stage, setStage] = useState(-1);
   const [logs, setLogs] = useState<string[]>([]);
@@ -33,7 +34,9 @@ export function Workbench() {
   const modules = Array.from(new Set((fns.data ?? []).map((f: any) => f.module)));
 
   const start = async () => {
-    if (!repoId || !fn) return;
+    if (!repoId) return;
+    const isWeb = layer === "api" || layer === "e2e";
+    if (!isWeb && !fn) return;
     setRunning(true);
     setStage(0);
     setLogs([]);
@@ -41,9 +44,9 @@ export function Workbench() {
     setCases([]);
     try {
       const gen = await post<{ generation_id: string; job_code: string; trace_id: string }>("/api/generations", {
-        function: fn,
+        function: isWeb ? `web-${layer}` : fn,
         repo_id: repoId,
-        layer: "ut",
+        layer,
       });
       message.info(`生成任务 ${gen.generation_id} 已入队（${gen.job_code}）`);
       const es = new EventSource(sseUrl(`/api/generations/${gen.generation_id}/events`));
@@ -101,15 +104,29 @@ export function Workbench() {
             options={(repos.data ?? []).map((r) => ({ value: r.id, label: `#${r.id} ${String(r.url).split("/").pop()}` }))}
           />
           <Select
+            style={{ width: 130 }}
+            value={layer}
+            onChange={(v) => {
+              setLayer(v);
+              setFn(undefined);
+            }}
+            options={[
+              { value: "ut", label: "单元测试" },
+              { value: "api", label: "接口测试" },
+              { value: "e2e", label: "E2E 测试" },
+            ]}
+          />
+          <Select
             style={{ width: 320, maxWidth: "100%" }}
-            placeholder="选择目标函数"
             value={fn}
             onChange={setFn}
             showSearch
             optionFilterProp="label"
+            disabled={layer === "api" || layer === "e2e"}
+            placeholder={layer === "api" ? "目标：网关实时 OpenAPI 契约" : layer === "e2e" ? "目标：平台真实旅程" : "选择目标函数"}
             options={(fns.data ?? []).map((f) => ({ value: f.name, label: `${f.name} (${f.module})` }))}
           />
-          <Button type="primary" loading={running} disabled={!repoId || !fn} onClick={start}>
+          <Button type="primary" loading={running} disabled={!repoId || (layer === "ut" && !fn)} onClick={start}>
             ▶ 开始生成
           </Button>
         </Space>

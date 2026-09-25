@@ -86,6 +86,17 @@ def wait_generation(gcode: str, timeout_s: int = 240) -> dict:
     raise TimeoutError(f"generation {gcode} 超时")
 
 
+def generate_web_layer(name: str, layer: str, rid: int) -> None:
+    """接口/E2E 层：生成 → 真实 HTTP 执行 → 全部入库。"""
+    gen = api("POST", "/api/generations", {"function": f"web-{layer}", "repo_id": rid, "layer": layer})
+    g = wait_generation(gen["generation_id"])
+    check(f"⑤{name}({layer}) 生成管线完成", g["status"] == "done")
+    cases = [x for x in api("GET", f"/api/cases?layer={layer}")["items"] if x.get("gen_id") == gen["generation_id"]]
+    check(f"⑤{name}({layer}) 产出用例", len(cases) >= 2, f"实际 {len(cases)}")
+    check(f"⑤{name}({layer}) 真实执行全部通过", bool(cases) and all(x["status"] == "已入库" for x in cases),
+          f"{sum(1 for x in cases if x['status'] == '已入库')}/{len(cases)} 入库")
+
+
 def run_of(gen_code: str) -> dict | None:
     return next((r for r in api("GET", "/api/runs") if r["gen_id"] == gen_code), None)
 
@@ -136,6 +147,10 @@ def main() -> int:
         g = wait_generation(conf["generation_id"])
         check(f"③ 需求[{label}] 自动编排真实完成", g["status"] == "done")
         req_codes.append(req["code"])
+
+    # ③b 接口层 + E2E 层：对运行中的网关服务真实发请求
+    generate_web_layer("接口用例", "api", 1)
+    generate_web_layer("E2E用例", "e2e", 1)
 
     # ④ 真实契约注册（proto 解析 + 运行时 openapi）→ 迭代计划 → 测试报告
     proto = (_ROOT / "proto" / "testforge.proto").read_text(encoding="utf-8")

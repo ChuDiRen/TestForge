@@ -74,8 +74,15 @@ def execute(run_code: str, ws: Path, test_files: list[str], only: list[str] | No
 # ---------------- local：本机子进程真实执行（验证生成代码可跑） ----------------
 
 
+def _cov_args(ws: Path, cov_pkg: str) -> list[str]:
+    """覆盖率参数；cov_pkg == "off"（web 层用例对真实服务发请求）时不统计检出代码覆盖。"""
+    if cov_pkg == "off":
+        return []
+    return [f"--cov={cov_pkg or _top_pkg(ws)}", "--cov-branch", "--cov-report=json:coverage.json"]
+
+
 def _exec_local(run_code: str, ws: Path, test_files: list[str], only: list[str] | None = None, cov_pkg: str = "") -> SandboxResult:
-    args = [sys.executable, "-m", "pytest", "-q", "--disable-warnings", "--junitxml=report.xml", f"--cov={cov_pkg or _top_pkg(ws)}", "--cov-branch", "--cov-report=json:coverage.json"]
+    args = [sys.executable, "-m", "pytest", "-q", "--disable-warnings", "--junitxml=report.xml", *_cov_args(ws, cov_pkg)]
     if only:
         args += ["-k", " or ".join(only)]
     # 测试文件写入 ws/tests/，显式传路径（相对 cwd=ws）
@@ -163,7 +170,9 @@ def _exec_docker(run_code: str, ws: Path, test_files: list[str], only: list[str]
 
     client = docker_py.from_env()
     _ensure_image(client)
-    args = ["python", "-m", "pytest", "-q", "--disable-warnings", "--junitxml=/ws/report.xml", f"--cov={cov_pkg or _top_pkg(ws)}", "--cov-branch", "--cov-report=json:/ws/coverage.json"]
+    cov = "off" if cov_pkg == "off" else (cov_pkg or _top_pkg(ws))
+    cov_flags = [] if cov == "off" else [f"--cov={cov}", "--cov-branch", "--cov-report=json:/ws/coverage.json"]
+    args = ["python", "-m", "pytest", "-q", "--disable-warnings", "--junitxml=/ws/report.xml", *cov_flags]
     if only:
         args += ["-k", " or ".join(only)]
     args += [f"/ws/tests/{t}" for t in test_files]

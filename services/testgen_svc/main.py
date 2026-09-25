@@ -71,7 +71,42 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
         repo_id = request.target.repo_id
         layer = request.target.layer or "ut"
         gen_code = f"GEN-{target[:12]}-{request.trace_id[-6:]}" if request.trace_id else f"GEN-{target[:12]}"
-        log.info("generate %s repo=%s trace=%s", target, repo_id, request.trace_id)
+        log.info("generate %s repo=%s layer=%s trace=%s", target, repo_id, layer, request.trace_id)
+
+        # Web 层（接口/E2E）：从实时契约与旅程推导，对真实运行的服务执行
+        if layer in ("api", "e2e"):
+            from services.testgen_svc.webcodegen import render_web_file
+            from services.testgen_svc.webplan import plan_web_cases
+
+            plan = plan_web_cases(layer)
+            yield pb2.GenEvent(stage="plan", message=f"Web 层清单 {len(plan.cases)} 条（base={plan.cases[0].input.get('base_url') if plan.cases else ''}）", progress=0.2, payload_json=plan.model_dump_json())
+            src = render_web_file(plan, gen_code)
+            with get_session() as sess:
+                g = sess.query(Generations).filter(Generations.code == gen_code).first()
+                if g is not None:
+                    g.plan_json = plan.model_dump_json()
+                    g.codegen = src
+                    sess.commit()
+            cases_payload = [
+                {
+                    "code": c.id,
+                    "title": c.title,
+                    "category": c.category,
+                    "module": plan.module,
+                    "source_req": request.target.source_req,
+                    "input": c.input,
+                    "expected_error": "",
+                    "expected_fields": {},
+                    "patches": [],
+                    "covers": c.covers,
+                    "confidence": 0.98,
+                }
+                for c in plan.cases
+            ]
+            yield pb2.GenEvent(stage="codegen", message=f"生成 pytest 完成：{len(plan.cases)} 用例 / {src.count(chr(10))} 行", progress=0.6, payload_json=json.dumps({"cases": cases_payload, "code": src}, ensure_ascii=False))
+            yield pb2.GenEvent(stage="result", message=f"生成完成：{len(cases_payload)} 条用例待执行", progress=1.0, payload_json=json.dumps({"gen_code": gen_code, "target": target, "layer": layer, "cases": cases_payload, "code": src}, ensure_ascii=False))
+            emit("生成", "testgen-svc", f"Web 层生成完成 {gen_code} layer={layer} 用例={len(cases_payload)}", req_code=request.target.source_req, trace_id=request.trace_id or None)
+            return
 
         fn = _load_fn(repo_id, target, request.target.module)
         if fn is None:
