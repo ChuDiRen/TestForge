@@ -238,6 +238,29 @@ def _count_by(sess, column) -> dict:  # type: ignore[no-untyped-def]
     return {k or "": v for k, v in rows}
 
 
+def _normalize_case_schema(schema_json: str) -> dict:
+    """用例 schema 归一化：新老两种存储形状统一为顶层含 code_file 的对象。
+
+    新形状：{"code_file": "<源码>", "code": ...}；
+    老形状：{"code": ..., "schema_json": "<新形状的 JSON 字符串>"}（双层嵌套）。
+    """
+    try:
+        obj = json.loads(schema_json) if schema_json else {}
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+    if "code_file" not in obj and isinstance(obj.get("schema_json"), str):
+        try:
+            inner = json.loads(obj["schema_json"])
+            if isinstance(inner, dict):
+                code_file = inner.pop("code_file", "")
+                obj = {**inner, "code_file": code_file or ""}
+        except json.JSONDecodeError:
+            pass
+    return obj
+
+
 # ---------------- Wiki（M2） ----------------
 
 
@@ -655,7 +678,7 @@ def list_cases(
                         "target_function": c.target_function,
                         "last_run_ok": c.last_run_ok,
                         "stale": bool(c.stale),
-                        "schema": json.loads(c.schema_json) if c.schema_json else {},
+                        "schema": _normalize_case_schema(c.schema_json),
                     }
                     for c in rows
                 ],
