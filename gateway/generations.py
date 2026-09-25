@@ -1,12 +1,13 @@
-"""生成编排：POST /api/generations 后台线程跑完整闭环：
+"""生成编排：POST /api/generations 入队后台任务跑完整闭环：
 
 TestGen.Generate 流式事件 → generation_events 落库（SSE 回放）
 → TestRunner.Execute（沙箱+修复循环）→ 用例/执行记录入库 → trace 双事件。
+任务经 jobs 队列执行（可观测/可恢复/限并发），进程重启不丢任务。
 """
 
 import json
 import logging
-import threading
+import time
 import uuid
 
 from services.shared.config import GRPC_PORTS, get_settings
@@ -20,15 +21,17 @@ log = logging.getLogger("gateway.gen")
 
 
 def new_generation(payload: dict) -> dict:
+    """创建生成任务（入队异步执行）。返回 generation_id + job_code。"""
+    from gateway.envelope import ApiError
+    from gateway.jobs import enqueue
+
     target = payload.get("function") or payload.get("target") or ""
     if not target:
-        from gateway.envelope import ApiError
-
         raise ApiError(1001, "function 必填")
     repo_id = int(payload.get("repo_id") or 0)
     layer = payload.get("layer") or "ut"
     source_req = payload.get("source_req") or ""
-    trace_id = get_trace_id()
+    trace_id = payload.get("trace_id") or get_trace_id()
     gen_code = f"GEN-{uuid.uuid4().hex[:8].upper()}"
     with get_session() as sess:
         sess.add(
@@ -37,15 +40,51 @@ def new_generation(payload: dict) -> dict:
                 repo_id=repo_id or None,
                 target_function=target,
                 layer=layer,
-                status="running",
+                status="queued",
                 trace_id=trace_id,
                 req_code=source_req,
             )
         )
         sess.commit()
-    t = threading.Thread(target=_run_pipeline, args=(gen_code, repo_id, target, layer, source_req, trace_id), daemon=True)
-    t.start()
-    return {"generation_id": gen_code, "trace_id": trace_id, "status": "running"}
+    job = enqueue(
+        "generate",
+        {"repo_id": repo_id, "function": target, "layer": layer, "source_req": source_req, "trace_id": trace_id},
+        gen_code=gen_code,
+    )
+    return {"generation_id": gen_code, "job_code": job["job_code"], "trace_id": trace_id, "status": "queued"}
+
+
+def new_batch(payload: dict) -> dict:
+    """批量生成：按 repo_id+module 圈选或显式 names，逐函数入队（去重，上限 50）。"""
+    from services.shared.models import Functions
+
+    repo_id = int(payload.get("repo_id") or 0)
+    if not repo_id:
+        from gateway.envelope import ApiError
+
+        raise ApiError(1001, "repo_id 必填")
+    module = (payload.get("module") or "").strip()
+    names = [str(n).strip() for n in (payload.get("names") or []) if str(n).strip()]
+    layer = payload.get("layer") or "ut"
+    with get_session() as sess:
+        q = sess.query(Functions).filter(Functions.repo_id == repo_id)
+        if names:
+            q = q.filter(Functions.name.in_(names))
+        elif module:
+            q = q.filter(Functions.module.contains(module))
+        else:
+            from gateway.envelope import ApiError
+
+            raise ApiError(1001, "module 与 names 至少给一个")
+        rows = q.order_by(Functions.id).limit(50).all()
+        seen: set[str] = set()
+        targets: list[str] = []
+        for r in rows:
+            if r.name not in seen:
+                seen.add(r.name)
+                targets.append(r.name)
+    queued = [new_generation({"function": t, "repo_id": repo_id, "layer": layer}) for t in targets]
+    return {"queued": len(queued), "targets": targets, "jobs": queued}
 
 
 def _event(gen_code: str, kind: str, stage: str, message: str, payload: str = "", progress: float = 0.0) -> None:
@@ -54,7 +93,21 @@ def _event(gen_code: str, kind: str, stage: str, message: str, payload: str = ""
         sess.commit()
 
 
-def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_req: str, trace_id: str) -> None:
+def prune_runs(keep: int | None = None) -> int:
+    """执行记录保留策略：只留最近 keep 条（settings.runs_retention）。返回清理数。"""
+    keep = keep or get_settings().runs_retention
+    with get_session() as sess:
+        total = sess.query(Runs).count()
+        if total <= keep:
+            return 0
+        extra = total - keep
+        oldest_ids = [rid for (rid,) in sess.query(Runs.id).order_by(Runs.id.asc()).limit(extra).all()]
+        sess.query(Runs).filter(Runs.id.in_(oldest_ids)).delete(synchronize_session=False)
+        sess.commit()
+        return len(oldest_ids)
+
+
+def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_req: str, trace_id: str) -> None:
     set_trace_id(trace_id)
     try:
         # ① 生成管线（plan/guard/codegen 事件流式落库）
@@ -80,6 +133,14 @@ def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_r
         cases = final.get("cases", [])
         code_file = final.get("code", "")
 
+        # 最终测试代码落到本网关的 generations 行（导出/审计数据源）
+        if code_file:
+            with get_session() as sess:
+                g = sess.query(Generations).filter(Generations.code == gen_code).first()
+                if g is not None:
+                    g.codegen = code_file
+                    sess.commit()
+
         # ② 沙箱执行（runner 内部含修复循环）
         _event(gen_code, "stage", "sandbox", f"沙箱执行 {len(cases)} 用例（SANDBOX_MODE={get_settings().sandbox_mode}）", progress=0.7)
         run_code = f"RUN-{uuid.uuid4().hex[:8].upper()}"
@@ -95,15 +156,13 @@ def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_r
             }
             for c in cases
         ]
-        import time
-
         t0 = time.time()
         report = grpc_call(
             "runner-svc",
             GRPC_PORTS["runner-svc"],
             "TestRunner",
             "Execute",
-            {"run_id": run_code, "cases": suite_cases, "repo_id": repo_id, "trace_id": trace_id},
+            {"run_id": run_code, "cases": suite_cases, "repo_id": repo_id, "trace_id": trace_id, "target_function": target},
             timeout=600,
         )
         report["cost_s"] = report.get("cost_s") or int(time.time() - t0)
@@ -198,6 +257,8 @@ def _run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_r
             if g is not None:
                 g.status = "done"
             sess.commit()
+
+        prune_runs()
 
         result_payload = json.dumps(
             {

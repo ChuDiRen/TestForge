@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Card, Col, Empty, Row, Table, Tag } from "antd";
-import { useQuery } from "@tanstack/react-query";
+import { Button, Card, Col, Empty, message, Row, Table, Tag } from "antd";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { get, post } from "../api";
 
 interface ContractRow {
@@ -96,10 +96,12 @@ function ServiceMap({ contracts, onImpact }: { contracts: ContractRow[]; onImpac
 export function Map() {
   const contracts = useQuery({ queryKey: ["contracts"], queryFn: () => get<ContractRow[]>("/api/contracts"), refetchInterval: 15000 });
   const [impact, setImpact] = useState<any[] | null>(null);
+  const [impactContract, setImpactContract] = useState<ContractRow | null>(null);
   const [loading, setLoading] = useState(false);
 
   const runImpact = async (c: ContractRow) => {
     setLoading(true);
+    setImpactContract(c);
     try {
       const res = await post<any[]>(`/api/contracts/${c.id}/impact`, { to_v: c.version });
       setImpact(res);
@@ -107,6 +109,22 @@ export function Map() {
       setLoading(false);
     }
   };
+
+  const regen = useMutation({
+    mutationFn: (c: ContractRow) =>
+      post<{ affected_cases: number; targets: string[]; generations: { generation_id: string }[] }>(
+        `/api/contracts/${c.id}/regenerate`,
+        { to_v: c.version }
+      ),
+    onSuccess: (res) => {
+      message.success(
+        res.targets.length
+          ? `已入队完整重生成：${res.targets.join(", ")}（进度看任务队列）`
+          : "受影响用例未解析出可生成目标"
+      );
+    },
+    onError: (e: any) => message.error(e.message),
+  });
 
   return (
     <Row gutter={[16, 16]}>
@@ -137,7 +155,19 @@ export function Map() {
           />
         </Card>
         {impact && (
-          <Card title="影响分析面板（受影响资产清单）" size="small" style={{ marginTop: 16 }} loading={loading}>
+          <Card
+            title="影响分析面板（受影响资产清单）"
+            size="small"
+            style={{ marginTop: 16 }}
+            loading={loading}
+            extra={
+              impactContract && (
+                <Button size="small" type="primary" loading={regen.isPending} onClick={() => regen.mutate(impactContract)}>
+                  受影响重生成（完整闭环）
+                </Button>
+              )
+            }
+          >
             <Table
               rowKey={(_, i) => String(i)}
               size="small"

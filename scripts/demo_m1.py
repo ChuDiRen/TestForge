@@ -12,6 +12,7 @@ import sys
 import time
 
 import httpx
+from _auth import auth_headers
 
 GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -31,7 +32,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def api(method: str, path: str, body: dict | None = None, timeout: float = 60) -> dict:
-    r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout, headers=HEADERS)
+    r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout, headers={**auth_headers(), **HEADERS})
     data = r.json()
     assert data.get("code") == 0, f"{path} -> {data}"
     return data["data"]
@@ -119,7 +120,7 @@ def _real_pytest_evidence(gen_code: str, trace_id: str) -> bool:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    g = httpx.get(f"{GATEWAY}/api/generations/{gen_code}", timeout=30).json()["data"]
+    g = httpx.get(f"{GATEWAY}/api/generations/{gen_code}", timeout=30, headers=auth_headers()).json()["data"]
     code = ""
     for e in g["events"]:
         try:

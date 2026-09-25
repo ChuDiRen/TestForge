@@ -3,6 +3,7 @@
 跨平台：TestClient 用例依赖 asyncio——健康 Windows/Linux 服务器/WSL 上正常执行；
 Windows 主机 asyncio 被三方注入破坏时自动 skip（启动时 3 秒探测）。
 失败分诊用例不依赖 asyncio，任何平台都执行。
+接口自 M5+ 起全部走认证（admin 引导账号），测试用例先登录再请求。
 """
 
 import json
@@ -10,6 +11,8 @@ import os
 import threading
 
 import pytest
+
+ADMIN = {"username": "admin", "password": "testforge-admin"}  # settings.admin_password 默认值
 
 
 def _asyncio_usable() -> bool:
@@ -49,10 +52,16 @@ def _client():
     return TestClient(app)
 
 
+def _auth(client) -> dict:
+    r = client.post("/api/auth/login", json=ADMIN)
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['data']['token']}"}
+
+
 @needs_asyncio
 def test_health_envelope_shape():
     with _client() as client:
-        r = client.get("/api/health")
+        r = client.get("/api/health")  # 健康检查豁免认证
         assert r.status_code == 200
         body = r.json()
         assert body["code"] == 0 and body["message"] == "ok"
@@ -61,16 +70,25 @@ def test_health_envelope_shape():
 
 
 @needs_asyncio
+def test_auth_required_and_login():
+    with _client() as client:
+        assert client.get("/api/cases").status_code == 401
+        assert client.post("/api/auth/login", json={"username": "admin", "password": "bad"}).status_code == 401
+        headers = _auth(client)
+        assert client.get("/api/cases", headers=headers).status_code == 200
+
+
+@needs_asyncio
 def test_trace_middleware_headers():
     with _client() as client:
-        r = client.post("/api/repos", json={"url": ""})  # 校验失败路径也带 trace 头
+        r = client.post("/api/repos", json={"url": ""}, headers=_auth(client))  # 校验失败路径也带 trace 头
         assert r.headers.get("X-Trace-Id", "").startswith("tr_")
 
 
 @needs_asyncio
 def test_repo_validation_error_1001():
     with _client() as client:
-        r = client.post("/api/repos", json={"url": ""})
+        r = client.post("/api/repos", json={"url": ""}, headers=_auth(client))
         assert r.status_code == 400
         assert r.json()["code"] == 1001
 
@@ -78,23 +96,24 @@ def test_repo_validation_error_1001():
 @needs_asyncio
 def test_cases_endpoint_envelope_and_fields():
     with _client() as client:
-        r = client.get("/api/cases")
+        r = client.get("/api/cases", headers=_auth(client))
         assert r.status_code == 200
         data = r.json()["data"]
-        assert {"total", "by_layer", "items"} <= set(data)
+        assert {"total", "page", "page_size", "by_layer", "items"} <= set(data)
         for key in ("ut", "api", "fn", "e2e", "contract"):
             assert key in data["by_layer"]
         if data["items"]:
             item = data["items"][0]
-            assert {"code", "layer", "title", "category", "status", "trace_id"} <= set(item)
+            assert {"code", "layer", "title", "category", "status", "trace_id", "stale"} <= set(item)
 
 
 @needs_asyncio
 def test_runs_and_quality_endpoints():
     with _client() as client:
-        r1 = client.get("/api/runs")
+        headers = _auth(client)
+        r1 = client.get("/api/runs", headers=headers)
         assert r1.status_code == 200 and r1.json()["code"] == 0
-        r2 = client.get("/api/quality/requirements")
+        r2 = client.get("/api/quality/requirements", headers=headers)
         assert r2.status_code == 200
         for row in r2.json()["data"]:
             assert set(row["gates"]) == {"G0 可测性", "G1 知识就绪", "G2 用例覆盖", "G3 执行验证", "G4 缺陷清零", "G5 准出报告"}
@@ -104,15 +123,30 @@ def test_runs_and_quality_endpoints():
 @needs_asyncio
 def test_unknown_case_review_404():
     with _client() as client:
-        r = client.post("/api/cases/99999999/review", json={"action": "approve"})
+        r = client.post("/api/cases/99999999/review", json={"action": "approve"}, headers=_auth(client))
         assert r.status_code == 404 and r.json()["code"] == 404
 
 
 @needs_asyncio
 def test_requirement_ingest_requires_fields():
     with _client() as client:
-        r = client.post("/api/requirements/ingest", json={"title": "", "body": ""})
+        r = client.post("/api/requirements/ingest", json={"title": "", "body": ""}, headers=_auth(client))
         assert r.status_code == 400 and r.json()["code"] == 1001
+
+
+@needs_asyncio
+def test_jobs_endpoint_empty_ok():
+    with _client() as client:
+        r = client.get("/api/jobs", headers=_auth(client))
+        assert r.status_code == 200 and r.json()["code"] == 0
+        assert isinstance(r.json()["data"], list)
+
+
+@needs_asyncio
+def test_generation_export_404_for_unknown():
+    with _client() as client:
+        r = client.get("/api/generations/GEN-NOPE/export", headers=_auth(client))
+        assert r.status_code == 404
 
 
 # ---------------- 失败分诊：CreateFromRun（PROMPT §11 分诊覆盖） ----------------

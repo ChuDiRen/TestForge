@@ -48,6 +48,14 @@ def init_db() -> None:
             conn.execute(text("SELECT pg_advisory_unlock(728401)"))
         # 轻量列迁移：functions.language（多语言索引，2026-09 新增）
         conn.execute(text("ALTER TABLE functions ADD COLUMN IF NOT EXISTS language VARCHAR(32) NOT NULL DEFAULT ''"))
+        # cases.stale：目标函数源码变更后待回归标记（变更驱动回归，2026-09 新增）
+        conn.execute(text("ALTER TABLE cases ADD COLUMN IF NOT EXISTS stale BOOLEAN NOT NULL DEFAULT FALSE"))
+        # defects.suggestion：AI 修复建议（DeepSeek 基于真实失败日志，2026-09 新增）
+        conn.execute(text("ALTER TABLE defects ADD COLUMN IF NOT EXISTS suggestion TEXT NOT NULL DEFAULT ''"))
+    # 首启引导管理员账号（幂等：仅当 users 为空）
+    from services.shared.auth import bootstrap_admin
+
+    bootstrap_admin()
     try:
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

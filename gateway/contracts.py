@@ -1,4 +1,4 @@
-"""契约中心（M4）：注册 / 列表 / diff / 影响分析 / 定向重生成。"""
+"""契约中心（M4）：注册 / 列表 / diff / 影响分析 / 定向重生成 / 变更完整闭环。"""
 
 import json
 import logging
@@ -7,7 +7,7 @@ from fastapi import Request
 
 from gateway.main import GRPC_PORTS, ApiError, app, get_session, grpc_call, ok
 from services.shared.grpc_client import grpc_stream
-from services.shared.models import ContractDiffs, Contracts
+from services.shared.models import Cases, ContractDiffs, Contracts
 
 log = logging.getLogger("gateway.contract")
 
@@ -101,6 +101,40 @@ async def regenerate_affected(request: Request):
         timeout=120,
     )
     return ok(res)
+
+
+@app.post("/api/contracts/{contract_id}/regenerate")
+async def contract_regenerate(contract_id: int, request: Request):
+    """契约变更完整闭环：影响分析 → 受影响用例的目标函数逐个走「生成+沙箱执行」完整链路。
+
+    每个目标函数入队一个生成任务（含真实执行与失败建缺陷），结果看 /api/jobs 与 runs。
+    """
+    from gateway.generations import new_generation
+
+    body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    to_v = body.get("to_v") or ""
+    events = list(
+        grpc_stream(
+            "contract-registry",
+            GRPC_PORTS["contract-registry"],
+            "ContractRegistry",
+            "Impact",
+            {"contract_id": contract_id, "to_v": to_v},
+            timeout=60,
+        )
+    )
+    case_codes = [str(e.get("asset_id")) for e in events if e.get("asset_type") == "case"]
+    with get_session() as sess:
+        rows = sess.query(Cases).filter(Cases.code.in_(case_codes)).all() if case_codes else []
+        targets = sorted({c.target_function for c in rows if c.target_function})
+        repo_id = next((c.repo_id or 0 for c in rows if c.repo_id), 0)
+    if not targets:
+        return ok({"affected_cases": len(case_codes), "targets": [], "generations": [], "note": "受影响用例未解析出可生成目标"})
+    gens = [
+        new_generation({"function": t, "repo_id": repo_id, "layer": "ut", "source_req": f"contract-{contract_id}"})
+        for t in targets
+    ]
+    return ok({"affected_cases": len(case_codes), "targets": targets, "generations": gens})
 
 
 @app.get("/api/contracts/{contract_id}/diffs")

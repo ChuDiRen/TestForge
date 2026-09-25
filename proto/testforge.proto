@@ -71,6 +71,8 @@ message PullRes {
   int32 call_edges = 3;
   int32 wiki_pages = 4;
   repeated string steps = 5;
+  // 源码发生变化的函数名（变更驱动回归输入）
+  repeated string changed_functions = 6;
 }
 
 message FunctionCard {
@@ -190,6 +192,8 @@ message GenResult {
   int32 cases_total = 2;
   int32 guard_added = 3;
   repeated string case_ids = 4;
+  // 修复回填用：重生成的完整测试文件源码（runner 写回沙箱工作区后重执行）
+  string code_file = 5;
 }
 
 message Scope {
@@ -218,6 +222,8 @@ message TestSuite {
   repeated TestCase cases = 2;
   int64 repo_id = 3;
   string trace_id = 4;
+  // 被测目标函数（修复回填的 RegenerateAffected 调用需要）
+  string target_function = 5;
 }
 
 message RunReport {

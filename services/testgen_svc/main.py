@@ -128,23 +128,33 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
         emit("生成", "testgen-svc", f"生成完成 {gen_code} 目标={target} 用例={len(cases_payload)} 守卫补={len(report['added'])}", req_code=request.target.source_req, trace_id=request.trace_id or None)
 
     def RegenerateAffected(self, request, context):  # noqa: N802
-        """定向重生成（修复循环/契约影响分析）：按目标函数重建清单与代码。"""
+        """定向重生成（修复回填/契约影响分析）：按目标函数重建清单与代码。
+
+        与首生成同一现实基准：探针重新捕获期望值后渲染，返回完整测试文件源码（code_file），
+        由 runner 写回沙箱工作区——修复不是重试，而是以真实行为为准重写断言。
+        """
         from services.testgen_svc.codegen import codegen
         from services.testgen_svc.guard import guard
         from services.testgen_svc.planner import plan_cases
+        from services.testgen_svc.probe import fill_probe_expectations
 
-        target = request.target_function or "create_order"
+        target = request.target_function
+        if not target:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "target_function 必填（修复回填需要明确被测目标）")
         fn = _load_fn(request.repo_id, target, "")
         if fn is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"重生成目标未索引: {target}")
         plan = plan_cases(fn, target, "ut", {"repair": True})
         plan, report = guard(plan, fn)
+        plan, _note = fill_probe_expectations(
+            plan, _repo_checkout(request.repo_id), overwrite=fn.name not in ("create_order", "sanitize_text")
+        )
         gen_code = f"REPAIR-{(request.trace_id or 'NA')[-6:]}"
-        codegen(plan, gen_code)
+        src = codegen(plan, gen_code)
         emit(
             "生成",
             "testgen-svc",
-            f"定向重生成 {len(plan.cases)} 条（原因: {request.reason or 'repair'}）",
+            f"定向重生成 {len(plan.cases)} 条（原因: {request.reason or 'repair'}，探针重捕获期望值）",
             req_code=request.source_req,
             trace_id=request.trace_id or None,
         )
@@ -153,6 +163,7 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
             cases_total=len(plan.cases),
             guard_added=len(report["added"]),
             case_ids=[c.id for c in plan.cases],
+            code_file=src,
         )
 
 

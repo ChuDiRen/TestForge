@@ -85,11 +85,14 @@ TestForge/
 1. **上下文优先级写死**：`code > contract > wiki > trace > similar > bugs`，冲突以源码/契约为准；
 0. **多语言索引**：按扩展名映射语言（15 种，`services/repo_svc/indexer.py` 配置表），新语言加一行即可；
 2. **两阶段生成**：阶段 A 用例清单 JSON（pydantic 校验）→ 覆盖守卫静态检查表（NULL/空/极值/类型错/越权，缺类自动补）→ 阶段 B 按清单渲染 pytest；
-3. **沙箱闭环**：执行 → 失败回填修复 ≤3 轮 → 覆盖率回填 → 缺口补齐；失败超轮次自动建缺陷；
+3. **沙箱闭环**：执行 → 失败真回填修复 ≤3 轮（RegenerateAffected 探针重捕获期望值，重生成的测试文件写回工作区，非原样重试）→ 覆盖率回填 → 缺口补齐；失败超轮次自动建缺陷；
 4. **traceID 全链路**：网关 `tr_` 前缀，gRPC metadata 透传，全部写操作进 `trace_events`（入库前过脱敏钩子）；
 5. **增量索引**：`git diff` → 仅重建受影响页，调用方页跨模块置 stale；
 6. **质量关卡 G0~G5**：可测性<80 自动打回 / 知识就绪 / 覆盖达标 / 执行通过 / 缺陷清零 / 准出，`GET /api/quality/requirements` 返回六关卡+质量分+人工介入次数；
 7. **真实数据**：沙箱只有真实执行（local/docker），用例期望值来自真实行为与真实执行捕获；通用函数规划走 DeepSeek。
+8. **变更驱动回归**：pull 检出函数源码 diff → 关联用例标 stale → 自动回归（按 code_file 分组执行真实沙箱）→ 通过清 stale / 失败自动建缺陷并保持待回归（自愈闭环）；`POST /api/repos/{id}/webhook` 可远程触发；
+9. **任务队列**：生成/回归全部持久化入 jobs 表，gateway 内 worker 池消费（并发 `JOB_WORKERS`），进程崩溃重启自动重排队，`GET /api/jobs` 全程可观测；
+10. **认证**：除 health/login 外全部端点需 Bearer token（HMAC 签名，admin 全权 / viewer 只读），首启自动引导 admin（密码 `ADMIN_PASSWORD`，默认 testforge-admin）；SSE 走 `?token=` 查询参数。
 
 ## Windows 主机注意
 
@@ -111,7 +114,7 @@ TestForge/
 
 ## REST 端点（PRD 3.2 全量）
 
-`POST /api/repos`、`POST /api/repos/{id}/pull`、`POST /api/requirements/ingest`、`POST /api/requirements/{id}/confirm`、`POST /api/generations`、`GET /api/generations/{id}/events`(SSE)、`GET /api/cases`、`POST /api/cases/{id}/review`、`GET /api/runs`、`POST /api/runs/{id}/rerun`、`POST /api/contracts/{id}/impact`、`POST /api/plans`、`GET /api/plans/{iter}`、`POST /api/defects`、`POST /api/defects/{id}/regression`、`POST /api/reports/{iter}`、`GET /api/traces/{traceId}`、`GET /api/quality/requirements`。统一响应 `{code, message, data}`；SSE 事件 `stage(plan|guard|codegen|sandbox|coverage)` / `log` / `result`。
+`POST /api/repos`、`POST /api/repos/{id}/pull`、`POST /api/requirements/ingest`、`POST /api/requirements/{id}/confirm`、`POST /api/generations`、`GET /api/generations/{id}/events`(SSE)、`GET /api/cases`、`POST /api/cases/{id}/review`、`GET /api/runs`、`POST /api/runs/{id}/rerun`、`POST /api/generations/batch`、`GET /api/jobs`、`GET /api/generations/{id}/export`、`POST /api/generations/{id}/export-to-repo`、`POST /api/contracts/{id}/regenerate`、`POST /api/repos/{id}/webhook`、`POST /api/defects/{id}/suggest`、`POST /api/auth/login`、`POST /api/contracts/{id}/impact`、`POST /api/plans`、`GET /api/plans/{iter}`、`POST /api/defects`、`POST /api/defects/{id}/regression`、`POST /api/reports/{iter}`、`GET /api/traces/{traceId}`、`GET /api/quality/requirements`。统一响应 `{code, message, data}`；SSE 事件 `stage(plan|guard|codegen|sandbox|coverage)` / `log` / `result`。
 
 ## 里程碑与 tag
 

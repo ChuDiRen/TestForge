@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Progress, Select, Space, Steps, Table, Tag, message } from "antd";
-import { useQuery } from "@tanstack/react-query";
-import { get, post } from "../api";
+import { Button, Card, Col, Progress, Row, Select, Space, Steps, Table, Tag, message } from "antd";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { get, post, sseUrl } from "../api";
 
 const STAGES = ["plan", "guard", "codegen", "sandbox", "coverage"];
+
+interface BatchResult {
+  queued: number;
+  targets: string[];
+}
 
 export function Workbench() {
   const repos = useQuery({ queryKey: ["repos"], queryFn: () => get<any[]>("/api/repos") });
@@ -19,8 +24,12 @@ export function Workbench() {
   const [logs, setLogs] = useState<string[]>([]);
   const [result, setResult] = useState<any>(null);
   const [cases, setCases] = useState<any[]>([]);
+  const [batchModule, setBatchModule] = useState<string>();
+  const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
 
   useEffect(() => setFn(undefined), [repoId]);
+
+  const modules = Array.from(new Set((fns.data ?? []).map((f: any) => f.module)));
 
   const start = async () => {
     if (!repoId || !fn) return;
@@ -30,9 +39,13 @@ export function Workbench() {
     setResult(null);
     setCases([]);
     try {
-      const gen = await post<{ generation_id: string; trace_id: string }>("/api/generations", { function: fn, repo_id: repoId, layer: "ut" });
-      message.info(`生成任务 ${gen.generation_id}（trace ${gen.trace_id}）`);
-      const es = new EventSource(`/api/generations/${gen.generation_id}/events`);
+      const gen = await post<{ generation_id: string; job_code: string; trace_id: string }>("/api/generations", {
+        function: fn,
+        repo_id: repoId,
+        layer: "ut",
+      });
+      message.info(`生成任务 ${gen.generation_id} 已入队（${gen.job_code}）`);
+      const es = new EventSource(sseUrl(`/api/generations/${gen.generation_id}/events`));
       es.addEventListener("stage", (ev) => {
         const d = JSON.parse((ev as MessageEvent).data);
         setLogs((l) => [...l, `[${d.stage}] ${d.message}`]);
@@ -64,6 +77,16 @@ export function Workbench() {
       setRunning(false);
     }
   };
+
+  const batch = useMutation({
+    mutationFn: (payload: { repo_id: number; module: string }) =>
+      post<BatchResult>("/api/generations/batch", payload),
+    onSuccess: (res) => {
+      setBatchResult(res);
+      message.success(`批量任务已入队：${res.queued} 个函数，进度看「任务队列」`);
+    },
+    onError: (e: any) => message.error(e.message),
+  });
 
   return (
     <div>
@@ -109,6 +132,29 @@ export function Workbench() {
           </pre>
         )}
       </Card>
+      <Card title="批量生成（按模块圈选 → 任务队列逐个执行，含沙箱验证）" size="small" style={{ marginBottom: 16 }}>
+        <Space wrap>
+          <Select
+            style={{ width: 320, maxWidth: "100%" }}
+            placeholder="选择模块（同仓库）"
+            value={batchModule}
+            onChange={setBatchModule}
+            showSearch
+            optionFilterProp="label"
+            disabled={!repoId}
+            options={modules.map((m) => ({ value: m, label: m }))}
+          />
+          <Button
+            type="primary"
+            disabled={!repoId || !batchModule}
+            loading={batch.isPending}
+            onClick={() => repoId && batchModule && batch.mutate({ repo_id: repoId, module: batchModule })}
+          >
+            ⏫ 批量入队（≤50 个函数）
+          </Button>
+          {batchResult && <Tag color="blue">已入队 {batchResult.queued} 个：{batchResult.targets.slice(0, 5).join(", ")}{batchResult.targets.length > 5 ? "…" : ""}</Tag>}
+        </Space>
+      </Card>
       {cases.length > 0 && (
         <Card title={`结构化用例表（${cases.length} 条，点行看可执行 JSON）`} size="small">
           <Table
@@ -133,12 +179,16 @@ export function Workbench() {
       )}
       {result && (
         <Card title="闭环结果" size="small" style={{ marginTop: 16 }}>
-          <Space size="large" wrap>
-            <Tag color="green">通过 {result.passed}/{result.total}</Tag>
-            <Tag color="blue">覆盖率 {result.coverage}%</Tag>
-            <Tag>修复 {result.repair_rounds} 轮</Tag>
-            <Tag>trace {result.trace_id}</Tag>
-          </Space>
+          <Row gutter={12}>
+            <Col>
+              <Space size="large" wrap>
+                <Tag color="green">通过 {result.passed}/{result.total}</Tag>
+                <Tag color="blue">覆盖率 {result.coverage}%</Tag>
+                <Tag>修复 {result.repair_rounds} 轮</Tag>
+                <Tag>trace {result.trace_id}</Tag>
+              </Space>
+            </Col>
+          </Row>
         </Card>
       )}
     </div>

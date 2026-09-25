@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import Request
 
 from gateway.main import GRPC_PORTS, ApiError, _count_by, app, get_session, grpc_call, ok
-from services.shared.models import Cases, Requirements, Runs, WikiPages
+from services.shared.models import Cases, Defects, Requirements, Runs, WikiPages
 from services.shared.trace import emit
 
 log = logging.getLogger("gateway.req")
@@ -178,13 +178,13 @@ def quality_pipeline():
             profile = json.loads(r.quality_profile) if r.quality_profile else {}
             cases = sess.query(Cases).filter(Cases.source_req == r.code).all()
             runs = sess.query(Runs).filter(Runs.req_code == r.code).all()
-            defects_open = 0  # M5 接缺陷闭环后填充
+            defects_open = sess.query(Defects).filter(Defects.req_code == r.code, Defects.status != "已关闭").count()
             gates = {
                 "G0 可测性": {"ok": r.testability_score >= 80 and r.status != "已打回", "detail": f"评分 {r.testability_score:.0f}"},
                 "G1 知识就绪": {"ok": bool(sess.query(WikiPages).filter(WikiPages.repo_id == r.repo_id).count()) if r.repo_id else False, "detail": "wiki 编译完成" if r.repo_id else "未绑定仓库"},
                 "G2 用例覆盖": {"ok": len(cases) > 0, "detail": f"{len(cases)} 用例"},
                 "G3 执行验证": {"ok": bool(runs) and all(x.status == "success" for x in runs), "detail": f"{sum(1 for x in runs if x.status == 'success')}/{len(runs)} run 通过"},
-                "G4 缺陷清零": {"ok": defects_open == 0, "detail": "无未关闭缺陷"},
+                "G4 缺陷清零": {"ok": defects_open == 0, "detail": "无未关闭缺陷" if defects_open == 0 else f"{defects_open} 个未关闭缺陷"},
                 "G5 准出报告": {"ok": r.status == "已生效" and bool(runs) and all(x.status == "success" for x in runs), "detail": "生成验证完成后自动判定"},
             }
             passed = sum(1 for g in gates.values() if g["ok"])

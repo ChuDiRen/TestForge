@@ -27,8 +27,11 @@ def _repo_checkout(repo_id: int) -> Path:
     return Path("fixtures/sample-repo")
 
 
-def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: int, trace_id: str, req_code: str, trigger: str = "手动", only: list[str] | None = None, cov_pkg: str = "") -> dict:
-    """执行闭环：写 workspace → 沙箱执行 → 失败修复循环 ≤3 → 覆盖率。返回 run 记录 dict。"""
+def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: int, trace_id: str, req_code: str, trigger: str = "手动", only: list[str] | None = None, cov_pkg: str = "", target_function: str = "") -> dict:
+    """执行闭环：写 workspace → 沙箱执行 → 失败修复循环 ≤3 → 覆盖率。返回 run 记录 dict。
+
+    target_function：被测目标（修复回填的 RegenerateAffected 调用必需，空则从用例推断）。
+    """
     t0 = time.time()
     checkout = _repo_checkout(repo_id)
     ws = sandbox.prepare_workspace(run_code, checkout)
@@ -43,9 +46,10 @@ def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: i
     while res.status != "success" and res.failures and rounds < MAX_REPAIR_ROUNDS:
         rounds += 1
         failed_codes = [f["case"] for f in res.failures]
-        emit("执行", "runner-svc", f"{run_code} 第 {rounds} 轮修复：失败 {len(failed_codes)} 条回填重生成", req_code=req_code, trace_id=trace_id or None)
+        emit("执行", "runner-svc", f"{run_code} 第 {rounds} 轮修复：失败 {len(failed_codes)} 条，重生成后回填工作区", req_code=req_code, trace_id=trace_id or None)
+        src = ""
         try:
-            grpc_call(
+            regen = grpc_call(
                 "testgen-svc",
                 GRPC_PORTS["testgen-svc"],
                 "TestGen",
@@ -55,15 +59,18 @@ def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: i
                     "case_ids": failed_codes,
                     "trace_id": trace_id or get_trace_id(),
                     "reason": f"repair:{rounds}",
-                    "target_function": _target_of(cases),
+                    "target_function": target_function or _target_of(cases),
                 },
-                timeout=30,
+                timeout=60,
             )
+            src = str(regen.get("code_file") or "")
         except Exception as exc:  # noqa: BLE001
             log.warning("repair regenerate failed: %s", exc)
-        # 重写测试文件（按最新清单幂等重渲染，等价修复）
+        if src:
+            # 真回填：重生成的测试文件（探针重捕获期望值）写入工作区，而非原样重试
+            sandbox.write_test_file(ws, filename, src)
         res = sandbox.execute(run_code, ws, [filename], only, cov_pkg=cov_pkg or _cov_pkg(cases))
-        timeline.append({"round": rounds, "status": res.status, "pass": f"{res.pass_count}/{res.pass_total}", "mode": res.mode})
+        timeline.append({"round": rounds, "status": res.status, "pass": f"{res.pass_count}/{res.pass_total}", "mode": res.mode, "regenerated": bool(src)})
 
     cost = int(time.time() - t0)
     emit(

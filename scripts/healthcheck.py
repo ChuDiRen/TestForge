@@ -3,13 +3,14 @@
 import sys
 
 import httpx
+from _auth import auth_headers
 
 
 def main() -> int:
     port = __import__("os").environ.get("GATEWAY_PORT", "8000")
     base = f"http://127.0.0.1:{port}"
     try:
-        r = httpx.get(f"{base}/api/system/services", timeout=30)
+        r = httpx.get(f"{base}/api/system/services", timeout=30, headers=auth_headers())
         r.raise_for_status()
     except Exception as exc:  # noqa: BLE001
         print(f"[healthcheck] gateway 不可达: {exc}")

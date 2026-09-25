@@ -10,6 +10,7 @@ import time
 import uuid
 
 import httpx
+from _auth import auth_headers
 
 GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -28,7 +29,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def api(method: str, path: str, body: dict | None = None, timeout: float = 120) -> dict:
-    r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout, headers=HEADERS)
+    r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout, headers={**auth_headers(), **HEADERS})
     data = r.json()
     assert data.get("code") == 0, f"{path} -> {data}"
     return data["data"]

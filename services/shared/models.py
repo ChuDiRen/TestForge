@@ -127,6 +127,7 @@ class Cases(Base):
     last_run_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     target_function: Mapped[str] = mapped_column(String(256), default="")
     repo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stale: Mapped[bool] = mapped_column(Boolean, default=False)  # 目标函数源码已变更，待回归确认
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -164,6 +165,7 @@ class Defects(Base):
     assignee: Mapped[str] = mapped_column(String(64), default="")
     trace_id: Mapped[str] = mapped_column(String(64), default="")
     detail: Mapped[str] = mapped_column(Text, default="")
+    suggestion: Mapped[str] = mapped_column(Text, default="")  # AI 修复建议（Markdown，DeepSeek 基于真实失败日志生成）
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -221,3 +223,30 @@ class GenerationEvents(Base):
     payload_json: Mapped[str] = mapped_column(Text, default="")
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     ts: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class Jobs(Base):
+    """任务队列：持久化任务（生成/回归），gateway 进程内 worker 消费，崩溃后 running 重排队。"""
+
+    __tablename__ = "jobs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # JOB-xxxx
+    kind: Mapped[str] = mapped_column(String(32), index=True)  # generate|regression
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)  # queued|running|done|failed
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    result_json: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    gen_code: Mapped[str] = mapped_column(String(64), default="")  # 关联生成（generate 类）
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class Users(Base):
+    """平台账号：admin 全权；viewer 只读（GET）。"""
+
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(256), default="")  # PBKDF2-SHA256 salt$digest
+    role: Mapped[str] = mapped_column(String(16), default="viewer")  # admin|viewer
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

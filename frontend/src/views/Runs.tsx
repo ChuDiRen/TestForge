@@ -1,6 +1,6 @@
-import { Button, Card, message, Space, Table, Tag } from "antd";
+import { Button, Card, Dropdown, message, Space, Table, Tag } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, post } from "../api";
+import { downloadGeneratedTest, get, post } from "../api";
 
 interface RunRow {
   code: string;
@@ -16,6 +16,7 @@ interface RunRow {
   status: string;
   trace_id: string;
   req_code: string;
+  gen_id: string;
   created_at: string;
 }
 
@@ -29,13 +30,35 @@ export function Runs() {
       qc.invalidateQueries({ queryKey: ["runs"] });
     },
   });
+  const exportRepo = useMutation({
+    mutationFn: (genCode: string) => post<{ path: string }>(`/api/generations/${genCode}/export-to-repo`),
+    onSuccess: (res) => message.success(`已写入仓库检出: ${res.path}`),
+    onError: (e: any) => message.error(e.message),
+  });
+
+  const doExport = async (r: RunRow, mode: "download" | "repo") => {
+    if (!r.gen_id) {
+      message.warning("该 run 无关联生成产物");
+      return;
+    }
+    try {
+      if (mode === "download") {
+        const name = await downloadGeneratedTest(r.gen_id);
+        message.success(`已下载 ${name}`);
+      } else {
+        exportRepo.mutate(r.gen_id);
+      }
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
 
   return (
-    <Card title="执行记录（沙箱执行统一台账）">
+    <Card title="执行记录（沙箱执行统一台账 · 产物可导出）">
       <Table<RunRow>
         rowKey="code"
         size="small"
-        scroll={{ x: 980 }}
+        scroll={{ x: 1060 }}
         pagination={{ pageSize: 12 }}
         loading={runs.isLoading}
         dataSource={runs.data ?? []}
@@ -60,12 +83,25 @@ export function Runs() {
           { title: "trace", dataIndex: "trace_id", width: 130, ellipsis: true },
           {
             title: "操作",
-            width: 80,
+            width: 170,
             render: (_, r) => (
-              <Space>
+              <Space size={4}>
                 <Button size="small" onClick={() => rerun.mutate(r.code)}>
                   重跑
                 </Button>
+                {r.gen_id && (
+                  <Dropdown
+                    menu={{
+                      items: [
+                        { key: "download", label: "下载测试文件" },
+                        { key: "repo", label: "写入仓库检出" },
+                      ],
+                      onClick: ({ key }) => doExport(r, key as "download" | "repo"),
+                    }}
+                  >
+                    <Button size="small">导出 ▾</Button>
+                  </Dropdown>
+                )}
               </Space>
             ),
           },

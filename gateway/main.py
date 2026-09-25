@@ -1,15 +1,22 @@
-"""gateway 主应用：REST/SSE 唯一入口，服务间走 gRPC。"""
+"""gateway 主应用：REST/SSE 唯一入口，服务间走 gRPC。
 
+认证：除 /api/health 与 /api/auth/login 外全部需要 Bearer token（admin 全权，viewer 只读）。
+"""
+
+import hmac
 import json
 import logging
+import threading
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Integer, func, select
 
 from gateway.envelope import ApiError, err, ok
+from services.shared.auth import hash_password, issue_token, parse_token, verify_password
 from services.shared.config import GRPC_PORTS, VERSION, get_settings
 from services.shared.db import get_session, init_db
 from services.shared.grpc_client import grpc_call
@@ -18,9 +25,12 @@ from services.shared.models import (
     Cases,
     Contracts,
     Defects,
+    Generations,
+    Jobs,
     Repos,
     Requirements,
     Runs,
+    Users,
     WikiPages,
 )
 
@@ -48,6 +58,10 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         log.info("backend v%s (MONO) up on :%d — in-process services: %s", VERSION, get_settings().gateway_port, ", ".join(svc_list))
     else:
         log.info("gateway v%s up on :%d (microservice mode)", VERSION, get_settings().gateway_port)
+    from gateway.jobs import recover_and_start
+
+    workers = recover_and_start()
+    log.info("job queue started with %d worker(s)", workers)
     yield
 
 
@@ -60,6 +74,26 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Trace-Id"],
 )
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Bearer token 认证：admin 全权，viewer 只读；/api/health 与 /api/auth/login 豁免。"""
+    path = request.url.path
+    if path.startswith("/api") and path not in ("/api/health", "/api/auth/login") and request.method != "OPTIONS":
+        token = ""
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+        if not token:
+            token = request.query_params.get("token", "")  # SSE(EventSource) 无法带header，走查询参数
+        info = parse_token(token) if token else None
+        if info is None:
+            return err(401, "未登录或登录已过期", 401)
+        if info["role"] != "admin" and request.method != "GET":
+            return err(403, "只读账号无权执行该操作", 403)
+        request.state.user = info
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -90,6 +124,50 @@ async def unhandled_handler(request: Request, exc: Exception):  # type: ignore[n
 @app.get("/api/health")
 def health():
     return ok({"status": "ok", "version": VERSION})
+
+
+# ---------------- 认证 ----------------
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    body = await request.json()
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    if not username or not password:
+        raise ApiError(1001, "username 与 password 必填")
+    with get_session() as sess:
+        u = sess.query(Users).filter(Users.username == username).first()
+    if u is None or not verify_password(password, u.password_hash):
+        raise ApiError(401, "用户名或密码错误", 401)
+    return ok({"token": issue_token(u.username, u.role), "username": u.username, "role": u.role})
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    return ok(getattr(request.state, "user", {"username": "anonymous", "role": "viewer"}))
+
+
+@app.post("/api/auth/users")
+async def auth_create_user(request: Request):
+    """管理员创建账号（role: admin|viewer）。"""
+    user = getattr(request.state, "user", None)
+    if not user or user.get("role") != "admin":
+        raise ApiError(403, "仅管理员可创建账号", 403)
+    body = await request.json()
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    role = body.get("role") or "viewer"
+    if not username or not password:
+        raise ApiError(1001, "username 与 password 必填")
+    if role not in ("admin", "viewer"):
+        raise ApiError(1001, "role 仅支持 admin|viewer")
+    with get_session() as sess:
+        if sess.query(Users).filter(Users.username == username).first() is not None:
+            raise ApiError(1002, "用户名已存在", 400)
+        sess.add(Users(username=username, password_hash=hash_password(password), role=role))
+        sess.commit()
+    return ok({"username": username, "role": role})
 
 
 @app.get("/api/system/services")
@@ -243,22 +321,6 @@ async def rebuild_wiki(request: Request):
     return ok(res)
 
 
-    from services.shared.models import WikiPages
-
-    with get_session() as sess:
-        rows = (
-            sess.query(WikiPages.repo_id, func.count(), func.sum(func.cast(WikiPages.stale, Integer)))
-            .group_by(WikiPages.repo_id)
-            .all()
-        )
-        return ok(
-            [
-                {"repo_id": rid, "pages": total, "stale": int(stale or 0)}
-                for rid, total, stale in rows
-            ]
-        )
-
-
 # ---------------- 仓库（M1 全量；M0 落库+列表） ----------------
 
 
@@ -305,14 +367,59 @@ async def create_repo(request: Request):
 
 @app.post("/api/repos/{repo_id}/pull")
 def pull_repo(repo_id: int):
+    """拉取 + 增量索引 + 变更驱动回归（源码变更的函数 → 关联用例标 stale → 自动回归）。"""
+    from gateway.regression import regress_changed
+
     res = grpc_call(
         "repo-svc",
         GRPC_PORTS["repo-svc"],
         "RepoSvc",
         "Pull",
         {"repo_id": repo_id},
+        timeout=300,
     )
-    return ok(res)
+    summary = regress_changed(repo_id, res.get("changed_functions") or [])
+    return ok({**res, "regression": summary})
+
+
+@app.post("/api/repos/{repo_id}/webhook")
+async def repo_webhook(repo_id: int, request: Request):
+    """git webhook 接收端：后台拉取+变更回归，立即返回（webhook 要求快速 2xx）。
+
+    settings.webhook_secret 非空时校验请求头 X-Webhook-Secret。
+    """
+    if get_settings().webhook_secret:
+        header = request.headers.get("x-webhook-secret", "")
+        if not hmac.compare_digest(header, get_settings().webhook_secret):
+            raise ApiError(403, "webhook 密钥不符", 403)
+    with get_session() as sess:
+        repo = sess.get(Repos, repo_id)
+        if repo is None:
+            raise ApiError(404, "repo 不存在", 404)
+
+    def _pull_and_regress() -> None:
+        from gateway.regression import regress_changed
+        from services.shared.grpc_client import grpc_call as _call
+        from services.shared.trace import emit
+
+        tid = new_trace_id()
+        set_trace_id(tid)
+        try:
+            res = _call("repo-svc", GRPC_PORTS["repo-svc"], "RepoSvc", "Pull", {"repo_id": repo_id}, timeout=300)
+            summary = regress_changed(repo_id, res.get("changed_functions") or [])
+            emit(
+                "仓库",
+                "webhook",
+                f"webhook 拉取完成 repo={repo_id} rev={str(res.get('head_rev') or '')[:8]} 变更函数={len(res.get('changed_functions') or [])} 回归={summary}",
+                trace_id=tid,
+            )
+        except Exception as exc:  # noqa: BLE001
+            emit("仓库", "webhook", f"webhook 拉取失败 repo={repo_id}: {exc}", trace_id=tid)
+        finally:
+            set_trace_id("-")
+
+    threading.Thread(target=_pull_and_regress, daemon=True).start()
+    return ok({"accepted": True, "repo_id": repo_id})
 
 
 # ---------------- 函数（M1 生成目标） ----------------
@@ -360,6 +467,89 @@ async def create_generation(request: Request):
     return ok(new_generation(body))
 
 
+@app.post("/api/generations/batch")
+async def create_generation_batch(request: Request):
+    """批量生成：body {repo_id, module?|names?[], layer?}。按模块圈选或显式函数名，逐个入队。"""
+    from gateway.generations import new_batch
+
+    body = await request.json()
+    return ok(new_batch(body))
+
+
+@app.get("/api/jobs")
+def list_jobs(status: str = "", limit: int = 50):
+    """任务队列台账（生成/回归），新→旧。"""
+    with get_session() as sess:
+        q = sess.query(Jobs)
+        if status:
+            q = q.filter(Jobs.status == status)
+        rows = q.order_by(Jobs.id.desc()).limit(min(limit, 200)).all()
+        return ok(
+            [
+                {
+                    "code": j.code,
+                    "kind": j.kind,
+                    "status": j.status,
+                    "gen_code": j.gen_code,
+                    "error": j.error,
+                    "created_at": j.created_at.isoformat(),
+                    "updated_at": j.updated_at.isoformat(),
+                }
+                for j in rows
+            ]
+        )
+
+
+@app.get("/api/jobs/{job_code}")
+def get_job(job_code: str):
+    with get_session() as sess:
+        j = sess.query(Jobs).filter(Jobs.code == job_code).first()
+        if j is None:
+            raise ApiError(404, "job 不存在", 404)
+        return ok(
+            {
+                "code": j.code,
+                "kind": j.kind,
+                "status": j.status,
+                "gen_code": j.gen_code,
+                "payload": json.loads(j.payload_json or "{}"),
+                "error": j.error,
+                "created_at": j.created_at.isoformat(),
+                "updated_at": j.updated_at.isoformat(),
+            }
+        )
+
+
+@app.get("/api/generations/{gen_code}/export")
+def export_generation(gen_code: str):
+    """导出生成的测试文件（前端触发下载）。"""
+    with get_session() as sess:
+        g = sess.query(Generations).filter(Generations.code == gen_code).first()
+        if g is None or not g.codegen:
+            raise ApiError(404, "生成不存在或无代码产物", 404)
+        src = g.codegen
+    filename = f"test_tf_gen_{gen_code.lower()}.py"
+    return ok({"filename": filename, "content": src, "lines": src.count("\n") + 1})
+
+
+@app.post("/api/generations/{gen_code}/export-to-repo")
+def export_generation_to_repo(gen_code: str):
+    """把生成的测试文件真实写入仓库检出的 tests/testforge_generated/ 目录。"""
+    with get_session() as sess:
+        g = sess.query(Generations).filter(Generations.code == gen_code).first()
+        if g is None or not g.codegen:
+            raise ApiError(404, "生成不存在或无代码产物", 404)
+        src = g.codegen
+        repo = sess.get(Repos, g.repo_id) if g.repo_id else None
+    if repo is None or not repo.local_path:
+        raise ApiError(404, "生成未绑定可用仓库检出", 404)
+    dest_dir = Path(repo.local_path) / "tests" / "testforge_generated"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"test_tf_gen_{gen_code.lower()}.py"
+    dest.write_text(src, encoding="utf-8")
+    return ok({"path": str(dest), "filename": dest.name, "lines": src.count("\n") + 1})
+
+
 @app.get("/api/generations/{gen_code}")
 def get_generation(gen_code: str):
     from services.shared.models import GenerationEvents, Generations
@@ -397,7 +587,17 @@ def generation_events(gen_code: str):
 
 
 @app.get("/api/cases")
-def list_cases(layer: str = "", module: str = "", status: str = "", category: str = "", source_req: str = ""):
+def list_cases(
+    layer: str = "",
+    module: str = "",
+    status: str = "",
+    category: str = "",
+    source_req: str = "",
+    stale: str = "",
+    page: int = 1,
+    page_size: int = 50,
+):
+    """用例库（服务端分页：page/page_size，total 为全量计数）。stale=true 只看待回归。"""
     from services.shared.models import Cases
 
     with get_session() as sess:
@@ -412,12 +612,20 @@ def list_cases(layer: str = "", module: str = "", status: str = "", category: st
             q = q.filter(Cases.category == category)
         if source_req:
             q = q.filter(Cases.source_req == source_req)
-        rows = q.order_by(Cases.id.desc()).limit(1000).all()
+        if stale == "true":
+            q = q.filter(Cases.stale.is_(True))
+        total = q.count()
+        page = max(1, page)
+        page_size = min(max(1, page_size), 200)
+        rows = q.order_by(Cases.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
         by_layer = {lay: 0 for lay in ("ut", "api", "fn", "e2e", "contract")}
         by_layer.update({k: v for k, v in sess.query(Cases.layer, func.count()).group_by(Cases.layer).all()})
         return ok(
             {
-                "total": len(rows),
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "stale_total": sess.query(Cases).filter(Cases.stale.is_(True)).count(),
                 "by_layer": by_layer,
                 "by_category": _count_by(sess, Cases.category),
                 "items": [
@@ -435,6 +643,7 @@ def list_cases(layer: str = "", module: str = "", status: str = "", category: st
                         "gen_id": c.gen_id,
                         "target_function": c.target_function,
                         "last_run_ok": c.last_run_ok,
+                        "stale": bool(c.stale),
                         "schema": json.loads(c.schema_json) if c.schema_json else {},
                     }
                     for c in rows

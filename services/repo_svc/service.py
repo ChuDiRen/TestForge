@@ -82,6 +82,7 @@ def pull(repo_id: int) -> dict:
         "functions": counts["functions"],
         "call_edges": counts["call_edges"],
         "wiki_pages": counts["wiki_pages"],
+        "changed_functions": counts.get("changed_functions", []),
         "steps": steps,
     }
 
@@ -90,7 +91,9 @@ def _reindex(repo_id: int, dest, rev: str, steps: list[str], changed_files: list
     """tree-sitter 索引 + 调用图入库 + Wiki 编译（经 gRPC 调 wiki-builder）。
 
     增量模式（changed_files 非空）只解析变更文件，不再全仓重解析。
+    返回值带 changed_functions：源码发生变化的函数名（变更驱动回归的输入）。
     """
+    changed_functions: list[str] = []
 
     if changed_files:
         changed_src = [dest / f for f in changed_files if is_supported_file(f) and (dest / f).exists()]
@@ -111,6 +114,9 @@ def _reindex(repo_id: int, dest, rev: str, steps: list[str], changed_files: list
                 if f.file not in changed_files:
                     keep[name] = f
             new_cards = [c for c in cards if c.file in changed_files]
+            # 变更文件中被删除/改名的函数同样视为变更（其关联用例必须回归）
+            new_names = {c.name for c in new_cards}
+            changed_functions = [n for n, f in old.items() if f.file in changed_files and n not in new_names]
         else:
             keep, new_cards = {}, cards
 
@@ -118,6 +124,8 @@ def _reindex(repo_id: int, dest, rev: str, steps: list[str], changed_files: list
         for card in new_cards:
             row = old.get(card.name)
             if row is not None:
+                if row.source != card.source:
+                    changed_functions.append(card.name)
                 row.module, row.signature, row.source, row.file, row.line, row.docstring, row.language = (
                     card.module, card.signature, card.source, card.file, card.line, card.docstring, card.language,
                 )
@@ -179,4 +187,4 @@ def _reindex(repo_id: int, dest, rev: str, steps: list[str], changed_files: list
             else:
                 _time.sleep(1.0)
 
-    return {"functions": len(cards), "call_edges": edges, "wiki_pages": pages}
+    return {"functions": len(cards), "call_edges": edges, "wiki_pages": pages, "changed_functions": changed_functions}

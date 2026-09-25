@@ -14,7 +14,7 @@ from gateway.main import (
     grpc_call,
     ok,
 )
-from services.shared.models import Defects, Iterations
+from services.shared.models import Cases, Defects, Iterations, Runs
 from services.shared.trace import emit
 
 log = logging.getLogger("gateway.loop")
@@ -61,11 +61,68 @@ def list_defects():
                     "status": d.status,
                     "assignee": d.assignee,
                     "trace_id": d.trace_id,
+                    "has_suggestion": bool(d.suggestion),
                     "created_at": d.created_at.isoformat(),
                 }
                 for d in rows
             ]
         )
+
+
+@app.get("/api/defects/{defect_id}/suggestion")
+def get_defect_suggestion(defect_id: int):
+    with get_session() as sess:
+        d = sess.get(Defects, defect_id)
+        if d is None:
+            raise ApiError(404, "缺陷不存在", 404)
+        return ok({"code": d.code, "suggestion": d.suggestion})
+
+
+@app.post("/api/defects/{defect_id}/suggest")
+def suggest_defect_fix(defect_id: int):
+    """DeepSeek 基于真实失败用例与 pytest 日志产出根因分析与修复建议（Markdown，落库）。"""
+    from services.shared.llm import LLMError, chat_once
+
+    with get_session() as sess:
+        d = sess.get(Defects, defect_id)
+        if d is None:
+            raise ApiError(404, "缺陷不存在", 404)
+        case_codes = json.loads(d.case_codes or "[]")
+        run = sess.query(Runs).filter(Runs.code == d.origin_run).first()
+        log_text = ""
+        if run is not None and run.log_json:
+            try:
+                data = json.loads(run.log_json)
+                log_text = str(data.get("log", ""))[:3500]
+            except json.JSONDecodeError:
+                log_text = ""
+        cases = sess.query(Cases).filter(Cases.code.in_(case_codes)).all() if case_codes else []
+        case_brief = "\n".join(f"- {c.code} {c.title}（{c.category}，目标 {c.target_function or c.module or '未知'}）" for c in cases)
+        defect = d
+
+    prompt = (
+        f"缺陷 {defect.code}：{defect.title}\n"
+        f"严重度：{defect.severity}，状态：{defect.status}\n"
+        f"关联失败用例：\n{case_brief or '（无关联用例记录）'}\n\n"
+        f"pytest 失败日志（截断）：\n{log_text or '（无日志留存）'}\n\n"
+        "请基于以上真实信息输出 Markdown（不要编造日志中不存在的细节）：\n"
+        "## 根因分析\n## 修复建议\n## 复测要点"
+    )
+    try:
+        md = chat_once(
+            prompt,
+            system="你是资深测试开发工程师，负责失败分诊与根因分析。只依据提供的用例与日志分析，结论必须可追溯到日志证据。",
+        )
+    except LLMError as exc:
+        raise ApiError(503, str(exc), 503) from exc
+
+    with get_session() as sess:
+        d = sess.get(Defects, defect_id)
+        assert d is not None
+        d.suggestion = md
+        sess.commit()
+    emit("缺陷", "deepseek", f"缺陷 {d.code} 生成 AI 修复建议（{len(md)} 字）", req_code=d.req_code)
+    return ok({"code": d.code, "suggestion": md})
 
 
 @app.post("/api/defects/{defect_id}/regression")

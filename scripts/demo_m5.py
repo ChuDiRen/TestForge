@@ -7,6 +7,7 @@ import time
 import uuid
 
 import httpx
+from _auth import auth_headers
 
 GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
 FRONTEND = f"http://127.0.0.1:{os.environ.get('FRONTEND_PORT', '5173')}"
@@ -22,7 +23,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def api(method: str, path: str, body: dict | None = None, timeout: float = 180) -> dict:
-    r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout, headers=HEADERS)
+    r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout, headers={**auth_headers(), **HEADERS})
     data = r.json()
     assert data.get("code") == 0, f"{path} -> {data}"
     return data["data"]
@@ -101,7 +102,7 @@ def main() -> int:
     endpoints_ok = True
     for ep in ("/api/repos", "/api/wiki", "/api/contracts", "/api/requirements", "/api/plans", "/api/cases", "/api/runs", "/api/defects", "/api/quality/requirements"):
         try:
-            r = httpx.get(f"{GATEWAY}{ep}", timeout=20, headers=HEADERS)
+            r = httpx.get(f"{GATEWAY}{ep}", timeout=20, headers={**auth_headers(), **HEADERS})
             endpoints_ok = endpoints_ok and r.status_code == 200 and r.json()["code"] == 0
         except Exception:  # noqa: BLE001
             endpoints_ok = False

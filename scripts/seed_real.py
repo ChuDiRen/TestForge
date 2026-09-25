@@ -20,6 +20,7 @@ import sys
 import time
 
 import httpx
+from _auth import auth_headers
 
 GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -65,7 +66,7 @@ def api(method: str, path: str, body: dict | None = None, timeout: float = 120) 
     """GET 幂等重试：WSL PG 直连偶发瞬时断流时等待自愈，不把抖动当失败。"""
     last: dict = {}
     for attempt in range(3 if method == "GET" else 1):
-        r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout)
+        r = httpx.request(method, f"{GATEWAY}{path}", json=body, timeout=timeout, headers=auth_headers())
         last = r.json()
         if last.get("code") == 0:
             return last["data"]

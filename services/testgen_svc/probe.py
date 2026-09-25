@@ -35,18 +35,38 @@ def _norm(v):
 PROBE_PREFIX = "PROBE"
 
 
-def _probe_script(module: str, fn: str, inputs: list[dict]) -> str:
+def _probe_script(module: str, fn: str, cases: list[dict]) -> str:
+    """探针脚本：解包 input、按 patches 打桩（与 codegen 渲染的 monkeypatch 语义一致）。"""
     return (
-        "import json, sys\n"
+        "import importlib, json, sys\n"
+        "import unittest.mock as _mock\n"
         "sys.path.insert(0, '.')\n"
         f"{NORM_SRC}\n"
         f"from {module} import {fn}\n"
-        f"CASES = {json.dumps(inputs, ensure_ascii=False)}\n"
+        f"CASES = {cases!r}\n"
         "out = []\n"
-        "for kw in CASES:\n"
+        "for case in CASES:\n"
+        "    pms = []\n"
         "    try:\n"
-        f"        r = _norm({fn}(**kw))\n"
-        "        out.append({'ok': True, 'repr': repr(r)})\n"
+        "        for p in case.get('patches') or []:\n"
+        "            mod = importlib.import_module(p['module'])\n"
+        "            if p.get('kind') == 'raise':\n"
+        "                exc_mod = importlib.import_module(p.get('exc_module') or p['module'])\n"
+        "                exc = getattr(exc_mod, p['exc'])()\n"
+        "                raiser = (lambda e: (lambda *a, **k: (_ for _ in ()).throw(e)))(exc)\n"
+        "                pms.append(_mock.patch.object(mod, p['attr'], raiser))\n"
+        "            else:\n"
+        "                cur = getattr(mod, p['attr'])\n"
+        "                new = (lambda v: (lambda *a, **k: v))(p.get('value')) if callable(cur) else p.get('value')\n"
+        "                pms.append(_mock.patch.object(mod, p['attr'], new))\n"
+        "        for pm in pms:\n"
+        "            pm.start()\n"
+        "        try:\n"
+        f"            r = _norm({fn}(**case['input']))\n"
+        "            out.append({'ok': True, 'repr': repr(r)})\n"
+        "        finally:\n"
+        "            for pm in pms:\n"
+        "                pm.stop()\n"
         "    except Exception as exc:\n"
         "        out.append({'ok': False, 'err': type(exc).__name__})\n"
         f"print('{PROBE_PREFIX}' + json.dumps(out, ensure_ascii=False))\n"
@@ -90,7 +110,15 @@ def fill_probe_expectations(plan: CasePlan, repo_checkout: str | Path, overwrite
         return plan, ""
     probe_cases = [
         c for c in plan.cases
-        if overwrite or not (c.assert_return or c.expected_fields or c.expected_error or c.expected_error_type)
+        if overwrite
+        or not (
+            c.assert_return
+            or c.expected_fields
+            or c.expected_error
+            or c.expected_error_type
+            or c.expected_contains
+            or c.expected_not_contains
+        )
     ]
     if not probe_cases:
         return plan, ""

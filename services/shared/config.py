@@ -46,6 +46,19 @@ class Settings(BaseSettings):
     # gRPC 目标主机：空 = 按服务名解析（docker 网络）；本地默认 127.0.0.1
     service_host: str = "127.0.0.1"
 
+    # 任务队列：gateway 进程内 worker 并发数
+    job_workers: int = 2
+
+    # Webhook 共享密钥：空 = 局域网信任模式不校验；设置后要求请求头 X-Webhook-Secret 匹配
+    webhook_secret: str = ""
+
+    # 认证：token 签名密钥（泄露可伪造身份，生产必须改）；首启无用户时用 admin_password 引导管理员
+    secret_key: str = "testforge-local-secret"
+    admin_password: str = "testforge-admin"
+
+    # 执行记录保留条数（超出自动清理最旧记录）
+    runs_retention: int = 500
+
 
 @lru_cache
 def get_settings() -> Settings:

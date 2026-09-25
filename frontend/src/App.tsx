@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { Badge, Button, ConfigProvider, Drawer, Grid, Layout, Menu, Typography } from "antd";
+import { Badge, Button, ConfigProvider, Drawer, Grid, Layout, Menu, Spin, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { useQuery } from "@tanstack/react-query";
-import { get } from "./api";
+import { get, setToken } from "./api";
 import { Dashboard } from "./views/Dashboard";
 import { KnowledgeGraph } from "./views/KnowledgeGraph";
 import { Wiki } from "./views/Wiki";
@@ -16,6 +16,8 @@ import { Runs } from "./views/Runs";
 import { Defects } from "./views/Defects";
 import { Logs } from "./views/Traces";
 import { Quality } from "./views/Quality";
+import { Login } from "./views/Login";
+import { Jobs } from "./views/Jobs";
 
 const { Sider, Header, Content } = Layout;
 
@@ -28,6 +30,7 @@ export const VIEWS = [
   { key: "requirements", label: "需求录入", icon: "📝", milestone: 3 },
   { key: "plans", label: "测试计划", icon: "🎯", milestone: 5 },
   { key: "workbench", label: "生成工作台", icon: "🛠", milestone: 1 },
+  { key: "jobs", label: "任务队列", icon: "⚙", milestone: 5 },
   { key: "cases", label: "用例库", icon: "🗂", milestone: 1 },
   { key: "runs", label: "执行记录", icon: "🧪", milestone: 1 },
   { key: "defects", label: "缺陷管理", icon: "🐞", milestone: 5 },
@@ -51,6 +54,7 @@ const VIEW_COMPONENTS: Record<ViewKey, () => JSX.Element> = {
   requirements: Requirements,
   plans: Plans,
   workbench: Workbench,
+  jobs: Jobs,
   cases: Cases,
   runs: Runs,
   defects: Defects,
@@ -58,7 +62,12 @@ const VIEW_COMPONENTS: Record<ViewKey, () => JSX.Element> = {
   quality: Quality,
 };
 
-export function App() {
+interface Me {
+  username: string;
+  role: string;
+}
+
+function Shell() {
   const view = currentView();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
@@ -90,6 +99,10 @@ export function App() {
   const onMenuClick = (e: { key: string }) => {
     setNavOpen(false);
     window.location.search = `?view=${e.key}`;
+  };
+  const logout = () => {
+    setToken("");
+    window.location.reload();
   };
 
   return (
@@ -132,9 +145,14 @@ export function App() {
                 {VIEWS.find((v) => v.key === view)?.label}
               </Typography.Text>
             </div>
-            <Badge count={pendingReviews} overflowCount={99}>
-              <span style={{ fontSize: 13 }}>待人审</span>
-            </Badge>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <Badge count={pendingReviews} overflowCount={99}>
+                <span style={{ fontSize: 13 }}>待人审</span>
+              </Badge>
+              <Button type="text" size="small" onClick={logout}>
+                退出
+              </Button>
+            </div>
           </Header>
           <Content style={{ padding: isMobile ? 12 : 20, background: "#f5f6fa", overflow: "auto" }}>{body}</Content>
         </Layout>
@@ -157,4 +175,25 @@ export function App() {
       </Layout>
     </ConfigProvider>
   );
+}
+
+export function App() {
+  const me = useQuery({
+    queryKey: ["me"],
+    queryFn: () => get<Me>("/api/auth/me"),
+    retry: false,
+    staleTime: Infinity,
+  });
+
+  if (me.isLoading) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+  if (me.isError || !me.data) {
+    return <ConfigProvider locale={zhCN}>{<Login onLogin={() => me.refetch()} />}</ConfigProvider>;
+  }
+  return <Shell />;
 }

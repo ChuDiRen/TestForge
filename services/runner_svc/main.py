@@ -67,6 +67,7 @@ class TestRunnerServicer(pb2_grpc.TestRunnerServicer):
             req_code=cases[0].get("source_req", "") if cases else "",
             # 回归场景：只执行关联用例（case code 尾段 TC-0NN → 函数名子串 tc0nn）
             only=_only_selectors(cases),
+            target_function=request.target_function,
         )
         report = service.result_to_report(run_code, res)
         return pb2.RunReport(

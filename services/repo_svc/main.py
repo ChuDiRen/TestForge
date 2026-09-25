@@ -43,6 +43,7 @@ class RepoServicer(pb2_grpc.RepoSvcServicer):
             call_edges=res["call_edges"],
             wiki_pages=res["wiki_pages"],
             steps=res["steps"],
+            changed_functions=res.get("changed_functions", []),
         )
 
     def ListFunctions(self, request, context):  # noqa: N802
