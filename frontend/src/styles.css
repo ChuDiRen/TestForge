@@ -20,12 +20,6 @@
   }
 }
 
-/* JSON / 报告代码块在窄屏内换行而不是横向溢出 */
-pre.json-pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* Markdown 渲染排版（Wiki 页 / 报告） */
 .md-body {
   font-size: 13px;

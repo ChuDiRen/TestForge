@@ -2,6 +2,7 @@ import { Button, Card, Drawer, Space, Table, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { get } from "../api";
+import { Json } from "../components/Json";
 
 interface JobRow {
   code: string;
@@ -66,9 +67,7 @@ export function Jobs() {
             <Typography.Title level={5} style={{ marginBottom: 0 }}>
               参数
             </Typography.Title>
-            <pre className="json-pre" style={{ background: "#f6f8fa", padding: 12, borderRadius: 6, fontSize: 12 }}>
-              {JSON.stringify(detailQ.data.payload, null, 2)}
-            </pre>
+            <Json data={detailQ.data.payload} maxHeight={360} />
             {detailQ.data.error && (
               <>
                 <Typography.Title level={5} style={{ marginBottom: 0, color: "#cf1322" }}>

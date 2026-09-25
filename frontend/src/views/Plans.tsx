@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, Card, Drawer, Select, Space, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../api";
+import { Json } from "../components/Json";
 import { useIsMobile } from "../hooks";
 
 interface PlanRow {
@@ -96,9 +97,7 @@ export function Plans() {
             {detailQ.data.report && (
               <>
                 <b>测试报告</b>
-                <pre className="json-pre" style={{ background: "#f6f8fa", padding: 12, borderRadius: 6, fontSize: 12 }}>
-                  {JSON.stringify(detailQ.data.report, null, 2)}
-                </pre>
+                <Json data={detailQ.data.report} maxHeight={480} />
               </>
             )}
           </>

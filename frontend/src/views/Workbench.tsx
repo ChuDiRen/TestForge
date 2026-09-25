@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Card, Col, Progress, Row, Select, Space, Steps, Table, Tag, message } from "antd";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { get, post, sseUrl } from "../api";
+import { Json } from "../components/Json";
 
 const STAGES = ["plan", "guard", "codegen", "sandbox", "coverage"];
 
@@ -164,9 +165,7 @@ export function Workbench() {
             pagination={{ pageSize: 10 }}
             dataSource={cases}
             expandable={{
-              expandedRowRender: (r: any) => (
-                <pre style={{ fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{JSON.stringify(r, null, 2)}</pre>
-              ),
+              expandedRowRender: (r: any) => <Json data={r} maxHeight={320} />,
             }}
             columns={[
               { title: "ID", dataIndex: "code", width: 90 },

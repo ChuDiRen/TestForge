@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, Drawer, Table, Tabs, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../api";
+import { Json } from "../components/Json";
 import { useIsMobile } from "../hooks";
 
 interface CaseRow {
@@ -153,7 +154,7 @@ export function Cases() {
               {detail.stale && <Tag color="volcano">待回归</Tag>}
               <Tag>trace {detail.trace_id}</Tag>
             </p>
-            <pre className="json-pre" style={{ background: "#f6f8fa", padding: 12, borderRadius: 6, fontSize: 12 }}>{JSON.stringify(detail.schema, null, 2)}</pre>
+            <Json data={detail.schema} maxHeight={520} />
           </>
         )}
       </Drawer>
