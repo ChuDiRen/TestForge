@@ -218,4 +218,7 @@ def _clear_stale(sess, repo_id: int) -> None:  # type: ignore[no-untyped-def]
 def _to_card(f) -> FnCard:  # type: ignore[no-untyped-def]
     from services.repo_svc.indexer import FnCard as _FnCard
 
-    return _FnCard(module=f.module, name=f.name, signature=f.signature, source=f.source, file=f.file, line=f.line, docstring=f.docstring or "")
+    return _FnCard(
+        module=f.module, name=f.name, signature=f.signature, source=f.source, file=f.file,
+        line=f.line, docstring=f.docstring or "", language=getattr(f, "language", "") or "python",
+    )

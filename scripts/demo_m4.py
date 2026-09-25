@@ -49,6 +49,8 @@ def main() -> int:
     check("多仓接入（≥2 仓库）", len(repos) >= 2, f"共 {len(repos)} 仓")
     fns2 = api("GET", f"/api/functions?repo_id={int(api_repo['id'])}")
     check("第二仓库 tree-sitter 索引", any(f["name"] == "submit_payment" for f in fns2), f"api-repo 函数 {len(fns2)}")
+    go_fns = [f for f in fns2 if f.get("language") == "go"]
+    check("多语言索引（Go 函数 ChargeWithChannel）", "ChargeWithChannel" in {f["name"] for f in go_fns}, f"go 函数 {[f['name'] for f in go_fns]}")
 
     # ② 契约注册：Payment API v2.3.1（名称带运行唯一后缀，保证幂等）
     cname = f"Payment API {uuid.uuid4().hex[:4]}"

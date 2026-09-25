@@ -57,6 +57,7 @@ class RepoServicer(pb2_grpc.RepoSvcServicer):
                 pb2.FunctionCard(
                     id=f.id, repo_id=f.repo_id, module=f.module, name=f.name,
                     signature=f.signature, source=f.source, file=f.file, line=f.line,
+                    language=f.language or "python",
                 )
                 for f in rows
             ]

@@ -41,7 +41,7 @@ TestForge/
 ├── proto/testforge.proto      # 全部 .proto，唯一事实源（PRD 3.3 全部 9 服务）
 ├── gateway/                   # FastAPI 网关：REST + SSE + 统一封套 + trace 中间件
 ├── services/
-│   ├── repo_svc/              # Git 接入/拉取 + tree-sitter 索引（函数卡片/调用图）
+│   ├── repo_svc/              # Git 接入/拉取 + 多语言 tree-sitter 索引（函数卡片/调用图；py/go/java/ts/js/rs/c/cpp/cs/rb/php/kt/swift/bash）
 │   ├── wiki_builder/          # 分层 Wiki 编译 + git diff 增量重建 + stale 传播
 │   ├── contract_registry/     # 契约注册/diff/breaking/影响分析
 │   ├── req_svc/               # 需求四步解析管线 + 可测性评分（G0）
@@ -60,6 +60,7 @@ TestForge/
 ## 关键设计（平台灵魂）
 
 1. **上下文优先级写死**：`code > contract > wiki > trace > similar > bugs`，冲突以源码/契约为准；
+0. **多语言索引**：按扩展名映射语言（15 种，`services/repo_svc/indexer.py` 配置表），新语言加一行即可；
 2. **两阶段生成**：阶段 A 用例清单 JSON（pydantic 校验）→ 覆盖守卫静态检查表（NULL/空/极值/类型错/越权，缺类自动补）→ 阶段 B 按清单渲染 pytest；
 3. **沙箱闭环**：执行 → 失败回填修复 ≤3 轮 → 覆盖率回填 → 缺口补齐；失败超轮次自动建缺陷；
 4. **traceID 全链路**：网关 `tr_` 前缀，gRPC metadata 透传，全部写操作进 `trace_events`（入库前过脱敏钩子）；

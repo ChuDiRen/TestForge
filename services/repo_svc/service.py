@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 
 from services.repo_svc import gitops
-from services.repo_svc.indexer import index_repo, parse_python_file
+from services.repo_svc.indexer import index_repo, is_supported_file, parse_file
 from services.shared.config import GRPC_PORTS
 from services.shared.db import get_session
 from services.shared.grpc_client import grpc_call
@@ -93,11 +93,11 @@ def _reindex(repo_id: int, dest, rev: str, steps: list[str], changed_files: list
     """
 
     if changed_files:
-        py_files = [dest / f for f in changed_files if f.endswith(".py") and (dest / f).exists()]
+        changed_src = [dest / f for f in changed_files if is_supported_file(f) and (dest / f).exists()]
         cards = []
-        for py in py_files:
-            cards.extend(parse_python_file(py, dest))
-        steps.append(f"tree-sitter 增量索引: {len(cards)} 函数（{len(py_files)} 文件）")
+        for src_path in changed_src:
+            cards.extend(parse_file(src_path, dest))
+        steps.append(f"tree-sitter 增量索引: {len(cards)} 函数（{len(changed_src)} 文件）")
     else:
         cards = index_repo(dest)
         steps.append(f"tree-sitter 索引: {len(cards)} 函数")
@@ -118,14 +118,15 @@ def _reindex(repo_id: int, dest, rev: str, steps: list[str], changed_files: list
         for card in new_cards:
             row = old.get(card.name)
             if row is not None:
-                row.module, row.signature, row.source, row.file, row.line, row.docstring = (
-                    card.module, card.signature, card.source, card.file, card.line, card.docstring,
+                row.module, row.signature, row.source, row.file, row.line, row.docstring, row.language = (
+                    card.module, card.signature, card.source, card.file, card.line, card.docstring, card.language,
                 )
                 fid = row.id
             else:
                 fn = Functions(
                     repo_id=repo_id, module=card.module, name=card.name, signature=card.signature,
                     source=card.source, file=card.file, line=card.line, docstring=card.docstring,
+                    language=card.language,
                 )
                 sess.add(fn)
                 sess.flush()

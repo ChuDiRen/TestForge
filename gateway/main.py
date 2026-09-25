@@ -341,6 +341,7 @@ def list_functions(repo_id: int = 0, module: str = "", name: str = ""):
                     "signature": f.signature,
                     "file": f.file,
                     "line": f.line,
+                    "language": f.language or "python",
                     "docstring": (f.docstring or "")[:200],
                 }
                 for f in rows

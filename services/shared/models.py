@@ -37,6 +37,7 @@ class Functions(Base):
     line: Mapped[int] = mapped_column(Integer, default=0)
     docstring: Mapped[str] = mapped_column(Text, default="")
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
+    language: Mapped[str] = mapped_column(String(32), default="")  # python|go|java|...（多语言索引）
 
 
 class CallEdges(Base):

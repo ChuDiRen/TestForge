@@ -50,6 +50,8 @@ def init_db() -> None:
                 Base.metadata.create_all(conn)
             finally:
                 conn.execute(text("SELECT pg_advisory_unlock(728401)"))
+            # 轻量列迁移：functions.language（多语言索引，2026-09 新增）
+            conn.execute(text("ALTER TABLE functions ADD COLUMN IF NOT EXISTS language VARCHAR(32) NOT NULL DEFAULT ''"))
         try:
             with engine.begin() as conn:
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
