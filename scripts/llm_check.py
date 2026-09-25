@@ -23,7 +23,6 @@ def main() -> int:
     print(f"base_url = {s.llm_base_url}")
     print(f"model    = {s.llm_model}")
     print(f"key      = {'已填（{}…）'.format(key[:6]) if key else '未填'}")
-    print(f"mode     = {s.llm_mode}")
     if not key:
         print("\n[FAIL] LLM_API_KEY 为空：到 https://platform.deepseek.com 申请 key 填入 .env 后重试")
         return 1
@@ -48,8 +47,7 @@ def main() -> int:
     content = resp.json()["choices"][0]["message"]["content"]
     data = json.loads(content)
     print(f"\n[OK] DeepSeek 握手成功：{data}")
-    if s.llm_mode != "real":
-        print("提示：当前 LLM_MODE=mock，管线尚未使用 DeepSeek；把 .env 中 LLM_MODE 改为 real 并重启后端即全量切换。")
+    print("管线中的通用函数规划已走 DeepSeek；精选/探针靶标保持确定性策略。")
     return 0
 
 

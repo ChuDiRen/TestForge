@@ -1,11 +1,10 @@
-"""Wiki 分层摘要：repo 总览页 / 模块页 / 函数卡片（mock=确定性模板，real=LLM 润色）。"""
+"""Wiki 分层摘要：repo 总览页 / 模块页 / 函数卡片的确定性 Markdown 渲染。"""
 
 from __future__ import annotations
 
 import logging
 
 from services.repo_svc.indexer import FnCard
-from services.shared.llm import LLMClient, mock_task
 
 log = logging.getLogger("wiki-builder.summarize")
 
@@ -71,14 +70,3 @@ def render_function_page(card: FnCard, callers: list[str], callees: list[str]) -
         "",
     ]
     return "\n".join(lines)
-
-
-def polish(llm: LLMClient, markdown: str, level: str) -> str:
-    """real 模式下用 LLM 润色摘要；mock 原样返回（确定性）。"""
-    if llm.is_mock:
-        return markdown
-    out = llm.chat_text(
-        [{"role": "user", "content": f"{mock_task('wiki')} 请为以下 {level} Wiki 页面润色补充'职责/业务规则/风险'三节，保持 Markdown 结构与事实不变：\n{markdown[:6000]}"}],
-        mock=markdown,
-    )
-    return out or markdown

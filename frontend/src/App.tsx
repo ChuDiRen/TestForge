@@ -4,7 +4,6 @@ import zhCN from "antd/locale/zh_CN";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "./api";
 import { Dashboard } from "./views/Dashboard";
-import { Placeholder } from "./views/Placeholder";
 import { Wiki } from "./views/Wiki";
 import { Map } from "./views/ServiceMap";
 import { RepoAdd } from "./views/RepoAdd";
@@ -41,7 +40,7 @@ function currentView(): ViewKey {
   return VIEWS.some((x) => x.key === v) ? (v as ViewKey) : "dashboard";
 }
 
-const VIEW_COMPONENTS: Partial<Record<ViewKey, () => JSX.Element>> = {
+const VIEW_COMPONENTS: Record<ViewKey, () => JSX.Element> = {
   dashboard: Dashboard,
   wiki: Wiki,
   map: Map,
@@ -69,9 +68,8 @@ export function App() {
   const pendingReviews = stats?.pending_reviews ?? 0;
 
   const body = useMemo(() => {
-    const meta = VIEWS.find((v) => v.key === view)!;
     const C = VIEW_COMPONENTS[view];
-    return C ? <C /> : <Placeholder view={meta.label} milestone={meta.milestone} />;
+    return <C />;
   }, [view]);
 
   const menuItems = VIEWS.map((v) => ({

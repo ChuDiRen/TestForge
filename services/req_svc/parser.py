@@ -1,7 +1,6 @@
 """req-svc 四步解析管线：① 文档解析 → ② 规则抽取 → ③ Wiki diff/冲突检测 → ④ 用例生成编排。
 
-可测性评分（G0）：<80 自动打回产品。
-mock 模式全部确定性：正则/关键词抽取 + 启发式评分。
+可测性评分（G0）：<80 自动打回产品。抽取/评分/冲突检测全部确定性实现（正则 + 关键词 + 事实比对）。
 """
 
 from __future__ import annotations
@@ -11,11 +10,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from pydantic import BaseModel
-
 from services.shared.db import get_session
 from services.shared.gen import testforge_pb2 as pb2
-from services.shared.llm import LLMClient, mock_task
 from services.shared.models import Functions, WikiPages
 
 log = logging.getLogger("req-svc.parse")
@@ -87,7 +83,7 @@ def extract_rules(text: str) -> list[Rule]:
 
 
 def testability_score(text: str, rules: list[Rule]) -> float:
-    """G0 可测性评分（0~100，启发式，mock 确定性）。"""
+    """G0 可测性评分（0~100，启发式，确定性）。"""
     score = 40.0
     kinds = {r.kind for r in rules}
     if "ac" in kinds:
@@ -108,18 +104,10 @@ def testability_score(text: str, rules: list[Rule]) -> float:
 # ---------------- ③ Wiki diff / 冲突检测 ----------------
 
 
-class WikiDiff(BaseModel):
-    """real 模式 LLM 输出 schema。"""
-
-    new_rules: list[str] = []
-    conflict: bool = False
-    detail: str = ""
-
-
-def wiki_diff(text: str, repo_id: int, module_hint: str, llm: LLMClient) -> tuple[list[str], bool, str]:
+def wiki_diff(text: str, repo_id: int, module_hint: str) -> tuple[list[str], bool, str]:
     """与系统 Wiki 模块页对比：返回 (新增规则, conflict, detail)。
 
-    冲突判定（mock 确定性）：需求中出现 Nmin→Mmin 类变更且与 Wiki/源码 docstring 事实不符。
+    冲突判定（确定性解析）：需求中出现 Nmin→Mmin 类变更且与 Wiki/源码 docstring 事实不符。
     """
     new_rules: list[str] = []
     conflict = False
@@ -158,20 +146,13 @@ def wiki_diff(text: str, repo_id: int, module_hint: str, llm: LLMClient) -> tupl
             if r.kind in ("boundary", "ac") and r.text[:20] not in (wiki_text or ""):
                 new_rules.append(r.text)
 
-    if llm.is_mock:
-        return new_rules, conflict, detail
-    out = llm.chat_json(
-        [{"role": "user", "content": f"{mock_task('wikidiff')} 对比需求与 Wiki，返回 new_rules/conflict/detail\n需求：{text[:2000]}\nWiki：{wiki_text[:3000]}"}],
-        schema=WikiDiff,
-        mock=None,
-    )
-    return out.new_rules, out.conflict, out.detail
+    return new_rules, conflict, detail
 
 
 # ---------------- Parse RPC 主体 ----------------
 
 
-def parse(req_code: str, title: str, body: str, source: str, repo_id: int, llm: LLMClient) -> ParseResult:
+def parse(req_code: str, title: str, body: str, source: str, repo_id: int) -> ParseResult:
     res = ParseResult()
     res.pipeline.append("① 录入(源头)")
 
@@ -185,7 +166,7 @@ def parse(req_code: str, title: str, body: str, source: str, repo_id: int, llm: 
     with get_session() as sess:
         fn = sess.query(Functions).filter(Functions.name == "create_order").first()
         module_hint = fn.module if fn else ""
-    new_rules, conflict, detail = wiki_diff(text, repo_id, module_hint, llm)
+    new_rules, conflict, detail = wiki_diff(text, repo_id, module_hint)
     res.conflict = conflict
     res.conflict_detail = detail
     res.new_rules_for_wiki = new_rules

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Badge, Button, Card, Drawer, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../api";
+import { Markdown } from "../components/Markdown";
 import { useIsMobile } from "../hooks";
 
 interface WikiPageRow {
@@ -106,13 +107,11 @@ export function Wiki() {
       <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={isMobile ? "100%" : 640}>
         {detailQ.data && (
           <>
-            <Space style={{ marginBottom: 12 }}>
+            <Space style={{ marginBottom: 12 }} wrap>
               <Tag>rev {detailQ.data.rev}</Tag>
               <Tag color={detailQ.data.stale ? "orange" : "green"}>{detailQ.data.stale ? "stale" : "最新"}</Tag>
             </Space>
-            <pre style={{ background: "#f6f8fa", padding: 12, borderRadius: 6, whiteSpace: "pre-wrap", fontSize: 12 }}>
-              {detailQ.data.content_md}
-            </pre>
+            <Markdown>{detailQ.data.content_md}</Markdown>
           </>
         )}
       </Drawer>

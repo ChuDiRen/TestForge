@@ -7,11 +7,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from services.shared.db import get_session
-from services.shared.llm import get_llm
 from services.shared.models import CallEdges, Functions, Repos, WikiDeps, WikiPages
 from services.shared.trace import emit
 from services.wiki_builder.summarizer import (
-    polish,
     render_function_page,
     render_module_page,
     render_repo_page,
@@ -38,7 +36,6 @@ def rebuild(repo_id: int, from_rev: str, to_rev: str, changed_files: list[str], 
 
     changed_files == ["__stale__"]：仅重建 stale 页面（一键重建入口）。
     """
-    llm = get_llm()
     with get_session() as sess:
         repo = sess.get(Repos, repo_id)
         repo_name = repo.url.rsplit("/", 1)[-1].removesuffix(".git") if repo else f"repo-{repo_id}"
@@ -65,10 +62,10 @@ def rebuild(repo_id: int, from_rev: str, to_rev: str, changed_files: list[str], 
                 if p.level == "function" and p.function:
                     f = next((x for x in fns if x.name == p.function), None)
                     if f is not None:
-                        rebuilt += _upsert_function_page(repo_id, f, llm, ctx, sess)
+                        rebuilt += _upsert_function_page(repo_id, f, ctx, sess)
                 elif p.level == "module" and p.module:
                     m_cards = [x for x in fns if x.module == p.module]
-                    rebuilt += _upsert_module_page(repo_id, p.module, m_cards, llm, ctx, sess)
+                    rebuilt += _upsert_module_page(repo_id, p.module, m_cards, ctx, sess)
             total = sess.query(WikiPages).filter(WikiPages.repo_id == repo_id).count()
             sess.commit()
             emit("仓库", "wiki-builder", f"重建 stale 页 repo={repo_id} rev+1={rebuilt}", trace_id=trace_id or None)
@@ -97,16 +94,16 @@ def rebuild(repo_id: int, from_rev: str, to_rev: str, changed_files: list[str], 
             pages_rebuilt = 0
             rev_bumped = 0
             for f in affected:
-                bumped = _upsert_function_page(repo_id, f, llm, ctx, sess)
+                bumped = _upsert_function_page(repo_id, f, ctx, sess)
                 pages_rebuilt += 1
                 rev_bumped += bumped
             modules = sorted({f.module for f in affected})
             for m in modules:
                 m_cards = [f for f in fns if f.module == m]
                 pages_rebuilt += 1
-                rev_bumped += _upsert_module_page(repo_id, m, m_cards, llm, ctx, sess)
+                rev_bumped += _upsert_module_page(repo_id, m, m_cards, ctx, sess)
             pages_rebuilt += 1
-            rev_bumped += _upsert_repo_page(repo_id, repo_name, fns, llm, ctx, sess)
+            rev_bumped += _upsert_repo_page(repo_id, repo_name, fns, ctx, sess)
             total = sess.query(WikiPages).filter(WikiPages.repo_id == repo_id).count()
             sess.commit()
             emit("仓库", "wiki-builder", f"增量重建 repo={repo_id} 受影响页={pages_rebuilt} stale={stale_marked} rev+1={rev_bumped}", trace_id=trace_id or None)
@@ -115,14 +112,14 @@ def rebuild(repo_id: int, from_rev: str, to_rev: str, changed_files: list[str], 
         # 全量编译
         _clear_stale(sess, repo_id)
         pages = 0
-        _upsert_repo_page(repo_id, repo_name, fns, llm, ctx, sess)
+        _upsert_repo_page(repo_id, repo_name, fns, ctx, sess)
         pages += 1
         for m in sorted({f.module for f in fns}):
             m_cards = [f for f in fns if f.module == m]
-            _upsert_module_page(repo_id, m, m_cards, llm, ctx, sess)
+            _upsert_module_page(repo_id, m, m_cards, ctx, sess)
             pages += 1
         for f in fns:
-            _upsert_function_page(repo_id, f, llm, ctx, sess)
+            _upsert_function_page(repo_id, f, ctx, sess)
             pages += 1
         total = sess.query(WikiPages).filter(WikiPages.repo_id == repo_id).count()
         sess.commit()
@@ -143,10 +140,10 @@ def _upsert(page: WikiPages, content: str) -> int:
     return 0
 
 
-def _upsert_repo_page(repo_id: int, name: str, fns: list, llm, ctx: "GraphCtx", sess) -> int:  # type: ignore[no-untyped-def]
+def _upsert_repo_page(repo_id: int, name: str, fns: list, ctx: "GraphCtx", sess) -> int:  # type: ignore[no-untyped-def]
     cards = [_to_card(f) for f in fns]
     page = ctx.page_index.get(("repo", "")) or WikiPages(repo_id=repo_id, level="repo", title=f"{name} 总览")
-    content = polish(llm, render_repo_page(name, cards), "repo")
+    content = render_repo_page(name, cards)
     if page.id is None:
         sess.add(page)
         sess.flush()
@@ -156,10 +153,10 @@ def _upsert_repo_page(repo_id: int, name: str, fns: list, llm, ctx: "GraphCtx", 
     return _upsert(page, content)
 
 
-def _upsert_module_page(repo_id: int, module: str, fns: list, llm, ctx: "GraphCtx", sess) -> int:  # type: ignore[no-untyped-def]
+def _upsert_module_page(repo_id: int, module: str, fns: list, ctx: "GraphCtx", sess) -> int:  # type: ignore[no-untyped-def]
     cards = [_to_card(f) for f in fns]
     page = ctx.page_index.get(("module", module)) or WikiPages(repo_id=repo_id, level="module", title=f"模块 {module}", module=module)
-    content = polish(llm, render_module_page(module, cards), "module")
+    content = render_module_page(module, cards)
     bump = 0
     if page.id is None:
         sess.add(page)
@@ -181,13 +178,9 @@ def _upsert_module_page(repo_id: int, module: str, fns: list, llm, ctx: "GraphCt
     return bump
 
 
-def _upsert_function_page(repo_id: int, f, llm, ctx: "GraphCtx", sess) -> int:  # type: ignore[no-untyped-def]
+def _upsert_function_page(repo_id: int, f, ctx: "GraphCtx", sess) -> int:  # type: ignore[no-untyped-def]
     card = _to_card(f)
-    content = polish(
-        llm,
-        render_function_page(card, ctx.callers.get(f.id, []), ctx.callees.get(f.id, [])),
-        "function",
-    )
+    content = render_function_page(card, ctx.callers.get(f.id, []), ctx.callees.get(f.id, []))
     page = ctx.page_index.get(("function", f.name)) or WikiPages(repo_id=repo_id, level="function", title=f"函数 {f.name}", function=f.name, module=f.module)
     if page.id is None:
         sess.add(page)

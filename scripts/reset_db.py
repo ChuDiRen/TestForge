@@ -17,7 +17,6 @@ sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import text  # noqa: E402
 
-from services.shared.config import get_settings  # noqa: E402
 from services.shared.db import get_session, init_db  # noqa: E402
 
 TABLES = [
@@ -55,24 +54,9 @@ def _rmtree_force(path: Path) -> None:
 
 def main() -> int:
     init_db()
-    url = get_settings().database_url
     with get_session() as sess:
-        if url.startswith("sqlite"):
-            for t in TABLES:
-                try:
-                    sess.execute(text(f"DELETE FROM {t}"))
-                    sess.commit()  # 逐表提交：单表失败（如 pgvector 专有表）不能连坐回滚其他表
-                except Exception as exc:  # noqa: BLE001
-                    sess.rollback()
-                    print(f"[reset] 跳过 {t}: {type(exc).__name__} {str(exc)[:80]}")
-            try:
-                sess.execute(text("DELETE FROM sqlite_sequence"))
-                sess.commit()
-            except Exception:  # noqa: BLE001
-                sess.rollback()  # 库里还没有自增表时 sqlite_sequence 不存在
-        else:
-            sess.execute(text(f"TRUNCATE TABLE {', '.join(TABLES)} RESTART IDENTITY CASCADE"))
-            sess.commit()
+        sess.execute(text(f"TRUNCATE TABLE {', '.join(TABLES)} RESTART IDENTITY CASCADE"))
+        sess.commit()
     for sub in ("runs", "repos"):
         d = ROOT / "data" / sub
         if d.exists():

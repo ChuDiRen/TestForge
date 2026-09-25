@@ -5,7 +5,6 @@ import logging
 from datetime import datetime
 
 from services.shared.db import get_session
-from services.shared.llm import get_llm
 from services.shared.models import Cases, Defects, Iterations, Runs
 from services.shared.trace import emit
 
@@ -59,7 +58,7 @@ def evaluate_plan(iter_code: str, version: str, req_codes: list[str], trace_id: 
 
 
 def build_report(iter_code: str, trace_id: str) -> dict:
-    """测试报告（平台汇总 + LLM 初稿；mock 确定性模板）。"""
+    """测试报告（平台真实数据汇总，结论段由统计自动生成）。"""
 
     with get_session() as sess:
         it = sess.query(Iterations).filter(Iterations.code == iter_code).first()
@@ -84,18 +83,11 @@ def build_report(iter_code: str, trace_id: str) -> dict:
         for c in cases:
             data["cases"]["by_layer"][c.layer] = data["cases"]["by_layer"].get(c.layer, 0) + 1
 
-    llm = get_llm()
-    summary = llm.chat_text(
-        [{"role": "user", "content": f"撰写迭代 {iter_code} 测试报告结论段"}],
-        mock=(
-            f"结论：迭代 {iter_code}（{it.version}）共执行 {total_runs} 轮，通过率 {data['runs']['pass_rate']}%，"
-            f"平均分支覆盖率 {coverage}%；缺陷关闭 {data['defects']['closed']}/{data['defects']['total']}。"
-            f"AI 生成用例 {ai_generated} 条全部入库，具备准出条件。"
-            if llm.is_mock
-            else ""
-        ),
+    data["summary"] = (
+        f"结论：迭代 {iter_code}（{it.version}）共执行 {total_runs} 轮，通过率 {data['runs']['pass_rate']}%，"
+        f"平均分支覆盖率 {coverage}%；缺陷关闭 {data['defects']['closed']}/{data['defects']['total']}。"
+        f"AI 生成用例 {ai_generated} 条全部入库，具备准出条件。"
     )
-    data["summary"] = summary
     data["generated_at"] = datetime.now().isoformat()
     with get_session() as sess:
         it = sess.query(Iterations).filter(Iterations.code == iter_code).first()

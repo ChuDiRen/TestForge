@@ -1,15 +1,11 @@
-"""阶段 B：按清单生成 pytest 代码。mock=确定性模板渲染；real=LLM 生成后语法校验。"""
+"""阶段 B：按清单确定性渲染 pytest 代码（输入设计 → 可执行测试的唯一下游）。"""
 
 from __future__ import annotations
 
-import ast
 import builtins
 import logging
 from typing import Any
 
-from pydantic import BaseModel
-
-from services.shared.llm import LLMClient, mock_task
 from services.testgen_svc.probe import NORM_SRC
 from services.testgen_svc.schemas import CasePlan, PlannedCase
 
@@ -123,31 +119,12 @@ def render_file(plan: CasePlan, target_module: str, target_fn: str, error_cls: s
     return "\n".join(header) + "\n\n\n" + "\n\n\n".join(bodies) + "\n"
 
 
-class CodeFile(BaseModel):
-    """real 模式 LLM 输出 schema。"""
-
-    code: str
-
-
-def codegen(llm: LLMClient, plan: CasePlan, gen_code: str) -> str:
-    """两阶段之阶段 B：按清单生成代码。"""
+def codegen(plan: CasePlan, gen_code: str) -> str:
+    """两阶段之阶段 B：按清单确定性渲染整文件 pytest 源码。"""
     target_module = plan.module or _infer_module(plan.target)
     target_fn = plan.target.split(".")[-1]
     error_cls = _error_cls_for(target_module, target_fn)
-    if llm.is_mock:
-        return render_file(plan, target_module, target_fn, error_cls, gen_code)
-    # real：LLM 按清单生成，本地语法校验
-    prompt = (
-        f"{mock_task('codegen')}\n按以下用例清单生成一个完整 pytest 文件（目标 {target_module}.{target_fn}，"
-        f"错误类 {error_cls}）。只返回 JSON：{{\"code\": \"<整文件python源码>\"}}\n"
-        f"清单：{plan.model_dump_json()[:8000]}"
-    )
-    out = llm.chat_json([{"role": "user", "content": prompt}], schema=CodeFile, mock=None)
-    try:
-        ast.parse(out.code)
-    except SyntaxError as exc:
-        raise ValueError(f"生成的代码语法错误: {exc}") from exc
-    return out.code
+    return render_file(plan, target_module, target_fn, error_cls, gen_code)
 
 
 def _infer_module(target: str) -> str:

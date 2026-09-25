@@ -9,7 +9,6 @@ from services.shared.config import GRPC_PORTS
 from services.shared.gen import testforge_pb2 as pb2
 from services.shared.gen import testforge_pb2_grpc as pb2_grpc
 from services.shared.grpc_server import run_server
-from services.shared.llm import get_llm
 from services.shared.logutil import setup_logging
 from services.shared.trace import emit
 
@@ -24,9 +23,8 @@ class ReqIngestServicer(pb2_grpc.ReqIngestServicer):
     def Parse(self, request, context):  # noqa: N802
         from services.req_svc import parser
 
-        llm = get_llm()
         try:
-            res = parser.parse(request.code, request.title, request.body, request.source, request.repo_id, llm)
+            res = parser.parse(request.code, request.title, request.body, request.source, request.repo_id)
         except Exception as exc:  # noqa: BLE001
             log.exception("parse failed")
             context.abort(grpc.StatusCode.INTERNAL, str(exc)[:300])

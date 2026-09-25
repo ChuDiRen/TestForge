@@ -1,11 +1,11 @@
-"""阶段 A：用例清单规划。mock=确定性模板（create_order 精选 + 通用兜底），real=LLM。"""
+"""阶段 A：用例清单规划。精选/探针靶标确定性策略，其余函数 DeepSeek 规划。"""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from services.shared.llm import LLMClient, mock_task
+from services.shared.llm import LLMClient
 from services.testgen_svc.fninfo import FnInfo
 from services.testgen_svc.schemas import CasePlan, Patch, PlannedCase
 
@@ -123,42 +123,27 @@ def _curated_sanitize_text() -> list[PlannedCase]:
 
 
 def plan_cases(llm: LLMClient, fn: FnInfo, target: str, layer: str, options: dict[str, Any]) -> CasePlan:
-    """两阶段之阶段 A：产出用例清单（schema 校验）。"""
-    if llm.is_mock:
-        if fn.name == "create_order":
-            cases = _curated_create_order()
-        elif fn.name == "sanitize_text":
-            cases = _curated_sanitize_text()
-        elif fn.name in PROBE_INPUT_DESIGNS:
-            # 探针式：只设计输入，期望值由 probe 对真实代码执行捕获
-            cases = [
-                PlannedCase(id=f"TC-{i:03d}", source="plan", **design)
-                for i, design in enumerate(PROBE_INPUT_DESIGNS[fn.name], 1)
-            ]
-        else:
-            # 通用兜底：happy + 交给覆盖守卫补齐
-            from services.testgen_svc.fninfo import build_kwargs
+    """两阶段之阶段 A：产出用例清单（schema 校验）。
 
-            happy = PlannedCase(
-                id="TC-001",
-                title=f"{fn.name} happy path 应正常返回",
-                category="normal",
-                input=build_kwargs(fn),
-                covers="主流程",
-                source="plan",
-            )
-            cases = [happy]
-        return CasePlan(target=target, module=fn.module, layer=layer, cases=cases)
-
-    # real 模式：LLM 产出清单 JSON
-    prompt = (
-        f"{mock_task('plan')}\n"
-        f"为函数 {target} 设计单测用例清单。函数源码与文档：\n{fn.source[:4000]}\n"
-        f"要求：覆盖 normal/boundary/exception/permission；每条含 input kwargs、expected_error 或 expected_fields、"
-        f"patches（对依赖模块打桩：module/attr/kind/value/exc）。\n返回 JSON：{{\"target\":..., \"cases\":[...]}}"
-    )
-    return llm.chat_json(
-        [{"role": "user", "content": prompt}],
-        schema=CasePlan,
-        mock=None,
-    )
+    精选/探针靶标走确定性策略（期望值来自真实行为/真实执行捕获）；
+    其余函数由 DeepSeek 规划（真实 LLM，schema 校验）。
+    """
+    if fn.name == "create_order":
+        cases = _curated_create_order()
+    elif fn.name == "sanitize_text":
+        cases = _curated_sanitize_text()
+    elif fn.name in PROBE_INPUT_DESIGNS:
+        # 探针式：只设计输入，期望值由 probe 对真实代码执行捕获
+        cases = [
+            PlannedCase(id=f"TC-{i:03d}", source="plan", **design)
+            for i, design in enumerate(PROBE_INPUT_DESIGNS[fn.name], 1)
+        ]
+    else:
+        prompt = (
+            f"为函数 {target} 设计单测用例清单。函数源码与文档：\n{fn.source[:4000]}\n"
+            f"要求：覆盖 normal/boundary/exception/permission；每条含 input kwargs、expected_error 或 expected_fields、"
+            f"patches（对依赖模块打桩：module/attr/kind/value/exc）。\n返回 JSON：{{\"target\":..., \"cases\":[...]}}"
+        )
+        plan = llm.chat_json([{"role": "user", "content": prompt}], schema=CasePlan)
+        cases = plan.cases
+    return CasePlan(target=target, module=fn.module, layer=layer, cases=cases)

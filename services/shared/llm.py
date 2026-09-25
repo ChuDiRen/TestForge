@@ -1,8 +1,7 @@
-"""LLM 客户端：OpenAI 兼容 API（real）+ 确定性 mock 双实现。
+"""LLM 客户端：DeepSeek（OpenAI 兼容 /chat/completions，json_object 结构化输出）。
 
-mock 模式按 prompt 中的任务标记 [MOCK:<task>] 返回固定样例，
-保证 LLM_MODE=mock 且无 API Key 时全流程可跑通。
-所有结构化输出经 pydantic schema 校验后才返回。
+所有结构化输出经 pydantic schema 校验后才返回；未配置 Key 时直接抛出
+LLMError——系统不提供任何确定性假实现，数据不允许造假。
 """
 
 import json
@@ -27,62 +26,37 @@ class LLMError(RuntimeError):
     pass
 
 
-def _extract_mock_task(messages: list[dict[str, str]]) -> str:
-    for m in messages:
-        if "[MOCK:" in m.get("content", ""):
-            content = m["content"]
-            start = content.index("[MOCK:") + 6
-            end = content.index("]", start)
-            return content[start:end]
-    return "unknown"
-
-
 class LLMClient:
-    """chat_json(messages, schema) -> 经校验的模型实例。"""
+    """chat_json(messages, schema) -> 经 pydantic 校验的 DeepSeek 结构化输出。"""
 
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    @property
-    def is_mock(self) -> bool:
-        return self.settings.llm_mode == "mock"
+    def chat_json(self, messages: list[dict[str, str]], schema: type[T]) -> T:
+        return self._validate(self._loads(self._chat_raw(messages)), schema)
 
-    def chat_json(self, messages: list[dict[str, str]], schema: type[T], mock: Any = None) -> T:
-        """返回经 pydantic 校验的结构化输出。mock=mock 模式下的样例数据（dict/str）。"""
-        if self.is_mock:
-            data = mock() if callable(mock) else mock
-            if isinstance(data, str):
-                data = json.loads(data)
-            return self._validate(data, schema)
-        raw = self._chat_raw(messages)
-        return self._validate(self._loads(raw), schema)
-
-    def chat_text(self, messages: list[dict[str, str]], mock: str = "") -> str:
-        if self.is_mock:
-            return mock
+    def chat_text(self, messages: list[dict[str, str]]) -> str:
         return self._chat_raw(messages)
 
-    # ---------- real ----------
     def _chat_raw(self, messages: list[dict[str, str]]) -> str:
         s = self.settings
-        headers = {"Authorization": f"Bearer {s.llm_api_key}"} if s.llm_api_key else {}
-        body = {
-            "model": s.llm_model,
-            "messages": [{"role": "system", "content": SYSTEM_PRIORITY}, *messages],
-            "temperature": 0.2,
-            "response_format": {"type": "json_object"},
-        }
+        if not s.llm_api_key:
+            raise LLMError("LLM_API_KEY 未配置：请在 .env 填入 DeepSeek API Key（https://platform.deepseek.com）")
         resp = httpx.post(
             f"{s.llm_base_url.rstrip('/')}/chat/completions",
-            headers=headers,
-            json=body,
+            headers={"Authorization": f"Bearer {s.llm_api_key}"},
+            json={
+                "model": s.llm_model,
+                "messages": [{"role": "system", "content": SYSTEM_PRIORITY}, *messages],
+                "temperature": 0.2,
+                "response_format": {"type": "json_object"},
+            },
             timeout=60.0,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        if resp.status_code != 200:
+            raise LLMError(f"DeepSeek HTTP {resp.status_code}: {resp.text[:200]}")
+        return resp.json()["choices"][0]["message"]["content"]
 
-    # ---------- validate ----------
     @staticmethod
     def _loads(raw: str) -> Any:
         try:
@@ -100,8 +74,3 @@ class LLMClient:
 
 def get_llm() -> LLMClient:
     return LLMClient()
-
-
-def mock_task(name: str) -> str:
-    """在 user prompt 中打 mock 任务标记。"""
-    return f"[MOCK:{name}]"

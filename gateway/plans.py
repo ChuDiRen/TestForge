@@ -183,7 +183,7 @@ def get_plan(iter_code: str):
 
 @app.post("/api/reports/{iter_code}")
 def build_report(iter_code: str):
-    """测试报告：平台汇总 + LLM 初稿（mock 确定性）。"""
+    """测试报告：平台真实数据汇总，结论段由统计自动生成。"""
     with get_session() as sess:
         from services.shared.models import Iterations
 

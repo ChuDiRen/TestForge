@@ -27,21 +27,22 @@ def test_trace_emit_falls_back_to_db():
     assert rows and rows[0]["summary"] == "emit 冒烟"
 
 
-def test_mock_llm_schema_validation():
+def test_llm_rejects_missing_key():
+    """LLM 无 mock 实现：未配置 Key 时必须显式报错，不允许任何假数据路径。"""
     from pydantic import BaseModel
 
-    from services.shared.llm import LLMClient
+    from services.shared.llm import LLMClient, LLMError
 
     class Plan(BaseModel):
         cases: list[str]
 
     llm = LLMClient()
-    assert llm.is_mock
-    out = llm.chat_json([], schema=Plan, mock={"cases": ["a", "b"]})
-    assert isinstance(out, Plan) and out.cases == ["a", "b"]
+    with pytest.raises(LLMError):
+        llm.chat_json([], schema=Plan)
 
 
-def test_mock_llm_rejects_bad_schema():
+def test_llm_rejects_bad_schema():
+    """真实 LLM 返回不合 schema 的 JSON 时必须抛 LLMError。"""
     from pydantic import BaseModel
 
     from services.shared.llm import LLMClient, LLMError
@@ -51,7 +52,7 @@ def test_mock_llm_rejects_bad_schema():
 
     llm = LLMClient()
     with pytest.raises(LLMError):
-        llm.chat_json([], schema=Plan, mock={"n": "not-an-int"})
+        llm._validate({"n": "not-an-int"}, Plan)
 
 
 def test_db_init_and_models():

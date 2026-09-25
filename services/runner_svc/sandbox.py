@@ -1,11 +1,10 @@
-"""沙箱执行：docker（--network none / 512m / 1cpu）/ local（子进程）/ fake（确定性模拟）。
+"""沙箱执行：local（本机子进程真实 pytest）/ docker（--network none / 512m / 1cpu）。
 
 产物统一解析：junitxml（用例结果）+ coverage json（分支覆盖率）。
 """
 
 from __future__ import annotations
 
-import ast
 import json
 import logging
 import shutil
@@ -69,48 +68,7 @@ def execute(run_code: str, ws: Path, test_files: list[str], only: list[str] | No
     mode = get_settings().sandbox_mode
     if mode == "docker":
         return _exec_docker(run_code, ws, test_files, only, cov_pkg)
-    if mode == "local":
-        return _exec_local(run_code, ws, test_files, only, cov_pkg)
-    return _exec_fake(run_code, ws, test_files, only)
-
-
-# ---------------- fake：确定性模拟（无 docker 环境全流程演示） ----------------
-
-
-def _exec_fake(run_code: str, ws: Path, test_files: list[str], only: list[str] | None = None) -> SandboxResult:
-    total = 0
-    cases: dict[str, str] = {}
-    for tf in test_files:
-        path = ws / "tests" / tf
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:
-            return SandboxResult(mode="fake", pass_total=0, pass_count=0, coverage=0.0, status="error", log=f"语法错误: {path.name}")
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
-                if only and not any(k in node.name.lower() for k in only):
-                    continue
-                total += 1
-                tc = _tc_of(node.name)
-                cases[tc] = "passed"
-    coverage = min(95.0, 55.0 + total * 3.0)  # 确定性估算
-    log.info("fake sandbox: %d cases simulated pass, coverage %.1f", total, coverage)
-    return SandboxResult(
-        mode="fake",
-        pass_total=total,
-        pass_count=total,
-        coverage=round(coverage, 1),
-        status="success",
-        cases=cases,
-        log=f"[fake] 模拟执行 {total} 用例全部通过（SANDBOX_MODE=fake）",
-    )
-
-
-def _tc_of(test_name: str) -> str:
-    for part in test_name.split("_"):
-        if part.upper().startswith("TC-") or (part.upper().startswith("TC") and part[2:].isdigit()):
-            return part.upper().replace("TC", "TC-")
-    return test_name
+    return _exec_local(run_code, ws, test_files, only, cov_pkg)
 
 
 # ---------------- local：本机子进程真实执行（验证生成代码可跑） ----------------
@@ -155,6 +113,13 @@ def _run_pytest(run_code: str, ws: Path, args: list[str], mode: str) -> SandboxR
         except Exception:  # noqa: BLE001
             pass
     return res
+
+
+def _tc_of(test_name: str) -> str:
+    for part in test_name.split("_"):
+        if part.upper().startswith("TC-") or (part.upper().startswith("TC") and part[2:].isdigit()):
+            return part.upper().replace("TC", "TC-")
+    return test_name
 
 
 def _parse_junit(report: Path, mode: str) -> SandboxResult:

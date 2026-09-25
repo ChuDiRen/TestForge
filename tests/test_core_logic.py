@@ -39,13 +39,12 @@ def test_guard_skips_optional_params():
 def test_codegen_renders_valid_python():
     import ast
 
-    from services.shared.llm import LLMClient
     from services.testgen_svc.codegen import codegen
     from services.testgen_svc.planner import _curated_create_order
     from services.testgen_svc.schemas import CasePlan
 
     plan = CasePlan(target="create_order", module="app.orders.service", cases=_curated_create_order())
-    src = codegen(LLMClient(), plan, "GEN-TEST")
+    src = codegen(plan, "GEN-TEST")
     tree = ast.parse(src)  # 语法必须有效
     test_fns = [n.name for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
     assert len(test_fns) == 13

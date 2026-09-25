@@ -12,7 +12,7 @@ from services.shared.trace import emit
 
 log = logging.getLogger("trace-svc.defect")
 
-# 按模块自动指派（服务目录 mock）
+# 按模块自动指派（服务目录映射）
 ASSIGNEE_MAP = {
     "orders": "研发-张三",
     "payments": "研发-李四",

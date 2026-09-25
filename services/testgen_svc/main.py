@@ -87,7 +87,7 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
         yield pb2.GenEvent(stage="guard", message=f"守卫检查: 检查表 {len(report['checked'])} 项，自动补 {len(report['added'])} 条", progress=0.4, payload_json=json.dumps(report, ensure_ascii=False))
 
         # ④ 阶段 B：按清单生成代码
-        src = codegen(llm, plan, gen_code)
+        src = codegen(plan, gen_code)
         with get_session() as sess:
             g = sess.query(Generations).filter(Generations.code == gen_code).first()
             if g is not None:
@@ -140,7 +140,7 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
         plan = plan_cases(llm, fn, target, "ut", {"repair": True})
         plan, report = guard(plan, fn)
         gen_code = f"REPAIR-{(request.trace_id or 'NA')[-6:]}"
-        codegen(llm, plan, gen_code)
+        codegen(plan, gen_code)
         emit(
             "生成",
             "testgen-svc",

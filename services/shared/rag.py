@@ -1,7 +1,6 @@
-"""相似用例 RAG：确定性 mock embedding + pgvector / python 余弦双路检索。
+"""相似用例 RAG：本地确定性 embedding（token-hash 词袋，归一化）+ pgvector 检索。
 
-LLM_MODE=mock 不依赖外部 embedding API：token-hash 词袋向量（归一化），
-保证同文本向量一致、语义近似（共享关键词）即可召回。
+不依赖外部 embedding API：同文本向量恒定、语义近似（共享关键词）即可召回。
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ import logging
 import math
 import re
 
-from services.shared.config import get_settings
 from services.shared.db import get_session
 
 log = logging.getLogger("shared.rag")
@@ -37,7 +35,7 @@ def _embed_cached(content: str) -> list[float]:
 
 
 def embed(text: str) -> list[float]:
-    """确定性词袋 hash 向量（归一化），mock 模式零外部依赖。"""
+    """确定性词袋 hash 向量（归一化），零外部依赖。"""
     vec = [0.0] * DIM
     for tok in _TOKEN.findall((text or "").lower()):
         h = 0
@@ -49,8 +47,6 @@ def embed(text: str) -> list[float]:
 
 
 def _pgvector_available(sess) -> bool:  # type: ignore[no-untyped-def]
-    if get_settings().database_url.startswith("sqlite"):
-        return False
     try:
         from sqlalchemy import text
 
@@ -77,7 +73,7 @@ def index_case(case_code: str, content: str) -> None:
                 {"c": case_code, "e": json.dumps(vec)},
             )
             sess.commit()
-        # sqlite / 表缺失：检索时走 python 余弦，无需存储
+        # 表缺失：检索时走 python 余弦，无需存储
 
 
 def similar_cases(content: str, limit: int = 5, layer: str = "") -> list[dict]:
@@ -133,9 +129,7 @@ def similar_cases(content: str, limit: int = 5, layer: str = "") -> list[dict]:
 
 
 def ensure_pgvector_table() -> None:
-    """建向量表（幂等，pgvector 可用时）。"""
-    if get_settings().database_url.startswith("sqlite"):
-        return
+    """建向量表（幂等）。"""
     from sqlalchemy import text
 
     from services.shared.db import get_engine

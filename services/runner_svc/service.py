@@ -61,7 +61,7 @@ def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: i
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("repair regenerate failed: %s", exc)
-        # 重写测试文件（mock 下为幂等重渲染，等价修复）
+        # 重写测试文件（按最新清单幂等重渲染，等价修复）
         res = sandbox.execute(run_code, ws, [filename], only, cov_pkg=cov_pkg or _cov_pkg(cases))
         timeline.append({"round": rounds, "status": res.status, "pass": f"{res.pass_count}/{res.pass_total}", "mode": res.mode})
 

@@ -1,4 +1,4 @@
-"""M1 验收：单仓闭环 接仓库→生成→执行→入库（全 mock 环境）。
+"""M1 验收：单仓闭环 接仓库→生成→执行→入库（确定性规划 + 真实沙箱）。
 
 验收标准（PROMPT §10）：
 - 接入 fixtures/sample-repo → tree-sitter 索引 → 选中 create_order → 生成 → 沙箱执行 → 用例入库
@@ -43,7 +43,7 @@ def main() -> int:
     seed = pathlib.Path(__file__).resolve().parent / ("seed_api_repo.py" if "m4" in __file__ else "seed.py")
     subprocess.run([sys.executable, str(seed)], check=True, cwd=str(pathlib.Path(__file__).resolve().parents[1]))
 
-    print("== TestForge M1 验收（单仓闭环，全 mock）==")
+    print("== TestForge M1 验收（单仓闭环，确定性规划 + 真实沙箱）==")
     global HEADERS
     import uuid
 

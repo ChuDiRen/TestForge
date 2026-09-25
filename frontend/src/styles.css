@@ -25,3 +25,83 @@ pre.json-pre {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Markdown 渲染排版（Wiki 页 / 报告） */
+.md-body {
+  font-size: 13px;
+  line-height: 1.75;
+  word-break: break-word;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  margin: 14px 0 8px;
+  line-height: 1.4;
+}
+.md-body h1 {
+  font-size: 18px;
+}
+.md-body h2 {
+  font-size: 16px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 4px;
+}
+.md-body h3 {
+  font-size: 14px;
+}
+.md-body p {
+  margin: 8px 0;
+}
+.md-body ul,
+.md-body ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.md-body code {
+  background: #f0f1f5;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+.md-body pre {
+  background: #0b1021;
+  color: #9ecbff;
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.md-body pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.md-body table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  width: 100%;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid #e5e6eb;
+  padding: 5px 10px;
+  text-align: left;
+}
+.md-body th {
+  background: #f7f8fa;
+}
+.md-body blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid #4f46e5;
+  background: #f7f8ff;
+  color: #555;
+}
+.md-body a {
+  color: #4f46e5;
+}
+.md-body hr {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 12px 0;
+}
