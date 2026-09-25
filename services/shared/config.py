@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
 
-    # 沙箱：docker = 真实容器；fake = 假执行器
-    sandbox_mode: str = "fake"
+    # 沙箱：docker = 真实容器；local = 本机子进程真实 pytest（默认，数据全真实）；fake = 确定性模拟（仅演示）
+    sandbox_mode: str = "local"
 
     log_level: str = "INFO"
     gateway_port: int = 8000
@@ -50,4 +50,52 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    s.database_url = _stable_db_url(s.database_url)
+    return s
+
+
+def _stable_db_url(url: str) -> str:
+    """Windows + WSL postgres 拓扑：localhost 中继不稳定时自动改写 host 为可达的 WSL IP。
+
+    每进程只探测一次；非 127.0.0.1/localhost（docker 网络/远程）或本机可达时原样返回。
+    """
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    if parts.scheme.split("+")[0] != "postgresql":
+        return url
+    if parts.hostname not in ("127.0.0.1", "localhost"):
+        return url
+    import socket
+
+    port = parts.port or 5432
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.8)
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            return url
+    ip = _wsl_db_ip(port)
+    if not ip:
+        return url
+    print(f"[config] localhost:{port} 不可达，DATABASE_URL 改走 WSL 直连 {ip}:{port}")
+    return url.replace(parts.netloc, parts.netloc.replace(parts.hostname, ip, 1), 1)
+
+
+def _wsl_db_ip(port: int) -> str:
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["wsl", "-e", "bash", "-lc", "hostname -I"],
+            capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace",
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    import socket
+
+    for ip in (x for x in out if x.count(".") == 3):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2.0)
+            if s.connect_ex((ip, port)) == 0:
+                return ip
+    return ""

@@ -27,6 +27,7 @@ def get_engine():
             kwargs["connect_args"] = {"check_same_thread": False}
         else:
             kwargs["pool_size"] = 5
+            kwargs["connect_args"] = {"connect_timeout": 5}  # PG 网络抖动快速失败，不悬挂事件循环
         _engine = create_engine(url, **kwargs)
         _factory = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     return _engine

@@ -63,24 +63,47 @@ def _curated_create_order() -> list[PlannedCase]:
     return cases
 
 
+def _curated_sanitize_text() -> list[PlannedCase]:
+    """sanitize_text（services/shared/sanitize.py，本仓库真实函数）精选清单。
+
+    期望值全部来自该函数真实行为（非模拟）；空串/类型错两条 exception 预压覆盖守卫的补齐规则。
+    """
+    cases: list[PlannedCase] = [
+        PlannedCase(id="TC-001", title="无敏感信息的文本应原样保留", category="normal", input={"text": "user login ok"}, expected_return="user login ok", assert_return=True, covers="主流程：未命中规则原样返回", source="plan"),
+        PlannedCase(id="TC-002", title="Bearer 令牌应掩码", category="normal", input={"text": "Bearer abc.DEF-123 后续"}, expected_not_contains=["abc.DEF-123"], expected_contains=["Bearer ***"], covers="主流程：Bearer 令牌掩码", source="plan"),
+        PlannedCase(id="TC-003", title="password 键值应掩码", category="normal", input={"text": "password=hunter2"}, expected_not_contains=["hunter2"], expected_contains=["password=***"], covers="主流程：password 键值掩码", source="plan"),
+        PlannedCase(id="TC-004", title="sk- 前缀密钥应掩码", category="normal", input={"text": "sk-prod12345abcdefgh"}, expected_return="sk-***", assert_return=True, covers="主流程：sk- 密钥掩码", source="plan"),
+        PlannedCase(id="TC-005", title="api_key 键值应掩码且保留后续参数", category="normal", input={"text": "api_key=abc123&x=1"}, expected_return="api_key=***", assert_return=True, covers="主流程：api_key 键值掩码", source="plan"),
+        PlannedCase(id="TC-006", title="大小写 Authorization 头组合应全掩码", category="boundary", input={"text": "Authorization: Bearer eyJhbGci.OKen.me_1 x=2"}, expected_return="Authorization=*** *** x=2", assert_return=True, covers="边界：头字段与 Bearer 双规则叠加", source="plan"),
+        PlannedCase(id="TC-007", title="空字符串输入应返回空字符串", category="exception", input={"text": ""}, expected_return="", assert_return=True, covers="异常：空输入安全返回（守卫空串预压）", source="plan"),
+        PlannedCase(id="TC-008", title="None 输入应安全降级为空字符串", category="exception", input={"text": None}, expected_return="", assert_return=True, covers="异常：None 容错", source="plan"),
+        PlannedCase(id="TC-009", title="错误类型输入应抛 TypeError", category="exception", input={"text": ["not-a-string"]}, expected_error_type="TypeError", covers="异常：list 输入 re.sub 抛 TypeError（守卫类型错预压）", source="plan"),
+        PlannedCase(id="TC-010", title="authorization 头中的令牌不可回读", category="permission", input={"text": "authorization: Bearer tok-9a8b7c6d5e"}, expected_return="authorization=*** ***", assert_return=True, covers="权限语义：凭证掩码后不可复原", source="plan"),
+    ]
+    return cases
+
+
 def plan_cases(llm: LLMClient, fn: FnInfo, target: str, layer: str, options: dict[str, Any]) -> CasePlan:
     """两阶段之阶段 A：产出用例清单（schema 校验）。"""
     if llm.is_mock:
         if fn.name == "create_order":
             cases = _curated_create_order()
-            return CasePlan(target=target, module=fn.module, layer=layer, cases=cases)
-        # 通用兜底：happy + 交给覆盖守卫补齐
-        from services.testgen_svc.fninfo import build_kwargs
+        elif fn.name == "sanitize_text":
+            cases = _curated_sanitize_text()
+        else:
+            # 通用兜底：happy + 交给覆盖守卫补齐
+            from services.testgen_svc.fninfo import build_kwargs
 
-        happy = PlannedCase(
-            id="TC-001",
-            title=f"{fn.name} happy path 应正常返回",
-            category="normal",
-            input=build_kwargs(fn),
-            covers="主流程",
-            source="plan",
-        )
-        return CasePlan(target=target, module=fn.module, layer=layer, cases=[happy])
+            happy = PlannedCase(
+                id="TC-001",
+                title=f"{fn.name} happy path 应正常返回",
+                category="normal",
+                input=build_kwargs(fn),
+                covers="主流程",
+                source="plan",
+            )
+            cases = [happy]
+        return CasePlan(target=target, module=fn.module, layer=layer, cases=cases)
 
     # real 模式：LLM 产出清单 JSON
     prompt = (

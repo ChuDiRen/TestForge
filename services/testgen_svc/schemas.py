@@ -23,7 +23,12 @@ class PlannedCase(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)  # 目标函数 kwargs
     patches: list[Patch] = Field(default_factory=list)
     expected_error: str = ""  # 预期业务异常 code（如 QUANTITY_INVALID）
+    expected_error_type: str = ""  # 预期异常类名（如 TypeError）；空=用模块约定错误类
     expected_fields: dict[str, Any] = Field(default_factory=dict)  # 返回值字段断言
+    expected_return: Any = None  # 整体返回值断言（配合 assert_return）
+    assert_return: bool = False  # True 时断言 result == expected_return
+    expected_contains: list[str] = Field(default_factory=list)  # 结果文本须包含
+    expected_not_contains: list[str] = Field(default_factory=list)  # 结果文本不得包含（脱敏/泄露类）
     covers: str = ""  # 覆盖分支说明
     source: str = ""  # 来源（plan|guard|repair）
     guard_added: bool = False

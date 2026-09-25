@@ -55,6 +55,12 @@ fmt:
 seed:
 	$(PY) scripts/seed.py
 
+reset-data:
+	$(PY) scripts/reset_db.py
+
+seed-real:
+	$(PY) scripts/seed_real.py
+
 demo-m0:
 	$(PY) scripts/demo_m0.py
 

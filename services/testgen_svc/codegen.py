@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import logging
 from typing import Any
 
@@ -40,18 +41,20 @@ def render_case_body(case: PlannedCase, target_fn: str, error_cls: str) -> str:
     call = f"{target_fn}({kw})"
     idem = "idempotency_key" in case.input
 
-    if case.expected_error:
-        lines.append("    with pytest.raises(" + error_cls + ") as ei:")
+    if case.expected_error or case.expected_error_type:
+        exc_cls = case.expected_error_type or error_cls
+        lines.append("    with pytest.raises(" + exc_cls + ") as ei:")
         lines.append(f"        {call}")
-        if case.guard_added:
-            lines.append(f'    assert "{case.expected_error}" in ei.value.code')
-        else:
-            lines.append(f'    assert ei.value.code == "{case.expected_error}"')
+        if case.expected_error:
+            if case.guard_added:
+                lines.append(f'    assert "{case.expected_error}" in ei.value.code')
+            else:
+                lines.append(f'    assert ei.value.code == "{case.expected_error}"')
     elif idem:
         lines.append(f"    o1 = {call}")
         lines.append(f"    o2 = {call}")
         lines.append('    assert o1["order_id"] == o2["order_id"]  # 幂等：不重复下单')
-    elif case.guard_added:
+    elif case.guard_added and not (case.assert_return or case.expected_fields):
         lines.append("    try:")
         lines.append(f"        result = {call}")
         lines.append("        assert result is not None")
@@ -59,12 +62,23 @@ def render_case_body(case: PlannedCase, target_fn: str, error_cls: str) -> str:
         lines.append("        pass  # 极值输入被安全拒绝亦通过")
     else:
         lines.append(f"    result = {call}")
+        hit = False
+        if case.assert_return:
+            hit = True
+            lines.append(f"    assert result == {_fmt_value(case.expected_return)}")
+        for s in case.expected_not_contains:
+            hit = True
+            lines.append(f"    assert {_fmt_value(s)} not in result")
+        for s in case.expected_contains:
+            hit = True
+            lines.append(f"    assert {_fmt_value(s)} in result")
         for k, v in case.expected_fields.items():
+            hit = True
             if isinstance(v, float):
                 lines.append(f'    assert result["{k}"] == pytest.approx({_fmt_value(v)})')
             else:
                 lines.append(f'    assert result["{k}"] == {_fmt_value(v)}')
-        if not case.expected_fields:
+        if not hit:
             lines.append("    assert result is not None")
 
     doc = f'    """{case.title}｜覆盖: {case.covers}"""\n' if case.covers else ""
@@ -78,7 +92,13 @@ def _slug(title: str) -> str:
 
 def render_file(plan: CasePlan, target_module: str, target_fn: str, error_cls: str, gen_code: str) -> str:
     """整文件渲染：header（imports + _raise 助手）+ 每用例函数。"""
-    imports = {"import pytest", f"from {target_module} import {error_cls}, {target_fn}"}
+    # 约定错误类若是内建异常（ValueError/TypeError…），从 builtins 导入而非被测模块
+    err_from_module = not hasattr(builtins, error_cls)
+    imports = {"import pytest", f"from {target_module} import {target_fn}"}
+    if err_from_module:
+        imports.add(f"from {target_module} import {error_cls}")
+    else:
+        imports.add(f"from builtins import {error_cls}")
     for m in sorted({p.module for c in plan.cases for p in c.patches}):
         imports.add(f"import {m} as {_mod_var(m)}")
 

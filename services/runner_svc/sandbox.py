@@ -64,13 +64,13 @@ def write_test_file(ws: Path, filename: str, source: str) -> Path:
     return tf
 
 
-def execute(run_code: str, ws: Path, test_files: list[str], only: list[str] | None = None) -> SandboxResult:
-    """only: 用例选择子串（如 ["tc017"]）——缺陷回归只重跑关联用例。"""
+def execute(run_code: str, ws: Path, test_files: list[str], only: list[str] | None = None, cov_pkg: str = "") -> SandboxResult:
+    """only: 用例选择子串（如 ["tc017"]）——缺陷回归只重跑关联用例。cov_pkg: 覆盖率统计包（空=自动探测）。"""
     mode = get_settings().sandbox_mode
     if mode == "docker":
-        return _exec_docker(run_code, ws, test_files, only)
+        return _exec_docker(run_code, ws, test_files, only, cov_pkg)
     if mode == "local":
-        return _exec_local(run_code, ws, test_files, only)
+        return _exec_local(run_code, ws, test_files, only, cov_pkg)
     return _exec_fake(run_code, ws, test_files, only)
 
 
@@ -116,11 +116,12 @@ def _tc_of(test_name: str) -> str:
 # ---------------- local：本机子进程真实执行（验证生成代码可跑） ----------------
 
 
-def _exec_local(run_code: str, ws: Path, test_files: list[str], only: list[str] | None = None) -> SandboxResult:
-    args = [sys.executable, "-m", "pytest", "-q", "--disable-warnings", "--junitxml=report.xml", f"--cov={_top_pkg(ws)}", "--cov-branch", "--cov-report=json:coverage.json"]
+def _exec_local(run_code: str, ws: Path, test_files: list[str], only: list[str] | None = None, cov_pkg: str = "") -> SandboxResult:
+    args = [sys.executable, "-m", "pytest", "-q", "--disable-warnings", "--junitxml=report.xml", f"--cov={cov_pkg or _top_pkg(ws)}", "--cov-branch", "--cov-report=json:coverage.json"]
     if only:
         args += ["-k", " or ".join(only)]
-    args += [*test_files]
+    # 测试文件写入 ws/tests/，显式传路径（相对 cwd=ws）
+    args += [f"tests/{t}" for t in test_files]
     return _run_pytest(run_code, ws, args, mode="local")
 
 
@@ -192,12 +193,12 @@ def _top_pkg(ws: Path) -> str:
 # ---------------- docker：真实隔离沙箱 ----------------
 
 
-def _exec_docker(run_code: str, ws: Path, test_files: list[str], only: list[str] | None = None) -> SandboxResult:
+def _exec_docker(run_code: str, ws: Path, test_files: list[str], only: list[str] | None = None, cov_pkg: str = "") -> SandboxResult:
     import docker as docker_py
 
     client = docker_py.from_env()
     _ensure_image(client)
-    args = ["python", "-m", "pytest", "-q", "--disable-warnings", "--junitxml=/ws/report.xml", f"--cov={_top_pkg(ws)}", "--cov-branch", "--cov-report=json:/ws/coverage.json"]
+    args = ["python", "-m", "pytest", "-q", "--disable-warnings", "--junitxml=/ws/report.xml", f"--cov={cov_pkg or _top_pkg(ws)}", "--cov-branch", "--cov-report=json:/ws/coverage.json"]
     if only:
         args += ["-k", " or ".join(only)]
     args += [f"/ws/tests/{t}" for t in test_files]

@@ -4,7 +4,10 @@
 """
 
 import logging
+import os
 import re
+import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -24,14 +27,31 @@ def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 120) -> str:
     return proc.stdout
 
 
+def _rmtree_force(path: Path) -> None:
+    """Windows 下 .git pack 文件带只读位，rmtree 会静默残留 → 清只读位后强删。"""
+
+    def _onerror(func, p, _exc):  # type: ignore[no-untyped-def]
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+
+    shutil.rmtree(path, onerror=_onerror)
+
+
+def _is_valid_checkout(dest: Path) -> bool:
+    """残留骨架（如只剩 .git/objects）不算有效检出，必须重克隆。"""
+    git_dir = dest / ".git"
+    return (git_dir / "HEAD").exists() and (git_dir / "config").exists()
+
+
 def clone(url: str, dest: Path, branch: str, credential_ref: str = "") -> str:
-    """克隆仓库到 dest（已存在 git 仓库则幂等返回 HEAD）。"""
-    if (dest / ".git").exists():
+    """克隆仓库到 dest（已存在有效检出则幂等返回 HEAD）。"""
+    if _is_valid_checkout(dest):
         return _run(["git", "-C", str(dest), "rev-parse", "HEAD"]).strip()
     if dest.exists():
-        import shutil
-
-        shutil.rmtree(dest, ignore_errors=True)
+        _rmtree_force(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["git", "clone", "--depth", "50"]
     if branch and branch != "default":

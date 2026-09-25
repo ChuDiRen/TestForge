@@ -27,7 +27,7 @@ def _repo_checkout(repo_id: int) -> Path:
     return Path("fixtures/sample-repo")
 
 
-def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: int, trace_id: str, req_code: str, trigger: str = "手动", only: list[str] | None = None) -> dict:
+def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: int, trace_id: str, req_code: str, trigger: str = "手动", only: list[str] | None = None, cov_pkg: str = "") -> dict:
     """执行闭环：写 workspace → 沙箱执行 → 失败修复循环 ≤3 → 覆盖率。返回 run 记录 dict。"""
     t0 = time.time()
     checkout = _repo_checkout(repo_id)
@@ -36,7 +36,7 @@ def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: i
     sandbox.write_test_file(ws, filename, source_code)
 
     timeline: list[dict] = []
-    res = sandbox.execute(run_code, ws, [filename], only)
+    res = sandbox.execute(run_code, ws, [filename], only, cov_pkg=cov_pkg or _cov_pkg(cases))
     timeline.append({"round": 0, "status": res.status, "pass": f"{res.pass_count}/{res.pass_total}", "mode": res.mode})
 
     rounds = 0
@@ -62,7 +62,7 @@ def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: i
         except Exception as exc:  # noqa: BLE001
             log.warning("repair regenerate failed: %s", exc)
         # 重写测试文件（mock 下为幂等重渲染，等价修复）
-        res = sandbox.execute(run_code, ws, [filename], only)
+        res = sandbox.execute(run_code, ws, [filename], only, cov_pkg=cov_pkg or _cov_pkg(cases))
         timeline.append({"round": rounds, "status": res.status, "pass": f"{res.pass_count}/{res.pass_total}", "mode": res.mode})
 
     cost = int(time.time() - t0)
@@ -94,7 +94,29 @@ def _target_of(cases: list[dict]) -> str:
         tf = c.get("target_function") or ""
         if tf:
             return tf.split(".")[-1]
-    return "create_order"
+    return ""
+
+
+def _cov_pkg(cases: list[dict]) -> str:
+    """覆盖率统计目标：优先用例 module 全路径（只统计被测模块，口径精确）。"""
+    for c in cases:
+        mod = str(c.get("module") or "")
+        if mod:
+            return mod
+    for c in cases:
+        tf = str(c.get("target_function") or "")
+        if "." in tf:
+            return tf.rsplit(".", 1)[0]
+    name = _target_of(cases)
+    if not name:
+        return ""
+    from services.shared.models import Functions
+
+    with get_session() as sess:
+        row = sess.query(Functions).filter(Functions.name == name).first()
+        if row is not None and row.module:
+            return row.module
+    return ""
 
 
 def result_to_report(run_code: str, res: dict) -> dict:

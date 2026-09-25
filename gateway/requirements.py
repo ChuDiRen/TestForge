@@ -140,10 +140,10 @@ async def confirm_requirement(req_id: int, request: Request):
 
 
 def _derive_target(report: dict) -> str:
-    """从解析报告推导生成目标函数（mock 约定：订单域需求 → create_order）。"""
+    """从解析报告推导生成目标函数（mock 约定：关键词路由到已精选的真实函数）。"""
     story = json.dumps(report, ensure_ascii=False)
-    if "订单" in story or "下单" in story or "支付" in story:
-        return "create_order"
+    if any(kw in story for kw in ("脱敏", "掩码", "sanitize", "泄露", "凭证", "令牌", "token")):
+        return "sanitize_text"
     return "create_order"
 
 

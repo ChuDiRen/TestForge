@@ -30,13 +30,30 @@ def wait_port(port: int, timeout: float, label: str) -> bool:
 
 
 def lan_ip() -> str:
-    """取局域网出口 IP（不真正发包，仅路由探测），用于提示手机访问地址。"""
+    """优先取 192.168.* 的真实局域网网卡（跳过 WSL/虚拟网卡），用于提示手机访问地址。"""
+    import socket
+
+    try:
+        infos = socket.gethostbyname_ex(socket.gethostname())[2]
+        privates = [ip for ip in infos if not ip.startswith("127.")]
+        preferred = [ip for ip in privates if ip.startswith("192.168.")]
+        pool = preferred or privates
+        if pool:
+            return sorted(pool)[0]
+    except OSError:
+        pass
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         try:
             s.connect(("192.168.255.255", 1))
             return s.getsockname()[0]
         except OSError:
             return "127.0.0.1"
+
+
+def _tcp_ok(host: str, port: int, timeout: float) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        return s.connect_ex((host, port)) == 0
 
 
 def main() -> int:
@@ -46,6 +63,7 @@ def main() -> int:
 
     print("[dev_up] 启动后端（单体：gateway + 9 服务进程内）…")
     if not port_open(gateway_port):
+        # DB 兜底（WSL 中继故障自动直连）在 services.shared.config 统一处理
         logf = open(LOGS / "gateway.log", "ab")
         proc = subprocess.Popen(
             [sys.executable, "-u", "-m", "uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", str(gateway_port)],

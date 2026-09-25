@@ -21,6 +21,15 @@ make test           # ⑤ 单测（23 passed，含 gateway TestClient 接口测�
 
 更多验收：`make demo-m0`（骨架全绿） / `demo-m2`（Wiki 增量+stale） / `demo-m3`（需求+RAG+G0~G5） / `demo-m4`（契约 breaking 影响分析） / `demo-m5`（缺陷闭环+计划报告+12 视图）。
 
+真实数据（推荐）：
+
+```bash
+make reset-data      # 清空演示/历史数据，只留真实产生
+make seed-real       # 以 TestForge 本仓库为示例：接入→索引 412 个真实函数→Wiki 编译→
+                     # 为 services/shared/sanitize_text 两阶段生成→local 沙箱真跑 pytest
+                     # （覆盖率来自 coverage.json 真实统计）→需求→自动编排→计划→报告
+```
+
 前端：打开 http://127.0.0.1:5173 —— 12 个视图全部来自真实接口（需求录入→工作台 SSE 管线动画→用例库→执行记录→缺陷回归→测试计划报告→日志追溯→质量流水线）。
 
 ### 手机访问（同一 Wi-Fi）
@@ -39,9 +48,9 @@ netsh advfirewall firewall add rule name="TestForge Vite 5173" dir=in action=all
 - **前端**：React 18 + TypeScript + Ant Design 5 + React Query + Zustand + ECharts；
 - **后端单体**：一个 FastAPI 进程 = REST/SSE 网关 + 全部 9 个服务（repo/wiki/契约/需求/生成/执行/trace/缺陷/计划），服务间经进程内直调（`MONO_MODE=1` 默认）；模块边界与 proto 契约保持不变，`MONO_MODE=0` 可退回微服务拓扑（各 `services/*/main.py` 仍可独立起 gRPC 进程）；
 - **proto**：`proto/testforge.proto` 为消息与服务契约唯一事实源，`make proto` 生成 stub；
-- **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）+ 本地文件；SQLite 可经 `DATABASE_URL` 切换（开发兜底）；
+- **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）+ 本地文件；SQLite 可经 `DATABASE_URL` 切换（本机开发默认，WSL NAT 不稳时不依赖网络；RAG 自动退化为本地余弦检索）；
 - **LLM**：OpenAI 兼容 API 全配置化（`LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`），**`LLM_MODE=mock` 无 Key 全流程可跑**；结构化输出过 pydantic 校验；
-- **沙箱**：`SANDBOX_MODE=docker`（--network none / 512m / 1cpu）/ `local`（本机 pytest）/ `fake`（确定性模拟）；
+- **沙箱**：`SANDBOX_MODE=local`（默认，本机子进程**真实执行 pytest**，junit/coverage 真解析）/ `docker`（--network none / 512m / 1cpu）/ `fake`（确定性模拟，仅演示）；
 - **部署**：`deploy/docker-compose.yml` 一键起 postgres + redis + backend(单体) + frontend；`make stack-up`。
 
 ## 目录结构
