@@ -4,6 +4,7 @@ import zhCN from "antd/locale/zh_CN";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "./api";
 import { Dashboard } from "./views/Dashboard";
+import { KnowledgeGraph } from "./views/KnowledgeGraph";
 import { Wiki } from "./views/Wiki";
 import { Map } from "./views/ServiceMap";
 import { RepoAdd } from "./views/RepoAdd";
@@ -20,6 +21,7 @@ const { Sider, Header, Content } = Layout;
 
 export const VIEWS = [
   { key: "dashboard", label: "仪表盘", icon: "📊", milestone: 0 },
+  { key: "graph", label: "知识图谱", icon: "🕸", milestone: 5 },
   { key: "wiki", label: "代码库 / Wiki", icon: "📚", milestone: 2 },
   { key: "map", label: "服务地图 / 契约", icon: "🗺", milestone: 4 },
   { key: "repo-add", label: "仓库接入", icon: "📥", milestone: 1 },
@@ -42,6 +44,7 @@ function currentView(): ViewKey {
 
 const VIEW_COMPONENTS: Record<ViewKey, () => JSX.Element> = {
   dashboard: Dashboard,
+  graph: KnowledgeGraph,
   wiki: Wiki,
   map: Map,
   "repo-add": RepoAdd,

@@ -51,7 +51,9 @@ netsh advfirewall firewall add rule name="TestForge Vite 5173" dir=in action=all
 - **后端单体**：一个 FastAPI 进程 = REST/SSE 网关 + 全部 9 个服务（repo/wiki/契约/需求/生成/执行/trace/缺陷/计划），服务间经进程内直调（`MONO_MODE=1` 默认）；模块边界与 proto 契约保持不变，`MONO_MODE=0` 可退回微服务拓扑（各 `services/*/main.py` 仍可独立起 gRPC 进程）；
 - **proto**：`proto/testforge.proto` 为消息与服务契约唯一事实源，`make proto` 生成 stub；
 - **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）。本机开发库跑在 WSL docker（`testforge-pg`，host 网络，镜像网络经局域网 IP 直达）；`make dev` 启动时自动做 PG 握手健康检查，不通则依次回退 wsl 控制台隧道（`scripts/pg_tunnel.py`）与直连候选；
-- **LLM**：DeepSeek（OpenAI 兼容：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-chat`），全管线无 mock 实现——填入 `LLM_API_KEY` → `make llm-check` 验证后即启用；精选/探针靶标的用例规划为确定性策略（期望值来自真实行为/真实执行捕获），不依赖 LLM；
+- **LLM**：DeepSeek（OpenAI 兼容：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-chat`），全管线无 mock 实现——填入 `LLM_API_KEY` → `make llm-check` 验证后即启用；
+- **规划智能体**：[deepagents](https://github.com/langchain-ai/deepagents) 框架 + DeepSeek 大模型——智能体带领域工具（读源码/模块清单/调用图）自主探索被测函数上下文，只设计输入与打桩，期望值由探针对真实代码执行捕获（现实即规格）；精选/探针靶标保持确定性策略；
+- **知识图谱**：`GET /api/graph` 由真实业务关系（仓库→模块→函数调用→需求→用例→缺陷）构建图数据，前端 ECharts 力导图交互（点节点看属性、按模块过滤、按调用度数取前 N）；
 - **沙箱**：`SANDBOX_MODE=local`（默认，本机子进程**真实执行 pytest**，junit/coverage 真解析）/ `docker`（--network none / 512m / 1cpu）/ `fake`（确定性模拟，仅演示）；
 - **部署**：`deploy/docker-compose.yml` 一键起 postgres + redis + backend(单体) + frontend；`make stack-up`。
 

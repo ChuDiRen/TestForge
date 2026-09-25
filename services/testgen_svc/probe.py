@@ -53,9 +53,9 @@ def _probe_script(module: str, fn: str, inputs: list[dict]) -> str:
     )
 
 
-def _run_probe(module: str, fn: str, inputs: list[dict], checkout: Path, timeout: float = 90.0) -> list[dict] | None:
+def _run_probe(module: str, fn: str, cases: list[dict], checkout: Path, timeout: float = 90.0) -> list[dict] | None:
     """在仓库检出处真实执行目标函数；返回每个用例的捕获结果（导入失败返回 None）。"""
-    script = _probe_script(module, fn, inputs)
+    script = _probe_script(module, fn, cases)
     runs: list[list[dict]] = []
     for _ in range(2):  # 双跑：不一致 = 非确定性
         try:
@@ -79,22 +79,28 @@ def _run_probe(module: str, fn: str, inputs: list[dict], checkout: Path, timeout
     return runs[0] if runs[0] == runs[1] else None
 
 
-def fill_probe_expectations(plan: CasePlan, repo_checkout: str | Path) -> tuple[CasePlan, str]:
-    """对清单内未填期望的用例执行真实函数，反填 expected_return / expected_error_type。
+def fill_probe_expectations(plan: CasePlan, repo_checkout: str | Path, overwrite: bool = False) -> tuple[CasePlan, str]:
+    """对清单内用例执行真实函数，反填 expected_return / expected_error_type。
 
-    只处理尚无期望值的用例（人工精选清单不受影响）；非确定性/不可序列化的用例被诚实剔除。
+    默认只填尚无期望值的用例（人工精选清单不受影响）；overwrite=True 时对全部用例
+    用真实执行结果覆写（用于 LLM/守卫的推测断言校正——现实即规格）。
+    非确定性/不可序列化的用例被诚实剔除。
     """
     if not plan.cases:
         return plan, ""
     probe_cases = [
         c for c in plan.cases
-        if not (c.assert_return or c.expected_fields or c.expected_error or c.expected_error_type)
+        if overwrite or not (c.assert_return or c.expected_fields or c.expected_error or c.expected_error_type)
     ]
     if not probe_cases:
         return plan, ""
 
     module, fn = plan.module, plan.target.split(".")[-1]
-    result = _run_probe(module, fn, [c.input for c in probe_cases], Path(repo_checkout))
+    probe_payload = [
+        {"input": c.input, "patches": [pa.model_dump() for pa in c.patches]}
+        for c in probe_cases
+    ]
+    result = _run_probe(module, fn, probe_payload, Path(repo_checkout))
     if result is None:
         note = "探针未产出（非确定性或导入失败），保留清单不造假"
         log.info("probe %s.%s: %s", module, fn, note)

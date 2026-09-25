@@ -11,6 +11,7 @@ export default defineConfig({
           react: ["react", "react-dom"],
           antd: ["antd"],
           query: ["@tanstack/react-query"],
+          echarts: ["echarts"],
         },
       },
     },

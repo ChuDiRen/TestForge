@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from services.shared.llm import LLMClient
 from services.testgen_svc.fninfo import FnInfo
 from services.testgen_svc.schemas import CasePlan, Patch, PlannedCase
 
@@ -122,7 +121,7 @@ def _curated_sanitize_text() -> list[PlannedCase]:
     return cases
 
 
-def plan_cases(llm: LLMClient, fn: FnInfo, target: str, layer: str, options: dict[str, Any]) -> CasePlan:
+def plan_cases(fn: FnInfo, target: str, layer: str, options: dict[str, Any]) -> CasePlan:
     """两阶段之阶段 A：产出用例清单（schema 校验）。
 
     精选/探针靶标走确定性策略（期望值来自真实行为/真实执行捕获）；
@@ -139,11 +138,8 @@ def plan_cases(llm: LLMClient, fn: FnInfo, target: str, layer: str, options: dic
             for i, design in enumerate(PROBE_INPUT_DESIGNS[fn.name], 1)
         ]
     else:
-        prompt = (
-            f"为函数 {target} 设计单测用例清单。函数源码与文档：\n{fn.source[:4000]}\n"
-            f"要求：覆盖 normal/boundary/exception/permission；每条含 input kwargs、expected_error 或 expected_fields、"
-            f"patches（对依赖模块打桩：module/attr/kind/value/exc）。\n返回 JSON：{{\"target\":..., \"cases\":[...]}}"
-        )
-        plan = llm.chat_json([{"role": "user", "content": prompt}], schema=CasePlan)
-        cases = plan.cases
+        # DeepSeek×deepagents 智能体：自主探索上下文并设计输入；期望值由探针捕获
+        from services.testgen_svc.agent import plan_with_deepagent
+
+        cases = plan_with_deepagent(fn, target).cases
     return CasePlan(target=target, module=fn.module, layer=layer, cases=cases)

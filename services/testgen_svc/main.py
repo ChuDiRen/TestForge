@@ -11,7 +11,6 @@ from services.shared.db import get_session
 from services.shared.gen import testforge_pb2 as pb2
 from services.shared.gen import testforge_pb2_grpc as pb2_grpc
 from services.shared.grpc_server import run_server
-from services.shared.llm import get_llm
 from services.shared.logutil import setup_logging
 from services.shared.models import Functions, Generations, Repos
 from services.shared.trace import emit
@@ -70,21 +69,23 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
         yield pb2.GenEvent(stage="plan", message=f"上下文组装: {'>'.join(ctx.sources) or '仅签名'}", progress=0.08, payload_json=json.dumps({"ctx_sources": ctx.sources}, ensure_ascii=False))
 
         # ② 阶段 A：用例清单（schema 校验）
-        llm = get_llm()
         options = {"min_cases": request.options.min_cases or 9, "repair": request.options.repair}
-        plan = plan_cases(llm, fn, target, layer, options)
+        plan = plan_cases(fn, target, layer, options)
         yield pb2.GenEvent(stage="plan", message=f"用例清单 {len(plan.cases)} 条（{', '.join(sorted(plan.categories))}）", progress=0.2, payload_json=plan.model_dump_json())
-
-        # ②b 探针捕获：期望值来自对真实代码的实际执行（特征化），不来自人工模板
-        from services.testgen_svc.probe import fill_probe_expectations
-
-        plan, probe_note = fill_probe_expectations(plan, _repo_checkout(repo_id))
-        if probe_note:
-            yield pb2.GenEvent(stage="plan", message=f"探针期望值: {probe_note}", progress=0.3)
 
         # ③ 覆盖守卫：静态检查表，缺类自动补
         plan, report = guard(plan, fn)
-        yield pb2.GenEvent(stage="guard", message=f"守卫检查: 检查表 {len(report['checked'])} 项，自动补 {len(report['added'])} 条", progress=0.4, payload_json=json.dumps(report, ensure_ascii=False))
+        yield pb2.GenEvent(stage="guard", message=f"守卫检查: 检查表 {len(report['checked'])} 项，自动补 {len(report['added'])} 条", progress=0.35, payload_json=json.dumps(report, ensure_ascii=False))
+
+        # ③b 探针捕获：期望值来自对真实代码的实际执行（现实即规格）。
+        # 非精选靶标开启覆写——LLM/守卫的推测断言一律以真实执行结果校正。
+        from services.testgen_svc.probe import fill_probe_expectations
+
+        plan, probe_note = fill_probe_expectations(
+            plan, _repo_checkout(repo_id), overwrite=fn.name not in ("create_order", "sanitize_text")
+        )
+        if probe_note:
+            yield pb2.GenEvent(stage="probe", message=f"探针期望值: {probe_note}", progress=0.4)
 
         # ④ 阶段 B：按清单生成代码
         src = codegen(plan, gen_code)
@@ -136,8 +137,7 @@ class TestGenServicer(pb2_grpc.TestGenServicer):
         fn = _load_fn(request.repo_id, target, "")
         if fn is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"重生成目标未索引: {target}")
-        llm = get_llm()
-        plan = plan_cases(llm, fn, target, "ut", {"repair": True})
+        plan = plan_cases(fn, target, "ut", {"repair": True})
         plan, report = guard(plan, fn)
         gen_code = f"REPAIR-{(request.trace_id or 'NA')[-6:]}"
         codegen(plan, gen_code)

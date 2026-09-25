@@ -530,6 +530,7 @@ def get_trace(trace_id: str):
 
 # M3 需求路由 + M4 契约路由（文件尾部导入注册，避免循环依赖）
 from gateway import contracts as _contracts  # noqa: E402, F401
+from gateway import graph as _graph  # noqa: E402, F401
 from gateway import plans as _plans  # noqa: E402, F401
 from gateway import requirements as _requirements  # noqa: E402, F401
 

@@ -27,32 +27,33 @@ def test_trace_emit_falls_back_to_db():
     assert rows and rows[0]["summary"] == "emit 冒烟"
 
 
-def test_llm_rejects_missing_key():
-    """LLM 无 mock 实现：未配置 Key 时必须显式报错，不允许任何假数据路径。"""
-    from pydantic import BaseModel
+def test_deepagent_rejects_missing_key(monkeypatch):
+    """无 mock 实现：未配置 DeepSeek Key 时智能体规划必须显式报错。"""
+    from services.shared.config import get_settings
+    from services.shared.llm import LLMError
+    from services.testgen_svc.agent import plan_with_deepagent
+    from services.testgen_svc.fninfo import parse_signature
 
-    from services.shared.llm import LLMClient, LLMError
-
-    class Plan(BaseModel):
-        cases: list[str]
-
-    llm = LLMClient()
+    monkeypatch.setattr(get_settings(), "llm_api_key", "")
+    fn = parse_signature("def f(x):\n    return x", "f")
     with pytest.raises(LLMError):
-        llm.chat_json([], schema=Plan)
+        plan_with_deepagent(fn, "f", [], [], [])
 
 
-def test_llm_rejects_bad_schema():
-    """真实 LLM 返回不合 schema 的 JSON 时必须抛 LLMError。"""
-    from pydantic import BaseModel
+def test_plan_schema_coerces_llm_noise():
+    """DeepSeek 输出的常见噪声（covers 为列表 / 字段为 null）应被矫正而非整单作废。"""
+    from services.testgen_svc.schemas import CasePlan
 
-    from services.shared.llm import LLMClient, LLMError
-
-    class Plan(BaseModel):
-        n: int
-
-    llm = LLMClient()
-    with pytest.raises(LLMError):
-        llm._validate({"n": "not-an-int"}, Plan)
+    plan = CasePlan.model_validate({
+        "target": "x.y.f",
+        "module": "x.y",
+        "cases": [
+            {"id": "TC-1", "title": "t", "category": "normal", "input": {"name": "pay_order_1"}, "covers": ["payment 分支", "别名归一"]},
+            {"id": None, "title": None, "covers": ["order 分支"], "input": {}},
+        ],
+    })
+    assert plan.cases[0].covers == "payment 分支; 别名归一"
+    assert plan.cases[1].id == "" and plan.cases[1].title == "" and plan.cases[1].covers == "order 分支"
 
 
 def test_db_init_and_models():
