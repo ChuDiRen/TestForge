@@ -30,6 +30,8 @@ def render_case_body(case: PlannedCase, target_fn: str, error_cls: str) -> str:
         lines.append(f'    """{case.title}｜覆盖: {case.covers}"""')
 
     for p in case.patches:
+        if not p.module or not p.attr:
+            continue  # 空打桩（LLM 输出漂移）渲染出来是非法 Python，直接跳过
         var = _mod_var(p.module)
         if p.kind == "raise":
             lines.append(f"    from {p.exc_module} import {p.exc}")
@@ -97,7 +99,7 @@ def render_file(plan: CasePlan, target_module: str, target_fn: str, error_cls: s
         imports.add(f"from {target_module} import {error_cls}")
     else:
         imports.add(f"from builtins import {error_cls}")
-    for m in sorted({p.module for c in plan.cases for p in c.patches}):
+    for m in sorted({p.module for c in plan.cases for p in c.patches if p.module}):
         imports.add(f"import {m} as {_mod_var(m)}")
 
     header = [

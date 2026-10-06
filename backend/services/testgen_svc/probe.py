@@ -137,6 +137,9 @@ def fill_probe_expectations(plan: CasePlan, repo_checkout: str | Path, overwrite
     dropped: list[str] = []
     for case, r in zip(probe_cases, result):
         if r["ok"]:
+            # 真实执行成功 → 异常断言（LLM 推测）必须清掉，否则 codegen 渲染成 raises 与现实矛盾
+            case.expected_error = ""
+            case.expected_error_type = ""
             try:
                 case.expected_return = ast.literal_eval(r["repr"])
             except (ValueError, SyntaxError):
@@ -144,6 +147,9 @@ def fill_probe_expectations(plan: CasePlan, repo_checkout: str | Path, overwrite
                 continue
             case.assert_return = True
         else:
+            case.expected_error = ""  # 业务错误码探针不可观测，以真实异常类名为准
+            case.expected_return = None
+            case.assert_return = False
             case.expected_error_type = r["err"]
 
     for cid in dropped:

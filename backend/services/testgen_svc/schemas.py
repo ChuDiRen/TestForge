@@ -12,7 +12,11 @@ from pydantic_core import PydanticUndefined
 
 
 def _coerce_model_fields(cls: type[BaseModel], data: Any, none_skip: tuple[str, ...] = ()) -> Any:
-    """LLM 输出形状矫正：str 字段收到 list/dict → 归一为字符串；null/缺失 → 字段默认值。"""
+    """LLM 输出形状矫正：str 字段收到 list/dict → 归一为字符串；null/缺失 → 字段默认值。
+
+    list/dict 字段同样容错：patches 收到单个 dict → 包成 list；str 先尝试 JSON 解析，
+    解析不出按空集合处理——LLM 输出形状漂移不应让整份规划报废。
+    """
     if isinstance(data, dict):
         for k, f in cls.model_fields.items():
             v = data.get(k)
@@ -25,6 +29,22 @@ def _coerce_model_fields(cls: type[BaseModel], data: Any, none_skip: tuple[str, 
                     data[k] = json.dumps(v, ensure_ascii=False)
             elif v is None and k not in none_skip and k in data:
                 data[k] = f.get_default(call_default_factory=True)
+
+            origin = getattr(f.annotation, "__origin__", None)
+            if origin is list and k in data:
+                if isinstance(v, dict):
+                    data[k] = [v]
+                elif isinstance(v, str):
+                    try:
+                        parsed = json.loads(v)
+                        data[k] = parsed if isinstance(parsed, list) else ([parsed] if parsed else [])
+                    except json.JSONDecodeError:
+                        data[k] = []
+            elif origin is dict and k in data and isinstance(v, str):
+                try:
+                    data[k] = json.loads(v)
+                except json.JSONDecodeError:
+                    data[k] = {}
     return data
 
 
