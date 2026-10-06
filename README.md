@@ -185,6 +185,7 @@ thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传
 
 ## 文档
 
-- `docs/TestForge-PRD-v1.2.md` —— 唯一需求来源；
+- `docs/TestForge-PRD-v3.0.md` —— **当前需求基准（As-Built，智能体驱动 + 四层生成达标）**；
+- `docs/TestForge-PRD-v2.0.md` / `docs/TestForge-PRD-v1.2.md` —— 历史版本（设计稿/交付回写）；
 - `prototype/testforge-prototype.html` —— UI 视觉基准（浏览器直接打开）；
 - `docs/验收清单.md` —— 里程碑验收项逐条勾选。
