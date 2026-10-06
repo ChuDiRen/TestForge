@@ -410,7 +410,8 @@ SYSTEM_PROMPT = """你是 TestForge 的代码分析助手，拥有平台知识�
 ## 工具策略
 - 发现类问题（是什么/有哪些）→ search / overview
 - 关系类问题（谁调用/影响谁）→ explore / impact
-- 结论前验证 → read（必用，别凭名字猜行为）
+- 结论前验证 → read 或 read_file（必用，别凭名字猜行为）
+- 按文件名模式找文件 / 按内容搜源码 → glob / grep（仅绑定仓库时可用）
 - 测试覆盖情况 → cases
 
 ## 输出风格
@@ -431,7 +432,7 @@ def _extract_citations(text: str) -> list[dict]:
     return list(seen.values())[:20]
 
 
-# ---------------- Agent 循环（服务端 LangChain 工具循环 + SSE） ----------------
+# ---------------- Agent 循环（deepagents/langgraph 深度代理 + SSE） ----------------
 
 
 def _history(thread_id: int, limit: int = 12) -> list[tuple[str, str]]:
@@ -466,67 +467,124 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _to_lc_tool(spec: dict, runner: Callable[[dict], dict]):
+    """把 TOOL_SPECS 里的 JSON-schema 工具声明 + dict runner 包装成 LangChain StructuredTool。"""
+    from pydantic import create_model
+
+    fn = spec["function"]
+    fields: dict = {}
+    for key, prop in fn.get("parameters", {}).get("properties", {}).items():
+        t = prop.get("type", "string")
+        py: object = {"string": str, "integer": int, "boolean": bool, "number": float}.get(t, str)
+        if "enum" in prop:
+            from typing import Literal as _Literal
+
+            py = _Literal[tuple(prop["enum"])]  # type: ignore[valid-type]
+        required = key in fn.get("parameters", {}).get("required", [])
+        fields[key] = (py, ... if required else None)
+    args_model = create_model(f"{fn['name']}_args", **fields)
+
+    def _run(**kwargs) -> dict:  # noqa: ANN003
+        return runner(kwargs)
+
+    _run.__doc__ = fn.get("description", "")
+    from langchain_core.tools import StructuredTool
+
+    return StructuredTool.from_function(func=_run, name=fn["name"], description=fn.get("description", ""), args_schema=args_model)
+
+
+def _repo_fs_root(repo_id: int):
+    """仓库检出目录（存在时挂 deepagents 文件工具，锁定该根目录内）。"""
+    if not repo_id:
+        return None
+    with get_session() as sess:
+        repo = sess.get(Repos, repo_id)
+    if repo is None or not repo.local_path:
+        return None
+    p = Path(repo.local_path).resolve()
+    return str(p) if p.exists() else None
+
+
+def _build_agent(repo_id: int, role: str):
+    """构建 deepagents 深度代理：领域工具 + 仓库文件工具（只读）+ 调查协议系统提示。"""
+    from deepagents import FilesystemMiddleware, create_deep_agent
+    from deepagents.backends import FilesystemBackend
+
+    runners, specs = _tools_for(repo_id, role)
+    lc_tools = [_to_lc_tool(spec, runners[spec["function"]["name"]]) for spec in specs]
+
+    middleware = []
+    fs_root = _repo_fs_root(repo_id)
+    if fs_root:
+        middleware.append(
+            FilesystemMiddleware(
+                backend=FilesystemBackend(root_dir=fs_root, virtual_mode=True),
+                tools=["ls", "read_file", "glob", "grep"],  # 只读：改仓库必须走正式回写管线
+            )
+        )
+    scope = f"（当前对话绑定仓库 repo_id={repo_id}，文件工具根目录即仓库根）" if repo_id else "（未绑定仓库，检索工具将跨全库）"
+    return create_deep_agent(
+        model=_llm_model(),
+        tools=lc_tools,
+        system_prompt=SYSTEM_PROMPT + f"\n\n当前范围：{scope}",
+        middleware=middleware,
+    ), runners
+
+
 async def _agent_stream(thread: ChatThread, content: str, role: str = "admin") -> AsyncGenerator[str, None]:
-    """工具循环 + 流式输出。事件：tool_start / tool_end / token / done / error。"""
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+    """deepagents/langgraph 深度代理流式输出。事件：tool_start / tool_end / token / done / error。"""
+    from langchain_core.messages import AIMessage, HumanMessage
 
     repo_id = thread.repo_id or 0
     try:
         with get_session() as sess:
             if repo_id and sess.get(Repos, repo_id) is None:
                 repo_id = 0
-        runners, specs = _tools_for(repo_id, role)
-        model = _llm_model().bind_tools(specs)
+        agent, runners = _build_agent(repo_id, role)
 
-        scope = f"（当前对话绑定仓库 repo_id={repo_id}）" if repo_id else "（未绑定仓库，工具将跨全库检索）"
-        messages: list = [SystemMessage(content=SYSTEM_PROMPT + f"\n\n当前范围：{scope}")]
-        for role, hist in _history(thread.id):
-            messages.append(HumanMessage(content=hist) if role == "user" else AIMessage(content=hist))
+        messages: list = []
+        for hist_role, hist in _history(thread.id):
+            messages.append(HumanMessage(content=hist) if hist_role == "user" else AIMessage(content=hist))
         messages.append(HumanMessage(content=content))
 
+        pending: dict[str, dict] = {}  # tool_call_id -> {name, args, t0}
         tool_events: list[dict] = []
         final_text = ""
-        for _round in range(MAX_TOOL_ROUNDS):
-            stream = model.astream(messages)
-            ai_msg: AIMessage | None = None
-            async for chunk in stream:
-                if ai_msg is None:
-                    ai_msg = chunk
-                else:
-                    ai_msg = ai_msg + chunk
-            if ai_msg is None:
-                break
-            messages.append(ai_msg)
-            if ai_msg.content:
-                piece = str(ai_msg.content)
-                final_text += piece
-                yield _sse("token", {"text": piece})
-            calls = list(ai_msg.tool_calls or [])
-            if not calls:
-                break
-            for call in calls:
-                name = call.get("name", "")
-                args = call.get("args") or {}
-                t0 = time.time()
-                yield _sse("tool_start", {"name": name, "args": args})
-                try:
-                    if name not in runners:
-                        raise ValueError(f"未知工具 {name}")
-                    result = runners[name](args)
-                    summary = json.dumps(result, ensure_ascii=False)
-                    summary = summary[:150] + ("…" if len(summary) > 150 else "")
-                    ms = int((time.time() - t0) * 1000)
-                    tool_events.append({"name": name, "args": args, "summary": summary, "ms": ms})
-                    yield _sse("tool_end", {"name": name, "summary": summary, "ms": ms})
-                    messages.append(ToolMessage(content=json.dumps(result, ensure_ascii=False)[:12000], tool_call_id=call.get("id", "")))
-                except Exception as exc:  # noqa: BLE001 —— 工具错误回填给模型自行修正
-                    err = f"工具执行失败: {exc}"
-                    ms = int((time.time() - t0) * 1000)
-                    tool_events.append({"name": name, "args": args, "summary": err, "ms": ms})
-                    yield _sse("tool_end", {"name": name, "summary": err, "ms": ms})
-                    messages.append(ToolMessage(content=err, tool_call_id=call.get("id", "")))
-        else:
-            final_text += "\n\n（已达单次工具调用轮数上限，基于已有证据作答。）"
+
+        stream = agent.astream({"messages": messages}, stream_mode=["messages", "updates"], subgraphs=False)
+        async for mode, payload in stream:
+            if mode == "messages":
+                msg = payload[0] if isinstance(payload, tuple) else payload
+                if isinstance(msg, AIMessage) or type(msg).__name__ in ("AIMessageChunk", "AIMessage"):
+                    text = msg.content if isinstance(msg.content, str) else "".join(str(x) for x in (msg.content or []))
+                    if text:
+                        final_text += text
+                        yield _sse("token", {"text": text})
+            elif mode == "updates":
+                for _node, upd in (payload or {}).items():
+                    if not isinstance(upd, dict):
+                        continue
+                    for msg in upd.get("messages", []) or []:
+                        calls = getattr(msg, "tool_calls", None) or []
+                        for call in calls:
+                            cid = call.get("id", "")
+                            pending[cid] = {"name": call.get("name", ""), "args": call.get("args") or {}, "t0": time.time()}
+                            yield _sse("tool_start", {"name": call.get("name", ""), "args": call.get("args") or {}})
+                        if type(msg).__name__ == "ToolMessage":
+                            cid = getattr(msg, "tool_call_id", "")
+                            info = pending.pop(cid, {"name": getattr(msg, "name", ""), "args": {}, "t0": time.time()})
+                            raw = getattr(msg, "content", "")
+                            text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+                            ok_flag = getattr(msg, "status", "success") != "error"
+                            summary = text[:150] + ("…" if len(text) > 150 else "")
+                            if not ok_flag:
+                                summary = f"工具执行失败: {summary}"
+                            ms = int((time.time() - info["t0"]) * 1000)
+                            tool_events.append({"name": info["name"], "args": info["args"], "summary": summary, "ms": ms})
+                            yield _sse("tool_end", {"name": info["name"], "summary": summary, "ms": ms})
+
+        if not final_text:
+            final_text = "（模型未产出回答，请重试或换个问法。）"
 
         citations = _extract_citations(final_text)
         with get_session() as sess:

@@ -41,7 +41,7 @@ dev = [
 package = false
 
 [[tool.uv.index]]
-url = "https://mirrors.aliyun.com/pypi/simple/"
+url = "https://pypi.org/simple"
 default = true
 
 [tool.pytest.ini_options]

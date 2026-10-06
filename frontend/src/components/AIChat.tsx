@@ -52,6 +52,12 @@ const TOOL_LABEL: Record<string, string> = {
   cases: "查询用例",
   generate_case: "生成用例",
   create_requirement: "录入需求",
+  grep: "源码搜索",
+  glob: "文件查找",
+  ls: "列目录",
+  read_file: "读文件",
+  write_todos: "任务规划",
+  task: "子代理",
 };
 
 const CITE_TOKEN_RE = /\[\[[^\]]+\]\]/g;
