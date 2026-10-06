@@ -1,6 +1,6 @@
 import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
-import { Badge, Button, Card, Drawer, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
+import { Badge, Button, Card, Drawer, Input, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../api";
 import { Markdown } from "../components/Markdown";
@@ -33,6 +33,19 @@ export function Wiki() {
     queryFn: () => get<any>(`/api/wiki/${detail!.id}`),
     enabled: !!detail,
   });
+  const [docTitle, setDocTitle] = useState("");
+  const [docBody, setDocBody] = useState("");
+  const uploadDoc = useMutation({
+    mutationFn: () => post("/api/knowledge/documents", { title: docTitle, content: docBody, repo_id: repoId || undefined }),
+    onSuccess: () => {
+      message.success("文档已入库并进入检索索引——生成用例时会自动引用");
+      setDocTitle("");
+      setDocBody("");
+      qc.invalidateQueries({ queryKey: ["wiki"] });
+    },
+    onError: (e: any) => message.error(e.message),
+  });
+
   const rebuild = useMutation({
     mutationFn: (full: boolean) => post("/api/wiki/rebuild", { repo_id: repoId, full }),
     onSuccess: () => {
@@ -68,6 +81,29 @@ export function Wiki() {
   return (
     <div>
       <PageHeader title="代码库 / Wiki" subtitle="预编译知识层：函数卡片 / 模块页 · 增量重建 · stale 传播" />
+      <Card title="上传知识文档（提升用例生成质量）" size="small" style={{ marginBottom: 16 }}>
+        <Input
+          placeholder="文档标题（如：支付模块业务规则 / 订单接口约定）"
+          value={docTitle}
+          onChange={(e) => setDocTitle(e.target.value)}
+          style={{ marginBottom: 8 }}
+        />
+        <Input.TextArea
+          rows={4}
+          placeholder={"文档正文（markdown）——PRD 片段、接口约定、验收标准、业务规则等。\n入库后进入检索索引，AI 生成用例的引用上下文会自动带上它们。"}
+          value={docBody}
+          onChange={(e) => setDocBody(e.target.value)}
+          style={{ marginBottom: 8 }}
+        />
+        <Button
+          type="primary"
+          loading={uploadDoc.isPending}
+          disabled={!docTitle.trim() || !docBody.trim()}
+          onClick={() => uploadDoc.mutate()}
+        >
+          入库并索引
+        </Button>
+      </Card>
       <Card
         title="代码库 / Wiki（预编译知识层）"
         extra={

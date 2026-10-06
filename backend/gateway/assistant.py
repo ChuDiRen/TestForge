@@ -95,6 +95,23 @@ def _tool_explore(repo_id: int) -> Callable[[dict], dict]:
 def _tool_read(repo_id: int) -> Callable[[dict], dict]:
     def run(args: dict) -> dict:
         rel = str(args.get("path") or "").replace("\\", "/").lstrip("/")
+        if rel.startswith("repo/"):
+            # 与内置文件工具的 /repo/ 只读挂载同语义：从仓库检出目录读
+            rel = rel[len("repo/"):]
+            from pathlib import Path as _P
+            root = _repo_fs_root(repo_id)
+            if not root:
+                raise ValueError("当前会话未绑定已检出的仓库")
+            target = (_P(root) / rel).resolve()
+            if not str(target).startswith(str(_P(root).resolve())):
+                raise ValueError("path 越界")
+            if not target.is_file():
+                raise ValueError(f"文件不存在: {rel}")
+            lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+            start = max(int(args.get("start") or 1), 1)
+            end = min(int(args.get("end") or start + 200), start + 400, len(lines))
+            return {"path": rel, "total_lines": len(lines), "content": "\n".join(f"{i + 1}: {lines[i]}" for i in range(start - 1, end))}
+        rel = rel.lstrip("/")
         if not rel or ".." in rel.split("/"):
             raise ValueError("path 非法：不允许目录穿越")
         with get_session() as sess:
@@ -213,6 +230,24 @@ def _tool_generate_case(repo_id: int, role: str) -> Callable[[dict], dict]:
         _require_admin(role)
         from gateway.generations import new_generation
 
+        layer = str(args.get("layer") or "ut")
+        if layer not in ("ut", "fn", "api", "e2e"):
+            raise ValueError(f"layer 仅支持 ut/fn/api/e2e，收到 {layer}")
+
+        # web 层（api/e2e）：目标由运行中网关的实时契约自动发现，无需函数名
+        if layer in ("api", "e2e"):
+            with get_session() as sess:
+                repo = sess.get(Repos, repo_id) if repo_id else sess.query(Repos).order_by(Repos.id.desc()).first()
+            if repo is None:
+                raise ValueError("尚未接入任何仓库，无法确定生成范围；请先在「仓库接入」接入仓库")
+            res = new_generation({"function": f"web-{layer}", "repo_id": repo.id, "layer": layer})
+            return {
+                "generation_code": res.get("gen_code") or res.get("code"),
+                "job_code": res.get("job_code"),
+                "repo_id": repo.id,
+                "note": f"{layer} 生成任务已入队：实时抓取运行中网关 OpenAPI 契约后生成，完成后用例进入用例库 {layer} 层",
+            }
+
         fn = str(args.get("function") or "").strip()
         if not fn:
             raise ValueError("function 必填，可先用 search/cases 工具确认函数名")
@@ -231,13 +266,52 @@ def _tool_generate_case(repo_id: int, role: str) -> Callable[[dict], dict]:
         eff_repo = repo_id or (f.repo_id if f is not None else 0)
         if not eff_repo:
             raise ValueError(f"索引中找不到函数 {fn}，请确认仓库名（可先用 search 工具检索）")
-        res = new_generation({"function": fn, "repo_id": eff_repo, "layer": str(args.get("layer") or "ut")})
+        res = new_generation({"function": fn, "repo_id": eff_repo, "layer": layer})
         return {
             "generation_code": res.get("gen_code") or res.get("code"),
             "job_code": res.get("job_code"),
             "repo_id": eff_repo,
             "note": "生成任务已入队：工作台 → 任务队列可看进度；完成后用例自动进入用例库",
         }
+
+    return run
+
+
+def _tool_upload_knowledge(repo_id: int, role: str) -> Callable[[dict], dict]:
+    """用户在对话里贴文档（PRD/接口文档/业务规则）→ 存知识库 + 即时进混合检索。
+
+    生成的六路上下文中 wiki/rag citations 会自动带上这些文档，提升用例质量。
+    """
+
+    def run(args: dict) -> dict:
+        _require_admin(role)
+        from services.shared.models import WikiPages
+        from services.shared.rag import index_documents_bulk
+        from services.shared.trace import emit
+
+        title = str(args.get("title") or "").strip()
+        content = str(args.get("content") or "").strip()
+        if not title or not content:
+            raise ValueError("title 与 content 必填")
+        with get_session() as sess:
+            page = WikiPages(
+                repo_id=repo_id or None,
+                level="user",
+                title=title[:200],
+                content_md=content,
+                rev=1,
+                stale=False,
+                module="用户上传",
+                function="",
+            )
+            sess.add(page)
+            sess.commit()
+            wid = page.id
+        index_documents_bulk(
+            [{"doc_key": f"wiki:{wid}", "kind": "wiki", "repo_id": repo_id, "title": title, "content": content, "meta": {"source": "user-upload", "wiki_id": wid}}]
+        )
+        emit("仓库", "ai-assistant", f"用户上传知识文档 wiki:{wid} {title[:40]}（已入检索索引）")
+        return {"wiki_id": wid, "note": "文档已入库并进入检索索引；后续生成用例的引用上下文会自动引用它"}
 
     return run
 
@@ -345,14 +419,16 @@ TOOL_SPECS: list[dict] = [
         "type": "function",
         "function": {
             "name": "generate_case",
-            "description": "【写操作·仅管理员】为指定函数触发生成单元测试用例（入队异步执行，走真实沙箱验证）。用户明确要求生成用例时才调用。",
+            "description": "【写操作·仅管理员】触发生成测试用例（四层任选，入队异步执行，走真实沙箱验证）。用户要求生成用例时调用。层别语义："
+            "ut=单元测试（指定函数，断言函数级行为）；fn=功能测试（指定函数，按业务场景出主流程/边界/异常/权限用例）；"
+            "api=接口测试（自动抓取运行中网关 OpenAPI 生成 requests 用例，无需函数名）；e2e=E2E 测试（平台真实服务旅程，无需函数名）。"
+            "用户没说层别时先问清是哪一层。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "function": {"type": "string", "description": "目标函数名"},
-                    "layer": {"type": "string", "enum": ["ut", "api", "fn", "e2e"], "description": "用例层别，默认 ut"},
+                    "function": {"type": "string", "description": "目标函数名（ut/fn 必填；api/e2e 忽略）"},
+                    "layer": {"type": "string", "enum": ["ut", "fn", "api", "e2e"], "description": "用例层别，默认 ut"},
                 },
-                "required": ["function"],
             },
         },
     },
@@ -371,6 +447,22 @@ TOOL_SPECS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "upload_knowledge",
+            "description": "【写操作·仅管理员】把用户在对话里提供的文档（PRD 片段、接口文档、业务规则、验收标准）存入知识库并即时进入检索索引——后续生成用例的引用上下文会自动引用它。"
+            "高质量用例依赖这些数据：用户要求生成用例但上下文不足时，主动引导用户提供需求/规则文档并调用本工具入库。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "文档标题"},
+                    "content": {"type": "string", "description": "文档正文（markdown）"},
+                },
+                "required": ["title", "content"],
+            },
+        },
+    },
 ]
 
 
@@ -384,13 +476,16 @@ def _tools_for(repo_id: int, role: str = "admin") -> tuple[dict[str, Callable[[d
         "cases": _tool_cases(repo_id),
         "generate_case": _tool_generate_case(repo_id, role),
         "create_requirement": _tool_create_requirement(repo_id, role),
+        "upload_knowledge": _tool_upload_knowledge(repo_id, role),
     }
     return runners, json.loads(json.dumps(TOOL_SPECS))
 
 
 # ---------------- System Prompt（GitNexus grounding 协议中文翻版） ----------------
 
-SYSTEM_PROMPT = """你是 TestForge 的代码分析助手，拥有平台知识库与仓库源码的完整访问能力。回答必须有据可查。
+SYSTEM_PROMPT = """你是 TestForge 平台的主操作智能体：平台用四层用例生成（单元测试 ut / 功能测试 fn / 接口测试 api / E2E 测试 e2e），
+你是这四层生成的对话式入口——用户说要生成用例，由你解析层别、确认目标、调用 generate_case 执行并汇报任务号。
+你同时拥有平台知识库与仓库源码的完整访问能力。回答必须有据可查。
 
 ## 强制引用（Grounding）
 每个事实性结论都必须带引用，格式：`[[文件路径:起-止行]]`（如 [[services/shared/db.py:45-60]]）或 `[[Function:函数名]]`。
@@ -406,6 +501,20 @@ SYSTEM_PROMPT = """你是 TestForge 的代码分析助手，拥有平台知识�
 5. 落引用——每个发现都标注 [[路径:行]] 或 [[Function:名]]。
 
 每次工具调用前用一句话说明意图。工具失败时修正参数重试，不要停在报错上。
+
+## 用例生成（核心职责）
+用户要求生成用例时：
+1. 明确层别（ut/fn/api/e2e）——用户没说就问一句，并用一句话解释该层的适用场景。
+2. ut/fn 需要目标函数：不确定函数名时先 search/cases 确认，避免对不存在的函数入队。
+3. 调 generate_case 入队后，报告任务号，并提示完成后用例入库的位置（用例库对应层）。
+4. api/e2e 无需函数名，直接入队即可。
+
+## 高质量用例的数据收集（主动做）
+用例质量取决于上下文数据。生成前评估：该目标的业务规则、验收条件、接口约定是否充分？
+- 不充分时，主动向用户要：需求片段 / 验收标准 / 业务规则 / 接口约定。
+- 用户把文档贴进对话后，调用 upload_knowledge 存入知识库（即时进入检索索引，后续生成自动引用）。
+- 有需求可关联时建议先 create_requirement 录入（生成用例会带上 source_req 溯源）。
+- 不要为了收集而拖延生成：证据足够就直接干，缺什么补什么。
 
 ## 工具策略
 - 发现类问题（是什么/有哪些）→ search / overview
@@ -485,7 +594,10 @@ def _to_lc_tool(spec: dict, runner: Callable[[dict], dict]):
     args_model = create_model(f"{fn['name']}_args", **fields)
 
     def _run(**kwargs) -> dict:  # noqa: ANN003
-        return runner(kwargs)
+        try:
+            return runner(kwargs)
+        except Exception as exc:  # noqa: BLE001 —— 工具错误以结果回填，模型可自修正参数重试
+            return {"error": f"工具执行失败: {exc}"}
 
     _run.__doc__ = fn.get("description", "")
     from langchain_core.tools import StructuredTool

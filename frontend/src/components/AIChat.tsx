@@ -290,19 +290,47 @@ export function useChat() {
   return { threads, repos, activeId, setActiveId, msgs, input, setInput, streaming, scrollRef, createThread, removeThread, send };
 }
 
+const SUGGESTIONS = [
+  "给 sanitize_text 函数生成单元测试用例",
+  "给 sanitize_text 生成功能测试用例（按业务场景）",
+  "为平台生成接口测试用例（抓取网关 OpenAPI）",
+  "生成一条 E2E 测试用例跑通平台真实旅程",
+  "我把需求文档贴给你，你存入知识库后给相关函数生成用例",
+];
+
 export function MessagesView({ chat, height }: { chat: ReturnType<typeof useChat>; height: string }) {
-  const { msgs, scrollRef } = chat;
+  const { msgs, scrollRef, setInput } = chat;
   return (
     <div ref={scrollRef} style={{ height, overflowY: "auto", padding: "4px 6px" }}>
       {msgs.length === 0 ? (
-        <Empty
-          description={
-            <span style={{ color: "var(--tf-ink-2)" }}>
-              试试问：『hybrid_search 怎么实现的？』『需求到用例的链路是什么？』『改 auth.py 会影响哪些函数？』
-            </span>
-          }
-          style={{ marginBlockStart: 60 }}
-        />
+        <div style={{ marginBlockStart: 24 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+            四层用例生成都可以在这里完成——点一条直接开始，或直接描述你的要求：
+          </Typography.Text>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBlockStart: 10 }}>
+            {SUGGESTIONS.map((s) => (
+              <Tag.CheckableTag
+                key={s}
+                checked={false}
+                onChange={() => setInput(s)}
+                style={{
+                  border: "1px solid var(--tf-line, #e0e2f0)",
+                  borderRadius: 8,
+                  padding: "5px 10px",
+                  fontSize: 12.5,
+                  whiteSpace: "normal",
+                  width: "100%",
+                  cursor: "pointer",
+                }}
+              >
+                {s}
+              </Tag.CheckableTag>
+            ))}
+          </div>
+          <Typography.Text type="secondary" style={{ fontSize: 11.5, display: "block", marginBlockStart: 10 }}>
+            提示：生成高质量用例可以把 PRD / 接口文档 / 业务规则贴进对话，AI 会存入知识库并在生成时自动引用。
+          </Typography.Text>
+        </div>
       ) : (
         msgs.map((m) => (m.role === "user" ? <UserMsg key={m.id} m={m} /> : <AssistantMsg key={m.id} m={m} />))
       )}
