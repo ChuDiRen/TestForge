@@ -686,6 +686,25 @@ def list_cases(
         )
 
 
+@app.get("/api/cases/{case_code}/file")
+def case_file(case_code: str):
+    """用例即文件：把库内 schema_json.code_file 以独立 .py 测试文件形态返回（单一事实来源是数据库）。"""
+    from services.shared.models import Cases
+
+    with get_session() as sess:
+        c = sess.query(Cases).filter(Cases.code == case_code).first()
+    if c is None:
+        raise ApiError(404, "用例不存在", 404)
+    schema = _normalize_case_schema(c.schema_json) or {}
+    code_text = str(schema.get("code_file") or "")
+    if not code_text.strip():
+        raise ApiError(404, "该用例没有可预览的测试源码", 404)
+    tf = (c.target_function or "").split(".")[-1] if c.target_function else ""
+    short = c.code.rsplit("-", 1)[-1]
+    filename = f"test_{tf}__{short}.py" if tf else f"{c.code}.py"
+    return ok({"filename": filename, "content": code_text, "size": len(code_text.encode("utf-8"))})
+
+
 @app.delete("/api/cases/{case_id}")
 def delete_case(case_id: int, request: Request):
     """删除用例（已入库的需 admin；删除即移除，历史 run/trace 保留）。"""

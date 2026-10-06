@@ -1,6 +1,7 @@
 import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
-import { Button, Card, Drawer, Input, Popconfirm, Space, Table, Tabs, Tag, Typography, message } from "antd";
+import { Button, Card, Collapse, Drawer, Input, Popconfirm, Space, Table, Tabs, Tag, Typography, message } from "antd";
+import { CopyOutlined, DownloadOutlined, FileTextOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get } from "../api";
 import { Json } from "../components/Json";
@@ -18,6 +19,7 @@ interface CaseRow {
   source_req: string;
   trace_id: string;
   stale: boolean;
+  target_function: string;
   schema: any;
 }
 
@@ -211,7 +213,7 @@ export function Cases() {
           </Space.Compact>
         </Card>
       )}
-      <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={isMobile ? "100%" : 620}>
+      <Drawer title={detail?.title} open={!!detail} onClose={() => setDetail(null)} width={isMobile ? "100%" : 800}>
         {detail && (
           <>
             <p>
@@ -222,23 +224,70 @@ export function Cases() {
               <Tag>trace {detail.trace_id}</Tag>
             </p>
             {(() => {
-              // 入库 schema = 元数据 + code_file（整份生成测试源码）。源码不是 JSON，
-              // 混在一起会把转义串糊成一坨——拆开：元数据走 JSON 组件，源码单独成块
+              // 用例即文件：code_file 是完整测试源码，以独立文件形态预览（文件名 + 复制/下载 + 高亮）；
+              // 元数据与溯源折叠收起，不再一坨 JSON 拍在脸上
               const schema = (detail.schema ?? {}) as Record<string, unknown>;
               const { code_file, ...meta } = schema;
+              const code = typeof code_file === "string" ? code_file : "";
+              const tf = (detail.target_function || "").split(".").pop() || "";
+              const short = detail.code.split("-").pop() || detail.code;
+              const filename = tf ? `test_${tf}__${short}.py` : `${detail.code}.py`;
+              const download = () => {
+                const blob = new Blob([code], { type: "text/x-python;charset=utf-8" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              };
               return (
                 <>
-                  <Json data={meta} maxHeight={340} />
-                  {typeof code_file === "string" && code_file.trim() && (
-                    <>
-                      <Typography.Title level={5} style={{ margin: "14px 0 8px" }}>
-                        生成的测试代码
-                      </Typography.Title>
-                      <Markdown>{`\`\`\`python
-${code_file}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 12px",
+                      borderRadius: "10px 10px 0 0",
+                      background: "#1d1f3f",
+                      color: "#dcdde8",
+                      fontSize: 12.5,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    <FileTextOutlined style={{ color: "#8f95b2" }} />
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{filename}</span>
+                    <span style={{ color: "#8f95b2" }}>{(new Blob([code]).size / 1024).toFixed(1)} KB</span>
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<CopyOutlined />}
+                      style={{ color: "#dcdde8" }}
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(code);
+                        message.success("源码已复制");
+                      }}
+                    />
+                    <Button size="small" type="text" icon={<DownloadOutlined />} style={{ color: "#dcdde8" }} onClick={download} />
+                  </div>
+                  {code.trim() ? (
+                    <Markdown>{`\`\`\`python
+${code}
 \`\`\`}`}</Markdown>
-                    </>
+                  ) : (
+                    <Typography.Text type="secondary">该用例没有测试源码</Typography.Text>
                   )}
+                  <Collapse
+                    ghost
+                    items={[
+                      {
+                        key: "meta",
+                        label: `元数据与溯源（citations / 输入输出契约）`,
+                        children: <Json data={meta} maxHeight={340} />,
+                      },
+                    ]}
+                    style={{ marginBlockStart: 10 }}
+                  />
                 </>
               );
             })()}
