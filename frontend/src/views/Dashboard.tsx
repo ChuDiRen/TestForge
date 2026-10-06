@@ -14,6 +14,12 @@ interface ServiceStatus {
   error?: string;
 }
 
+interface ServicesResp {
+  services: ServiceStatus[];
+  all_green: boolean;
+  mode: "mono" | "micro";
+}
+
 interface Stats {
   repos: number;
   cases_total: number;
@@ -30,7 +36,7 @@ interface Stats {
 export function Dashboard() {
   const services = useQuery({
     queryKey: ["services"],
-    queryFn: () => get<{ services: ServiceStatus[]; all_green: boolean }>("/api/system/services"),
+    queryFn: () => get<ServicesResp>("/api/system/services"),
     refetchInterval: 15000,
   });
   const stats = useQuery({ queryKey: ["stats"], queryFn: () => get<Stats>("/api/stats/summary") });
@@ -87,7 +93,14 @@ export function Dashboard() {
       </Row>
 
       <Card
-        title="服务状态（gateway → gRPC 全链路）"
+        title={
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            服务状态
+            <Tag color={services.data?.mode === "mono" ? "blue" : "orange"} style={{ fontWeight: 500 }}>
+              {services.data?.mode === "micro" ? "微服务模式" : "单体模式 · 进程内模块"}
+            </Tag>
+          </span>
+        }
         style={{ marginTop: 16 }}
         extra={
           services.data ? (
@@ -105,10 +118,15 @@ export function Dashboard() {
           loading={services.isLoading}
           dataSource={services.data?.services ?? []}
           columns={[
-            { title: "服务", dataIndex: "name", render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
-            { title: "端口", dataIndex: "port" },
+            { title: "模块", dataIndex: "name", render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
             {
-              title: "gRPC",
+              title: services.data?.mode === "micro" ? "端口" : "部署形态",
+              dataIndex: "port",
+              render: (port: number) =>
+                services.data?.mode === "micro" ? port : <Tag>同进程直调</Tag>,
+            },
+            {
+              title: "状态",
               dataIndex: "ok",
               render: (v: boolean) => <Tag color={v ? "green" : "red"}>{v ? "UP" : "DOWN"}</Tag>,
             },
