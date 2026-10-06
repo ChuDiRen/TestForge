@@ -212,9 +212,15 @@ def stats_summary():
                 select(func.count()).select_from(WikiPages).scalar_subquery(),
                 select(func.count()).select_from(WikiPages).where(WikiPages.stale.is_(True)).scalar_subquery(),
                 select(func.count()).select_from(Contracts).scalar_subquery(),
+                select(func.count())
+                .select_from(Requirements)
+                .where(Requirements.status.in_(["待人审", "规则冲突待确认"]))
+                .scalar_subquery(),
+                select(func.count()).select_from(Jobs).where(Jobs.status.in_(["queued", "running"])).scalar_subquery(),
+                select(func.count()).select_from(Cases).where(Cases.stale.is_(True)).scalar_subquery(),
             )
         ).one()
-        (repos, cases_total, pending, runs_total, runs_ok, reqs_total, defects_open, wiki_pages, wiki_stale, contracts) = scalars
+        (repos, cases_total, pending, runs_total, runs_ok, reqs_total, defects_open, wiki_pages, wiki_stale, contracts, reqs_pending, jobs_active, cases_stale) = scalars
         return ok(
             {
                 "repos": repos,
@@ -225,6 +231,9 @@ def stats_summary():
                 "runs_total": runs_total,
                 "runs_pass_rate": round(runs_ok / runs_total * 100, 1) if runs_total else 0.0,
                 "requirements_total": reqs_total,
+                "requirements_pending": reqs_pending,
+                "jobs_active": jobs_active,
+                "cases_stale": cases_stale,
                 "defects_open": defects_open,
                 "wiki_pages": wiki_pages,
                 "wiki_stale": wiki_stale,

@@ -80,9 +80,10 @@ interface MenuGroup {
 
 const MENU_GROUPS: MenuGroup[] = [
   { key: "g-overview", label: "总览", icon: <DashboardOutlined />, views: ["dashboard"] },
-  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["assistant", "graph", "wiki", "map", "repo-add"] },
+  // 组内按新人操作动线排序：先接入仓库，再看知识，后问 AI
+  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["repo-add", "wiki", "graph", "map", "assistant"] },
   { key: "g-flow", label: "测试流程", icon: <FileDoneOutlined />, views: ["requirements", "plans", "workbench", "jobs"] },
-  { key: "g-quality", label: "质量运营", icon: <CheckCircleOutlined />, views: ["cases", "runs", "defects", "logs", "quality"] },
+  { key: "g-quality", label: "质量运营", icon: <CheckCircleOutlined />, views: ["cases", "runs", "defects", "quality", "logs"] },
   { key: "g-system", label: "系统管理", icon: <TeamOutlined />, views: ["users"], adminOnly: true },
 ];
 

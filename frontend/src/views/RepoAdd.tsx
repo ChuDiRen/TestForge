@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/PageHeader";
+import { NextStep } from "../components/NextStep";
 import { useState } from "react";
 import { Alert, Button, Card, Form, Input, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,6 +39,7 @@ export function RepoAdd() {
   const [form] = Form.useForm();
   const repos = useQuery({ queryKey: ["repos"], queryFn: () => get<RepoRow[]>("/api/repos"), refetchInterval: 8000 });
   const [steps, setSteps] = useState<Record<number, string[]>>({});
+  const [nextStep, setNextStep] = useState<string | null>(null);
 
   const add = useMutation({
     mutationFn: (v: { url: string; branch: string }) => post<any>("/api/repos", v),
@@ -46,6 +48,7 @@ export function RepoAdd() {
       form.resetFields();
       qc.invalidateQueries({ queryKey: ["repos"] });
       setSteps((s) => ({ ...s, [r.id]: r.steps ?? [] }));
+      setNextStep(`仓库 #${r.id} 已接入——索引与 Wiki 编译在后台进行，任务完成后即可生成用例`);
     },
   });
   const pull = useMutation({
@@ -60,6 +63,16 @@ export function RepoAdd() {
   return (
     <div>
       <PageHeader title="仓库接入" subtitle="远程 Git URL 一键接入：clone → tree-sitter 索引 → Wiki 编译" />
+      {nextStep && (
+        <NextStep
+          title={nextStep}
+          actions={[
+            { label: "查看代码库 / Wiki", view: "wiki" },
+            { label: "去录入需求", view: "requirements" },
+            { label: "直接生成用例", view: "workbench" },
+          ]}
+        />
+      )}
       <Card title="接入仓库（远程 Git URL）" style={{ marginBottom: 16 }}>
         <Alert
           type="info"

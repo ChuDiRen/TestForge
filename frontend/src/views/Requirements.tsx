@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/PageHeader";
+import { NextStep } from "../components/NextStep";
 import { useState } from "react";
 import { Button, Card, Drawer, Input, Select, Steps, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,6 +29,7 @@ export function Requirements() {
   const [form, setForm] = useState({ title: "", body: "", repo_id: 0 });
   const [pipeline, setPipeline] = useState<string[]>([]);
   const [detail, setDetail] = useState<ReqRow | null>(null);
+  const [nextStep, setNextStep] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const repos = useQuery({ queryKey: ["repos"], queryFn: () => get<any[]>("/api/repos") });
   const reqs = useQuery({ queryKey: ["reqs"], queryFn: () => get<{ items: ReqRow[] }>("/api/requirements"), refetchInterval: 6000 });
@@ -45,12 +47,22 @@ export function Requirements() {
     onSuccess: (r) => {
       message.success(`${r.code} 已生效，自动编排 ${r.generation_id}`);
       qc.invalidateQueries({ queryKey: ["reqs"] });
+      setNextStep(`需求 ${r.code} 已生效——下一步去生成工作台，围绕绑定的仓库与函数生成测试用例`);
     },
   });
 
   return (
     <div>
       <PageHeader title="需求录入" subtitle="全流程唯一源头：解析 → 可测性评分 → 确认生效 → 自动编排" />
+      {nextStep && (
+        <NextStep
+          title={nextStep}
+          actions={[
+            { label: "去生成工作台", view: "workbench" },
+            { label: "建测试计划", view: "plans" },
+          ]}
+        />
+      )}
       <Card title="需求录入（全流程唯一源头）" style={{ marginBottom: 16 }}>
         <Input placeholder="需求标题" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} style={{ marginBottom: 8 }} />
         <Input.TextArea
