@@ -22,16 +22,8 @@ def _next_req_code(sess) -> str:  # type: ignore[no-untyped-def]
     return f"REQ-{n}"
 
 
-@app.post("/api/requirements/ingest")
-async def ingest_requirement(request: Request):
-    body = await request.json()
-    title = (body.get("title") or "").strip()
-    text = (body.get("body") or body.get("text") or "").strip()
-    if not title or not text:
-        raise ApiError(1001, "title 与 body 必填")
-    repo_id = int(body.get("repo_id") or 0)
-    source = body.get("source") or "paste"
-
+def ingest_one(title: str, text: str, repo_id: int = 0, source: str = "paste") -> dict:
+    """需求录入四步管线（建单 → 解析 → 评分定级 → 留痕），路由与 AI 助手写工具共用。"""
     with get_session() as sess:
         code = _next_req_code(sess)
         req = Requirements(code=code, title=title, source=source, body=text, repo_id=repo_id or None, status="解析中", trace_id="")
@@ -64,7 +56,19 @@ async def ingest_requirement(request: Request):
         req.quality_profile = json.dumps(profile, ensure_ascii=False)
         sess.commit()
     emit("需求", "qa-录入" if score >= 80 else "req-svc", f"需求 {code} 解析完成：{status}（可测性 {score:.0f}）", req_code=code)
-    return ok({"id": rid, "code": code, "status": status, "testability": score, "report": json.loads(req.parse_report)})
+    return {"id": rid, "code": code, "status": status, "testability": score, "report": json.loads(req.parse_report)}
+
+
+@app.post("/api/requirements/ingest")
+async def ingest_requirement(request: Request):
+    body = await request.json()
+    title = (body.get("title") or "").strip()
+    text = (body.get("body") or body.get("text") or "").strip()
+    if not title or not text:
+        raise ApiError(1001, "title 与 body 必填")
+    repo_id = int(body.get("repo_id") or 0)
+    source = body.get("source") or "paste"
+    return ok(ingest_one(title, text, repo_id, source))
 
 
 @app.get("/api/requirements")

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Avatar, Button, ConfigProvider, Dropdown, Drawer, Grid, Layout, Menu, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import {
@@ -134,6 +134,19 @@ function Shell({ user }: { user: Me }) {
   const isMobile = !screens.md;
   const [navOpen, setNavOpen] = useState(false);
   const current = VIEWS.find((v) => v.key === view);
+
+  useEffect(() => {
+    // AI 回答里的引用标签（[[Function:x]] 等）通过 tf-navigate 事件请求跳转
+    const onNav = (e: Event) => {
+      const key = (e as CustomEvent<string>).detail as ViewKey;
+      if (VIEWS.some((v) => v.key === key)) {
+        setView(key);
+        window.history.replaceState(null, "", `?view=${key}`);
+      }
+    };
+    window.addEventListener("tf-navigate", onNav);
+    return () => window.removeEventListener("tf-navigate", onNav);
+  }, []);
 
   const body = useMemo(() => {
     const C = VIEW_COMPONENTS[view];

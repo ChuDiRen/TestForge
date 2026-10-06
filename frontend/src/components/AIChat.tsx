@@ -3,9 +3,11 @@
  *
  * AI 助手页面（views/Assistant.tsx）复用本文件的状态机与渲染件。
  */
-import { Markdown } from "./Markdown";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Empty, Input, Spin, Tag, Timeline, Tooltip, Typography } from "antd";
 import { LoadingOutlined, RobotOutlined, SendOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
@@ -48,7 +50,53 @@ const TOOL_LABEL: Record<string, string> = {
   impact: "影响面分析",
   overview: "仓库概览",
   cases: "查询用例",
+  generate_case: "生成用例",
+  create_requirement: "录入需求",
 };
+
+const CITE_TOKEN_RE = /\[\[[^\]]+\]\]/g;
+
+/** 把回答里的 [[引用]] 包成 inline code，交给 Markdown 自定义 code 渲染成可点击标签 */
+function prepareCitations(content: string): string {
+  return content.replace(CITE_TOKEN_RE, (m) => `\`${m}\``);
+}
+
+/** 引用标签点击跳转：Function/Module/Class → 知识图谱；文件路径 → 代码库/Wiki */
+function citeTarget(token: string): string {
+  const inner = token.slice(2, -2);
+  if (inner.startsWith("Function:") || inner.startsWith("Module:") || inner.startsWith("Class:")) return "graph";
+  return "wiki";
+}
+
+function CitationCode({ children }: { children?: ReactNode }) {
+  const raw = String(children ?? "").replace(/\s+/g, "");
+  if (!raw.startsWith("[[")) return <code>{raw}</code>;
+  return (
+    <Tag
+      color="purple"
+      style={{ fontSize: 11.5, cursor: "pointer", marginInline: 1 }}
+      onClick={() => window.dispatchEvent(new CustomEvent("tf-navigate", { detail: citeTarget(raw) }))}
+      title="点击跳转到对应页面"
+    >
+      {raw}
+    </Tag>
+  );
+}
+
+/** AI 专用 Markdown：引用可点击跳转，其余排版同全站 */
+function AiMarkdown({ content }: { content: string }) {
+  return (
+    <div className="md-body">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={{ code: (props) => <CitationCode>{props.children}</CitationCode> }}
+      >
+        {prepareCitations(content)}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 function argsDigest(args: Record<string, unknown>): string {
   const parts = Object.entries(args).map(([k, v]) => `${k}=${String(v).slice(0, 60)}`);
@@ -94,7 +142,7 @@ export function AssistantMsg({ m }: { m: ChatMsg }) {
         <RobotOutlined style={{ color: "var(--tf-primary)", fontSize: 16, marginBlockStart: 3 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           {m.content ? (
-            <Markdown>{m.content}</Markdown>
+            <AiMarkdown content={m.content} />
           ) : (
             <Spin indicator={<LoadingOutlined />} spinning>
               <span style={{ color: "var(--tf-ink-2)", fontSize: 13 }}>思考中…</span>
@@ -162,8 +210,9 @@ export function useChat() {
     },
   });
 
-  const send = async () => {
-    const content = input.trim();
+  const send = async (override?: string) => {
+    // override：Enter 事件直接带 DOM 里的当前值，绕开受控 state 批处理竞态
+    const content = (override ?? input).trim();
     if (!content || streaming || activeId === null) return;
     setInput("");
     setStreaming(true);
@@ -256,7 +305,8 @@ export function MessagesView({ chat, height }: { chat: ReturnType<typeof useChat
 }
 
 export function ChatInput({ chat }: { chat: ReturnType<typeof useChat> }) {
-  const { input, setInput, streaming, send, activeId } = chat;
+  const { input, setInput, streaming, send, activeId, threads } = chat;
+  const notReady = activeId === null;
   return (
     <div style={{ display: "flex", gap: 8 }}>
       <Input.TextArea
@@ -265,19 +315,20 @@ export function ChatInput({ chat }: { chat: ReturnType<typeof useChat> }) {
         onPressEnter={(e) => {
           if (!e.shiftKey) {
             e.preventDefault();
-            void send();
+            const text = (e.target as HTMLTextAreaElement).value;
+            void send(text);
           }
         }}
-        placeholder={activeId === null ? "先新建一个会话" : "提问…（Enter 发送，Shift+Enter 换行）"}
+        placeholder={threads.isLoading ? "正在加载会话…" : notReady ? "先新建一个会话" : "提问…（Enter 发送，Shift+Enter 换行）"}
         autoSize={{ minRows: 1, maxRows: 5 }}
-        disabled={activeId === null || streaming}
+        disabled={notReady || streaming}
         style={{ borderRadius: 10 }}
       />
       <Button
         type="primary"
         icon={<SendOutlined />}
         loading={streaming}
-        disabled={activeId === null || !input.trim()}
+        disabled={notReady || !input.trim()}
         onClick={() => void send()}
         style={{ borderRadius: 10 }}
       >

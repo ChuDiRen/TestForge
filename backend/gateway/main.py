@@ -121,7 +121,8 @@ async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyp
         disabled, must_change = _user_status_cached(info["username"])
         if disabled:
             return err(401, "账号已被停用，请联系管理员", 401)
-        self_service = path == "/api/auth/change-password"
+        # 聊天放行所有认证用户（AI 写操作在工具层按角色二次拦截）；改密为自助操作
+        self_service = path == "/api/auth/change-password" or path == "/api/assistant/chat"
         if must_change and not self_service:
             return err(403, "检测到默认口令，请先修改密码后再使用系统", 403)
         if not self_service and info["role"] != "admin" and request.method != "GET":

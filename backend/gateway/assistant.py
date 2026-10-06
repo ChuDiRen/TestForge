@@ -200,6 +200,68 @@ def _tool_cases(repo_id: int) -> Callable[[dict], dict]:
     return run
 
 
+# ---------------- 写工具（闭环：问答 → 驱动平台动作；仅 admin） ----------------
+
+
+def _require_admin(role: str) -> None:
+    if role != "admin":
+        raise PermissionError("当前账号为只读权限，无法执行该写操作；请联系管理员或在管理员账号下重试")
+
+
+def _tool_generate_case(repo_id: int, role: str) -> Callable[[dict], dict]:
+    def run(args: dict) -> dict:
+        _require_admin(role)
+        from gateway.generations import new_generation
+
+        fn = str(args.get("function") or "").strip()
+        if not fn:
+            raise ValueError("function 必填，可先用 search/cases 工具确认函数名")
+        # 会话未绑仓库时从函数索引反查目标函数真实所属仓库，否则生成管线无上下文
+        with get_session() as sess:
+            f = (
+                sess.query(Functions)
+                .filter(Functions.name == fn)
+                .order_by(Functions.id.desc())
+                .first()
+                or sess.query(Functions)
+                .filter(Functions.name.like(f"%{fn}%"))
+                .order_by(Functions.id.desc())
+                .first()
+            )
+        eff_repo = repo_id or (f.repo_id if f is not None else 0)
+        if not eff_repo:
+            raise ValueError(f"索引中找不到函数 {fn}，请确认仓库名（可先用 search 工具检索）")
+        res = new_generation({"function": fn, "repo_id": eff_repo, "layer": str(args.get("layer") or "ut")})
+        return {
+            "generation_code": res.get("gen_code") or res.get("code"),
+            "job_code": res.get("job_code"),
+            "repo_id": eff_repo,
+            "note": "生成任务已入队：工作台 → 任务队列可看进度；完成后用例自动进入用例库",
+        }
+
+    return run
+
+
+def _tool_create_requirement(repo_id: int, role: str) -> Callable[[dict], dict]:
+    def run(args: dict) -> dict:
+        _require_admin(role)
+        from gateway.requirements import ingest_one
+
+        title = str(args.get("title") or "").strip()
+        body = str(args.get("body") or "").strip()
+        if not title or not body:
+            raise ValueError("title 与 body 必填（body 需包含用户故事与验收条件）")
+        res = ingest_one(title, body, repo_id=repo_id, source="ai-assistant")
+        return {
+            "req_code": res["code"],
+            "status": res["status"],
+            "testability": res["testability"],
+            "note": "需求已录入并完成解析评分；后续可在测试计划中关联该需求",
+        }
+
+    return run
+
+
 TOOL_SPECS: list[dict] = [
     {
         "type": "function",
@@ -279,10 +341,40 @@ TOOL_SPECS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_case",
+            "description": "【写操作·仅管理员】为指定函数触发生成单元测试用例（入队异步执行，走真实沙箱验证）。用户明确要求生成用例时才调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "function": {"type": "string", "description": "目标函数名"},
+                    "layer": {"type": "string", "enum": ["ut", "api", "fn", "e2e"], "description": "用例层别，默认 ut"},
+                },
+                "required": ["function"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_requirement",
+            "description": "【写操作·仅管理员】录入需求并触发四步解析管线（可测性评分/规则冲突检测）。用户明确要求录入需求时才调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "body": {"type": "string", "description": "用户故事 + 验收条件"},
+                },
+                "required": ["title", "body"],
+            },
+        },
+    },
 ]
 
 
-def _tools_for(repo_id: int) -> tuple[dict[str, Callable[[dict], dict]], list[dict]]:
+def _tools_for(repo_id: int, role: str = "admin") -> tuple[dict[str, Callable[[dict], dict]], list[dict]]:
     runners = {
         "search": _tool_search(repo_id),
         "explore": _tool_explore(repo_id),
@@ -290,6 +382,8 @@ def _tools_for(repo_id: int) -> tuple[dict[str, Callable[[dict], dict]], list[di
         "impact": _tool_impact(repo_id),
         "overview": _tool_overview(repo_id),
         "cases": _tool_cases(repo_id),
+        "generate_case": _tool_generate_case(repo_id, role),
+        "create_requirement": _tool_create_requirement(repo_id, role),
     }
     return runners, json.loads(json.dumps(TOOL_SPECS))
 
@@ -372,7 +466,7 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def _agent_stream(thread: ChatThread, content: str) -> AsyncGenerator[str, None]:
+async def _agent_stream(thread: ChatThread, content: str, role: str = "admin") -> AsyncGenerator[str, None]:
     """工具循环 + 流式输出。事件：tool_start / tool_end / token / done / error。"""
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -381,7 +475,7 @@ async def _agent_stream(thread: ChatThread, content: str) -> AsyncGenerator[str,
         with get_session() as sess:
             if repo_id and sess.get(Repos, repo_id) is None:
                 repo_id = 0
-        runners, specs = _tools_for(repo_id)
+        runners, specs = _tools_for(repo_id, role)
         model = _llm_model().bind_tools(specs)
 
         scope = f"（当前对话绑定仓库 repo_id={repo_id}）" if repo_id else "（未绑定仓库，工具将跨全库检索）"
@@ -517,12 +611,14 @@ def assistant_messages(thread_id: int):
 
 @app.post("/api/assistant/chat")
 async def assistant_chat(request: Request):
-    """发消息并流式接收回答（SSE）。body {thread_id, content}。"""
+    """发消息并流式接收回答（SSE）。body {thread_id, content}。写操作按请求方角色授权。"""
     body = await request.json()
     thread_id = int(body.get("thread_id") or 0)
     content = str(body.get("content") or "").strip()
     if not thread_id or not content:
         raise ApiError(400, "thread_id 与 content 必填", 400)
+    user = getattr(request.state, "user", {}) or {}
+    role = str(user.get("role") or "viewer")
     with get_session() as sess:
         thread = sess.get(ChatThread, thread_id)
         if thread is None:
@@ -533,7 +629,7 @@ async def assistant_chat(request: Request):
         sess.commit()
 
     async def gen():
-        async for chunk in _agent_stream(thread, content):
+        async for chunk in _agent_stream(thread, content, role=role):
             yield chunk
 
     return StreamingResponse(
