@@ -79,9 +79,11 @@ interface MenuGroup {
 }
 
 const MENU_GROUPS: MenuGroup[] = [
+  // 智能体驱动：AI 助手是平台主入口，排菜单第一位（单视图组自动平铺为顶级项）
+  { key: "g-ai", label: "AI 助手", icon: <RobotOutlined />, views: ["assistant"] },
   { key: "g-overview", label: "总览", icon: <DashboardOutlined />, views: ["dashboard"] },
-  // 组内按新人操作动线排序：先接入仓库，再看知识，后问 AI
-  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["repo-add", "wiki", "graph", "map", "assistant"] },
+  // 组内按新人操作动线排序：先接入仓库，再看知识
+  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["repo-add", "wiki", "graph", "map"] },
   { key: "g-flow", label: "测试流程", icon: <FileDoneOutlined />, views: ["requirements", "plans", "workbench", "jobs"] },
   { key: "g-quality", label: "质量运营", icon: <CheckCircleOutlined />, views: ["cases", "runs", "defects", "quality", "logs"] },
   { key: "g-system", label: "系统管理", icon: <TeamOutlined />, views: ["users"], adminOnly: true },
