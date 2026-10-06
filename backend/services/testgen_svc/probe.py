@@ -33,14 +33,26 @@ def _norm(v):
 '''
 
 PROBE_PREFIX = "PROBE"
+# 固定时钟：时间依赖函数（token 过期/签名含时戳）的期望值必须与沙箱执行同钟才可重放。
+# probe 与 codegen 渲染的测试统一使用此常量（见 codegen._FIXED_TS）。
+FIXED_TS = 1700000000
 
 
 def _probe_script(module: str, fn: str, cases: list[dict]) -> str:
-    """探针脚本：解包 input、按 patches 打桩（与 codegen 渲染的 monkeypatch 语义一致）。"""
+    """探针脚本：解包 input、按 patches 打桩（与 codegen 渲染的 monkeypatch 语义一致）。
+
+    固定时钟（FIXED_TS）：时间依赖函数（token 过期/签名含时戳）的期望值必须与
+    沙箱执行同钟才可重放；codegen 渲染的测试带同值 _tf_fixed_clock fixture。
+    """
     return (
-        "import importlib, json, sys\n"
+        "import importlib, json, sys, time\n"
         "import unittest.mock as _mock\n"
         "sys.path.insert(0, '.')\n"
+        "import os\n"
+        "# 仓库重构后 Python 包在 backend/ 子目录下：两种布局都兼容\n"
+        "if os.path.isdir('backend') and not os.path.exists(os.path.join('.', 'services')):\n"
+        "    sys.path.insert(0, os.path.abspath('backend'))\n"
+        f"time.time = lambda: {FIXED_TS}.0  # 固定时钟，期望值可重放\n"
         f"{NORM_SRC}\n"
         f"from {module} import {fn}\n"
         f"CASES = {cases!r}\n"

@@ -99,6 +99,10 @@ def render_file(plan: CasePlan, target_module: str, target_fn: str, error_cls: s
         imports.add(f"from {target_module} import {error_cls}")
     else:
         imports.add(f"from builtins import {error_cls}")
+    # 探针捕获的真实异常类（expected_error_type）同样需要导入：非内建的定义在被测模块命名空间
+    for exc in {c.expected_error_type for c in plan.cases if c.expected_error_type}:
+        if not hasattr(builtins, exc):
+            imports.add(f"from {target_module} import {exc}")
     for m in sorted({p.module for c in plan.cases for p in c.patches if p.module}):
         imports.add(f"import {m} as {_mod_var(m)}")
 
@@ -108,6 +112,13 @@ def render_file(plan: CasePlan, target_module: str, target_fn: str, error_cls: s
         "两阶段生成产物：阶段A清单(plan+guard+probe) → 阶段B按清单渲染。请勿手改。",
         '"""',
         *sorted(imports),
+        "import time",
+        "",
+        "",
+        "@pytest.fixture(autouse=True)",
+        "def _tf_fixed_clock(monkeypatch):",
+        "    # 固定时钟：与探针捕获期望值同钟（probe.FIXED_TS），时间依赖断言才可重放",
+        "    monkeypatch.setattr(time, 'time', lambda: 1700000000.0)",
         "",
         "",
         NORM_SRC,
