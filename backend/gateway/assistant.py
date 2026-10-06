@@ -761,6 +761,8 @@ def assistant_thread_delete(thread_id: int):
 @app.get("/api/assistant/threads/{thread_id}/messages")
 def assistant_messages(thread_id: int):
     with get_session() as sess:
+        if sess.get(ChatThread, thread_id) is None:
+            raise ApiError(404, "会话不存在", 404)
         rows = (
             sess.query(ChatMessage)
             .filter(ChatMessage.thread_id == thread_id)
