@@ -6,13 +6,16 @@ import {
   ApartmentOutlined,
   BookOutlined,
   BugOutlined,
+  CheckCircleOutlined,
   CloudDownloadOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   ExperimentOutlined,
+  FileDoneOutlined,
   FileTextOutlined,
   FileSearchOutlined,
   LogoutOutlined,
+  NodeIndexOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -62,6 +65,23 @@ export const VIEWS = [
 ] as const;
 
 export type ViewKey = (typeof VIEWS)[number]["key"];
+
+// 侧栏多级菜单分组：单视图组自动平铺为顶级项，多视图组渲染为可展开子菜单
+interface MenuGroup {
+  key: string;
+  label: string;
+  icon: JSX.Element;
+  views: ViewKey[];
+  adminOnly?: boolean;
+}
+
+const MENU_GROUPS: MenuGroup[] = [
+  { key: "g-overview", label: "总览", icon: <DashboardOutlined />, views: ["dashboard"] },
+  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["graph", "wiki", "map", "repo-add"] },
+  { key: "g-flow", label: "测试流程", icon: <FileDoneOutlined />, views: ["requirements", "plans", "workbench", "jobs"] },
+  { key: "g-quality", label: "质量运营", icon: <CheckCircleOutlined />, views: ["cases", "runs", "defects", "logs", "quality"] },
+  { key: "g-system", label: "系统管理", icon: <TeamOutlined />, views: ["users"], adminOnly: true },
+];
 
 function currentView(): ViewKey {
   const v = new URLSearchParams(window.location.search).get("view") as ViewKey | null;
@@ -116,11 +136,27 @@ function Shell({ user }: { user: Me }) {
     return <C />;
   }, [view]);
 
-  const menuItems = VIEWS.filter((v) => !("adminOnly" in v && v.adminOnly) || user.role === "admin").map((v) => ({
-    key: v.key,
-    icon: <span style={{ fontSize: 14 }}>{v.icon}</span>,
-    label: v.label,
-  }));
+  const canSee = (key: ViewKey) => {
+    const v = VIEWS.find((x) => x.key === key);
+    if (v === undefined) return false;
+    return user.role === "admin" || !("adminOnly" in v && v.adminOnly);
+  };
+  const leafItem = (key: ViewKey) => {
+    const v = VIEWS.find((x) => x.key === key)!;
+    return { key: v.key, icon: <span style={{ fontSize: 14 }}>{v.icon}</span>, label: v.label };
+  };
+  const menuItems = MENU_GROUPS.filter((g) => g.views.some(canSee)).map((g) => {
+    const children = g.views.filter(canSee).map(leafItem);
+    // 单视图组（如 仪表盘 / 系统管理）不必展开，直接平铺为顶级项
+    return children.length === 1
+      ? children[0]
+      : { key: g.key, icon: <span style={{ fontSize: 14 }}>{g.icon}</span>, label: g.label, children };
+  });
+  // 首屏所在的分组自动展开（仅初始值，之后交由用户手动收展）
+  const [defaultOpenKeys] = useState(() => {
+    const g = MENU_GROUPS.find((x) => x.views.includes(view));
+    return g && g.views.length > 1 ? [g.key] : [];
+  });
   const onMenuClick = (e: { key: string }) => {
     const key = e.key as ViewKey;
     setNavOpen(false);
@@ -146,6 +182,7 @@ function Shell({ user }: { user: Me }) {
               theme="dark"
               mode="inline"
               selectedKeys={[view]}
+              defaultOpenKeys={defaultOpenKeys}
               items={menuItems}
               onClick={onMenuClick}
               style={{ height: "calc(100vh - 72px)", overflowY: "auto", paddingBlock: 6 }}
@@ -200,6 +237,7 @@ function Shell({ user }: { user: Me }) {
           <Menu
             mode="inline"
             selectedKeys={[view]}
+            defaultOpenKeys={defaultOpenKeys}
             items={menuItems}
             onClick={onMenuClick}
             style={{ borderInlineEnd: "none" }}

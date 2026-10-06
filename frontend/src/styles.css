@@ -105,6 +105,22 @@ body {
   /* 选中项左侧品牌色高亮条 */
   box-shadow: inset 3px 0 0 var(--tf-primary);
 }
+.tf-sider .ant-menu-sub.ant-menu-inline {
+  /* 展开的子菜单：内嵌更深一层，做出分组纵深感 */
+  background: rgba(8, 10, 26, 0.5) !important;
+  border-radius: 10px;
+  margin-inline: 10px !important;
+  padding-block: 4px !important;
+}
+.tf-sider .ant-menu-sub .ant-menu-item {
+  font-size: 13px;
+  height: 34px;
+  line-height: 34px;
+}
+.tf-sider .ant-menu-submenu-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
 
 /* ---------------- 顶栏（玻璃拟态） ---------------- */
 .tf-header {
