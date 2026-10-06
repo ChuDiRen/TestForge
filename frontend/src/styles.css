@@ -535,3 +535,16 @@ body {
 .md-body .hljs-comment, .md-body .hljs-quote { color: #8b949e; font-style: italic; }
 .md-body .hljs-title, .md-body .hljs-function, .md-body .hljs-name { color: #b35900; }
 .md-body .hljs-attr, .md-body .hljs-attribute { color: #0550ae; }
+
+/* ---------------- AI 助手对话 ---------------- */
+.tf-chat-user {
+  max-width: 72%;
+  padding: 9px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--tf-gradient);
+  color: #fff;
+  font-size: 13.5px;
+  line-height: 1.65;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.25);
+  white-space: pre-wrap;
+}

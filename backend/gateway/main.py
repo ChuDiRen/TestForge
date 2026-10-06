@@ -821,6 +821,7 @@ def get_trace(trace_id: str):
 
 
 # M3 需求路由 + M4 契约路由 + 知识增强路由（文件尾部导入注册，避免循环依赖）
+from gateway import assistant as _assistant_routes  # noqa: E402, F401
 from gateway import auth_routes as _auth_routes  # noqa: E402, F401
 from gateway import contracts as _contracts  # noqa: E402, F401
 from gateway import graph as _graph  # noqa: E402, F401

@@ -16,6 +16,7 @@ import {
   FileSearchOutlined,
   LogoutOutlined,
   NodeIndexOutlined,
+  RobotOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -43,11 +44,13 @@ import { Quality } from "./views/Quality";
 import { Users } from "./views/Users";
 import { Login } from "./views/Login";
 import { Jobs } from "./views/Jobs";
+import { Assistant } from "./views/Assistant";
 
 const { Sider, Header, Content } = Layout;
 
 export const VIEWS = [
   { key: "dashboard", label: "仪表盘", icon: <DashboardOutlined /> },
+  { key: "assistant", label: "AI 助手", icon: <RobotOutlined /> },
   { key: "graph", label: "知识图谱", icon: <ApartmentOutlined /> },
   { key: "wiki", label: "代码库 / Wiki", icon: <BookOutlined /> },
   { key: "map", label: "服务地图 / 契约", icon: <DeploymentUnitOutlined /> },
@@ -77,7 +80,7 @@ interface MenuGroup {
 
 const MENU_GROUPS: MenuGroup[] = [
   { key: "g-overview", label: "总览", icon: <DashboardOutlined />, views: ["dashboard"] },
-  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["graph", "wiki", "map", "repo-add"] },
+  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["assistant", "graph", "wiki", "map", "repo-add"] },
   { key: "g-flow", label: "测试流程", icon: <FileDoneOutlined />, views: ["requirements", "plans", "workbench", "jobs"] },
   { key: "g-quality", label: "质量运营", icon: <CheckCircleOutlined />, views: ["cases", "runs", "defects", "logs", "quality"] },
   { key: "g-system", label: "系统管理", icon: <TeamOutlined />, views: ["users"], adminOnly: true },
@@ -90,6 +93,7 @@ function currentView(): ViewKey {
 
 const VIEW_COMPONENTS: Record<ViewKey, () => JSX.Element> = {
   dashboard: Dashboard,
+  assistant: Assistant,
   graph: KnowledgeGraph,
   wiki: Wiki,
   map: Map,

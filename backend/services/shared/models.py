@@ -338,3 +338,28 @@ class DocStatus(Base):
     detail: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
     __table_args__ = (Index("ix_doc_status_key", "repo_id", "kind", "doc_key", unique=True),)
+
+
+class ChatThread(Base):
+    """AI 助手会话（对标 GitNexus 对话：多轮代码问答，绑定仓库范围）。"""
+
+    __tablename__ = "chat_threads"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(128), default="新对话")
+    repo_id: Mapped[int] = mapped_column(Integer, default=0)  # 0=不限仓库
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class ChatMessage(Base):
+    """AI 助手消息：role=user/assistant；工具调用过程与引用溯源以 JSON 留存。"""
+
+    __tablename__ = "chat_messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[int] = mapped_column(Integer, index=True)
+    role: Mapped[str] = mapped_column(String(16))  # user|assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    tool_events: Mapped[str] = mapped_column(Text, default="[]")  # [{name,args,summary,ms}]
+    citations: Mapped[str] = mapped_column(Text, default="[]")  # [[path:12-34]] 解析结果
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
