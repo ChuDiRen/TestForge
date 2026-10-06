@@ -45,6 +45,7 @@ import { Users } from "./views/Users";
 import { Login } from "./views/Login";
 import { Jobs } from "./views/Jobs";
 import { Assistant } from "./views/Assistant";
+import { ChatFab } from "./components/AIChat";
 
 const { Sider, Header, Content } = Layout;
 
@@ -230,6 +231,7 @@ function Shell({ user }: { user: Me }) {
             <div className="tf-page">{body}</div>
           </Content>
         </Layout>
+        <ChatFab />
         <Drawer
           title={<Brand compact />}
           placement="left"
