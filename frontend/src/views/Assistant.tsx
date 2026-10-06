@@ -1,15 +1,17 @@
 import { PageHeader } from "../components/PageHeader";
 import { ChatInput, MessagesView, useChat } from "../components/AIChat";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Popconfirm, Select, Space, Typography } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { del, get, post } from "../api";
 import type { Thread } from "../components/AIChat";
 
-/** AI 助手完整页：会话列表 + 对话区（与悬浮球 Drawer 共享同一套对话组件） */
+/** AI 助手完整页：会话列表 + 对话区（复用 AIChat 共享对话组件） */
 export function Assistant() {
   const chat = useChat();
   const qc = useQueryClient();
+  const [newRepoId, setNewRepoId] = useState<number | undefined>();
 
   const repoOptions = (chat.repos.data ?? []).map((r) => ({
     value: r.id,
@@ -43,11 +45,17 @@ export function Assistant() {
                 style={{ minWidth: 0, flex: 1 }}
                 placeholder="限定仓库（可选）"
                 allowClear
-                onChange={(v) => createThread.mutate(v ?? 0)}
-                value={undefined}
+                onChange={(v) => setNewRepoId(v ?? undefined)}
+                value={newRepoId}
                 options={repoOptions}
               />
-              <Button size="small" type="primary" icon={<PlusOutlined />} loading={createThread.isPending} onClick={() => createThread.mutate(0)}>
+              <Button
+                size="small"
+                type="primary"
+                icon={<PlusOutlined />}
+                loading={createThread.isPending}
+                onClick={() => createThread.mutate(newRepoId ?? 0)}
+              >
                 新对话
               </Button>
             </Space.Compact>

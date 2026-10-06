@@ -1,23 +1,14 @@
 /**
- * AI 对话共享层：useChat 状态机 + 消息流 + 输入框 + 全局悬浮球入口。
+ * AI 对话共享层：useChat 状态机 + 消息流 + 输入框。
  *
- * 页面版（views/Assistant.tsx）与悬浮球 Drawer 复用同一套 hook 与渲染件，
- * 两处实例状态独立。悬浮球对标 GitNexus 的 QueryFAB：任何页面可随时唤起。
+ * AI 助手页面（views/Assistant.tsx）复用本文件的状态机与渲染件。
  */
 import { Markdown } from "./Markdown";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Drawer, Empty, Input, Select, Space, Spin, Tag, Timeline, Tooltip, Typography } from "antd";
-import {
-  CloseOutlined,
-  LoadingOutlined,
-  PlusOutlined,
-  RobotOutlined,
-  SendOutlined,
-  ToolOutlined,
-  UserOutlined,
-} from "@ant-design/icons";
+import { App, Button, Empty, Input, Spin, Tag, Timeline, Tooltip, Typography } from "antd";
+import { LoadingOutlined, RobotOutlined, SendOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
 import { del, get, getToken, post } from "../api";
 
 export interface Thread {
@@ -293,57 +284,5 @@ export function ChatInput({ chat }: { chat: ReturnType<typeof useChat> }) {
         发送
       </Button>
     </div>
-  );
-}
-
-/** 全局悬浮球 + 对话抽屉（任何页面可唤起，对标 GitNexus QueryFAB） */
-export function ChatFab() {
-  const [open, setOpen] = useState(false);
-  const chat = useChat();
-  const repoLabel = (url: string, id: number) => `#${id} ${String(url).split("/").pop()?.replace(/\.git$/, "")}`;
-
-  return (
-    <>
-      {!open && (
-        <button className="tf-chat-fab" aria-label="打开 AI 助手" onClick={() => setOpen(true)}>
-          <RobotOutlined style={{ fontSize: 22 }} />
-          <span className="tf-chat-fab-tip">AI 助手</span>
-        </button>
-      )}
-      <Drawer
-        title={
-          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <RobotOutlined style={{ color: "var(--tf-primary)" }} /> AI 助手
-          </span>
-        }
-        placement="right"
-        width={520}
-        open={open}
-        onClose={() => setOpen(false)}
-        closeIcon={<CloseOutlined />}
-        styles={{ body: { padding: "8px 12px", display: "flex", flexDirection: "column" }, header: { paddingBlock: 10 } }}
-      >
-        <Space.Compact style={{ marginBottom: 8 }}>
-          <Select
-            size="small"
-            style={{ minWidth: 0, flex: 1 }}
-            placeholder="选择会话"
-            value={chat.activeId ?? undefined}
-            onChange={(v) => chat.setActiveId(v)}
-            options={chat.threads.data?.threads.map((t) => ({ value: t.id, label: t.title }))}
-          />
-          <Button
-            size="small"
-            icon={<PlusOutlined />}
-            loading={chat.createThread.isPending}
-            onClick={() => chat.createThread.mutate(0)}
-          >
-            新对话
-          </Button>
-        </Space.Compact>
-        <MessagesView chat={chat} height="calc(100vh - 210px)" />
-        <ChatInput chat={chat} />
-      </Drawer>
-    </>
   );
 }
