@@ -37,6 +37,14 @@ TABLES = [
     "call_edges",
     "functions",
     "repos",
+    # 知识/检索扩展表（混合检索、KG、影响面、聚类、LLM 缓存、文档状态）
+    "rag_documents",
+    "kg_entities",
+    "kg_relations",
+    "doc_status",
+    "fn_impacts",
+    "fn_clusters",
+    "llm_cache",
 ]
 
 
@@ -62,7 +70,7 @@ def main() -> int:
         d = ROOT / "data" / sub
         if d.exists():
             _rmtree_force(d)
-    print("[reset] 已清空 17 张业务表 + data/runs + data/repos 检出缓存（users 登录账号保留）")
+    print(f"[reset] 已清空 {len(TABLES)} 张业务表 + data/runs + data/repos 检出缓存（users 登录账号保留）")
     with get_session() as sess:
         repos = sess.execute(text("SELECT count(*) FROM repos")).scalar()
         cases = sess.execute(text("SELECT count(*) FROM cases")).scalar()
