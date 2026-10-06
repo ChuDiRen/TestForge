@@ -63,6 +63,18 @@ export function KnowledgeGraph() {
   const option = useMemo(() => {
     const d = graph.data;
     if (!d) return null;
+    // 防线：ECharts 遇到重复 id/name 的节点会抛错并卸载整棵 React 树（白屏），先做净化
+    const seen = new Set<string>();
+    const nodes = d.nodes.filter((n) => {
+      const kid = `id:${n.id}`;
+      const kname = `name:${n.name}`;
+      if (!n.id || !n.name || seen.has(kid) || seen.has(kname)) return false;
+      seen.add(kid);
+      seen.add(kname);
+      return true;
+    });
+    const nodeIds = new Set(nodes.map((n) => n.id));
+    const edges = d.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
     return {
       backgroundColor: "transparent",
       tooltip: {
@@ -78,7 +90,7 @@ export function KnowledgeGraph() {
           layout: "force",
           roam: true,
           draggable: true,
-          data: d.nodes.map((n) => ({
+          data: nodes.map((n) => ({
             id: n.id,
             name: n.name,
             category: CATEGORIES.indexOf(n.category),
@@ -87,12 +99,12 @@ export function KnowledgeGraph() {
             node: n,
             label: { show: n.category !== "函数" || (n.度数 ?? 0) > 0, fontSize: 10 },
           })),
-          links: d.edges.map((e) => ({
+          links: edges.map((e) => ({
             source: e.source,
             target: e.target,
             relation: e.relation,
-            sourceName: d.nodes.find((n) => n.id === e.source)?.name ?? e.source,
-            targetName: d.nodes.find((n) => n.id === e.target)?.name ?? e.target,
+            sourceName: nodes.find((n) => n.id === e.source)?.name ?? e.source,
+            targetName: nodes.find((n) => n.id === e.target)?.name ?? e.target,
             lineStyle: { color: e.relation === "调用" ? "#94a3b8" : "#cbd5e1", width: e.relation === "调用" ? 1.6 : 1, curveness: e.relation === "调用" ? 0.18 : 0.05 },
           })),
           categories: CATEGORIES.map((c, i) => ({ name: c, itemStyle: { color: COLORS[i] } })),
@@ -107,7 +119,10 @@ export function KnowledgeGraph() {
 
   useEffect(() => {
     if (!chartRef.current || !option) return;
-    chart.current ??= echarts.init(chartRef.current);
+    // StrictMode 卸载-重挂载后 chart.current 可能是被 dispose 的旧实例，必须重建
+    if (!chart.current || chart.current.isDisposed()) {
+      chart.current = echarts.init(chartRef.current);
+    }
     chart.current.setOption(option);
     const onClick = (p: any) => {
       if (p.dataType === "node" && p.data.node) setSelected(p.data.node);
@@ -121,7 +136,13 @@ export function KnowledgeGraph() {
     };
   }, [option]);
 
-  useEffect(() => () => chart.current?.dispose(), []);
+  useEffect(
+    () => () => {
+      chart.current?.dispose();
+      chart.current = undefined;
+    },
+    [],
+  );
 
   const props = selected
     ? Object.entries(selected).filter(([k]) => !["id", "category"].includes(k))
@@ -159,7 +180,7 @@ export function KnowledgeGraph() {
           )}
         </Space>
       </Card>
-      <Card title="知识图谱（仓库 / 模块 / 函数调用 / 需求 / 用例 / 缺陷 的真实关系）" bodyStyle={{ padding: 8 }}>
+      <Card title="知识图谱（仓库 / 模块 / 函数调用 / 需求 / 用例 / 缺陷 的真实关系）" styles={{ body: { padding: 8 } }}>
         {graph.data ? (
           <div ref={chartRef} style={{ width: "100%", height: 560 }} />
         ) : (

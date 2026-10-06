@@ -80,6 +80,25 @@ def knowledge_graph(request: Request):
         ][:30]
 
         # ---- 节点 ----
+        # 函数节点 id 必须带模块唯一化（同名函数在多个模块很常见），否则前端 ECharts
+        # 遇到重复 name/id 直接抛 "Graph nodes have duplicate name or id" 并白屏
+        name_counts = Counter(f.name for f in fns_top)
+        dup_names = {n for n, c in name_counts.items() if c > 1}
+
+        def _display_name(f) -> str:  # type: ignore[no-untyped-def]
+            if f.name not in dup_names:
+                return f.name
+            return f"{(f.module or "").rsplit(".", 1)[-1]}.{f.name}"
+
+        def _fnode_id(f) -> str:  # type: ignore[no-untyped-def]
+            return f"fn:{f.module}:{f.name}"
+
+        fnode_by_fid = {f.id: f for f in fns_top}
+        # 同名函数（无法从用例 target_function 定位模块）统一挂到首个同名节点
+        first_fnode_by_name: dict[str, str] = {}
+        for f in fns_top:
+            first_fnode_by_name.setdefault(f.name, _fnode_id(f))
+
         nodes: list[dict] = [
             {"id": f"repo:{repo.id}", "name": repo.url.rsplit("/", 1)[-1], "category": "仓库", "repo_id": repo.id, "status": repo.status}
         ]
@@ -89,8 +108,8 @@ def knowledge_graph(request: Request):
         for f in fns_top:
             imp = impact_map.get(f.name)
             nodes.append({
-                "id": f"fn:{f.name}",
-                "name": f.name,
+                "id": _fnode_id(f),
+                "name": _display_name(f),
                 "category": "函数",
                 "module": f.module,
                 "language": getattr(f, "language", "") or "python",
@@ -111,17 +130,19 @@ def knowledge_graph(request: Request):
         for m in modules:
             edges.append({"source": f"repo:{repo.id}", "target": f"mod:{m}", "relation": "包含"})
         for f in fns_top:
-            edges.append({"source": f"mod:{f.module}", "target": f"fn:{f.name}", "relation": "包含"})
+            edges.append({"source": f"mod:{f.module}", "target": _fnode_id(f), "relation": "包含"})
         for caller, callee in call_edges:
-            cname = next(f.name for f in fns_top if f.id == caller)
-            ename = next(f.name for f in fns_top if f.id == callee)
-            edges.append({"source": f"fn:{cname}", "target": f"fn:{ename}", "relation": "调用"})
+            cf = fnode_by_fid.get(caller)
+            ef = fnode_by_fid.get(callee)
+            if cf is None or ef is None:
+                continue
+            edges.append({"source": _fnode_id(cf), "target": _fnode_id(ef), "relation": "调用"})
         for c in linked_cases:
             if c.source_req:
                 edges.append({"source": f"req:{c.source_req}", "target": f"case:{c.code}", "relation": "派生"})
             tf = (c.target_function or "").split(".")[-1]
             if tf in fn_names:
-                edges.append({"source": f"case:{c.code}", "target": f"fn:{tf}", "relation": "覆盖"})
+                edges.append({"source": f"case:{c.code}", "target": first_fnode_by_name[tf], "relation": "覆盖"})
         for d in linked_defects:
             for cc in _load_codes(d.case_codes):
                 if cc in case_codes:
