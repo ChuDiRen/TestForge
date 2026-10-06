@@ -76,7 +76,7 @@ export function Wiki() {
               <option value={0}>全部仓库</option>
               {(repos.data ?? []).map((r) => (
                 <option key={r.id} value={r.id}>
-                  #{r.id} {String(r.url).split("/").pop()}
+                  #{r.id} {String(r.url).split("/").pop()?.replace(/\.git$/, "") || r.url}
                 </option>
               ))}
             </select>

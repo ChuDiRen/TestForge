@@ -797,6 +797,15 @@ def rerun_run(run_code: str):
 # ---------------- 追溯（M1 最小版：查链路） ----------------
 
 
+@app.get("/api/traces")
+def list_traces(limit: int = 200, type: str = ""):
+    """事件台账：最新在前，供「日志 / 追溯」页浏览全量留痕。"""
+    from services.shared.trace import query as trace_query
+
+    events = trace_query(trace_type=type, limit=min(max(limit, 1), 500))
+    return ok({"count": len(events), "events": list(reversed(events))})
+
+
 @app.get("/api/traces/{trace_id}")
 def get_trace(trace_id: str):
     from services.shared.trace import query as trace_query
