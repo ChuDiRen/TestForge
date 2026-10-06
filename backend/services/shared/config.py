@@ -61,6 +61,24 @@ class Settings(BaseSettings):
     secret_key: str = "testforge-local-secret"
     admin_password: str = "testforge-admin"
 
+    # 部署环境：dev（默认，宽松）/ prod（启动时强制安全检查：默认密钥直接拒启）
+    env: str = "dev"
+
+    def validate_for_prod(self) -> list[str]:
+        """生产部署安全检查：返回违规项列表（空 = 通过）。gateway 启动时 env=prod 调用。"""
+        problems: list[str] = []
+        if self.secret_key == "testforge-local-secret":
+            problems.append("SECRET_KEY 仍为默认值——token 可被伪造，必须设置强随机密钥")
+        if self.admin_password == "testforge-admin":
+            problems.append("ADMIN_PASSWORD 仍为默认值——必须设置强管理员口令")
+        if not self.llm_api_key:
+            problems.append("LLM_API_KEY 未配置——生成管线不可用；公司内网请指向内部 LLM 网关（llm_base_url）")
+        if self.sandbox_mode != "docker":
+            problems.append("sandbox_mode != docker——AI 执行沙箱未容器化隔离，生产建议 docker 模式")
+        if self.allow_local_repo_url:
+            problems.append("ALLOW_LOCAL_REPO_URL=true——生产环境禁止本地路径接入仓库")
+        return problems
+
     # 执行记录保留条数（超出自动清理最旧记录）
     runs_retention: int = 500
 

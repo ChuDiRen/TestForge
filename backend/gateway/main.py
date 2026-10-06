@@ -50,6 +50,14 @@ SERVICE_LIST = [
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     setup_logging("gateway", get_settings().log_level)
+    s = get_settings()
+    if s.env == "prod":
+        problems = s.validate_for_prod()
+        if problems:
+            for p in problems:
+                log.error("生产安全检查未通过: %s", p)
+            raise RuntimeError(f"ENV=prod 安全检查未通过（{len(problems)} 项），拒绝启动——详见上方日志")
+        log.info("生产安全检查通过（env=prod）")
     init_db()
     if get_settings().mono:
         from services.shared.mono import register_all

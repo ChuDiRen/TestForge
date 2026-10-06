@@ -123,6 +123,31 @@ TestForge/                       # 前后端分离 monorepo：frontend/ + backen
 相关命令：`make analyze`（影响面+聚类重算）、`make kg-build`（文档图谱构建，需 LLM Key）、`make rag-eval`（检索质量评估）、`make mcp`（MCP server）。
 新增端点：`POST /api/kg/build`、`GET /api/kg/query`、`GET /api/kg/stats`、`POST /api/repos/{id}/analyze`、`GET /api/repos/{id}/clusters`、`GET /api/functions/{name}/impact`、`GET /api/knowledge/status`、`GET/DELETE /api/llm/cache`、`GET /api/rag/eval`。
 
+## 公司落地部署（production checklist）
+
+### 1. LLM 不出域（最高优先级）
+生成管线会把仓库源码发给 LLM。公司内使用必须保证代码不出域：`LLM_BASE_URL` 指向
+**内部 LLM 网关或私有化部署**（vLLM 起 DeepSeek/Qwen，OpenAI 兼容接口即可），见
+`backend/.env.example` 内注释。外网云 API 仅限非敏感代码且已审批的场景。
+
+### 2. 生产安全检查（ENV=prod）
+设置 `ENV=prod` 后网关启动时会强制检查，以下任一项不满足直接拒启：
+- `SECRET_KEY` / `ADMIN_PASSWORD` 不能是默认值
+- `LLM_API_KEY` 必须配置
+- `SANDBOX_MODE=docker`（AI 执行沙箱容器化隔离）
+- `ALLOW_LOCAL_REPO_URL` 必须为 false
+
+### 3. 沙箱容器化
+`SANDBOX_MODE=docker`：生成代码在真实容器执行（`--network none` / 512m / 1cpu），
+镜像 `testforge-sandbox:py312`（见 runner_svc）。AI 助手的 execute 工具走独立
+thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传）。
+
+### 4. 推广前路线
+- SSO/LDAP 对接（当前仅本地账号，admin/viewer 两角色）
+- 任务队列换共享实现（当前进程内，多实例需共享队列）；无状态 token 换 Redis 黑名单
+- Alembic 数据库版本化迁移、备份策略、监控告警
+- AI 生成用例的人审规约：草稿态 → 人审 → 入库已有字段支撑，流程需团队固化
+
 ## Windows 主机注意
 
 ## 双平台执行（Windows + Linux 服务器）
