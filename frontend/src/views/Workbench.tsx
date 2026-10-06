@@ -1,6 +1,7 @@
 import { PageHeader } from "../components/PageHeader";
 import { useEffect, useState } from "react";
-import { Button, Card, Col, Input, Popconfirm, Progress, Row, Select, Space, Steps, Table, Tag, message } from "antd";
+import { Alert, Button, Card, Col, Input, Popconfirm, Progress, Row, Segmented, Select, Space, Steps, Table, Tag, message } from "antd";
+import { NextStep } from "../components/NextStep";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post, sseUrl } from "../api";
 import { Json } from "../components/Json";
@@ -127,6 +128,13 @@ function GeneratedCases({ genId }: { genId: string | null }) {
   );
 }
 
+const LAYERS = [
+  { value: "ut", label: "单元测试", desc: "选目标函数，AI 六路上下文两阶段生成 + 沙箱执行修复，断言函数级行为" },
+  { value: "fn", label: "功能测试", desc: "同一函数级管线，按业务场景语义出用例（主流程/边界/异常/权限），layer=fn 归档" },
+  { value: "api", label: "接口测试", desc: "抓取运行中网关的实时 OpenAPI 契约，生成 requests 接口用例（边界/异常/鉴权）" },
+  { value: "e2e", label: "E2E 测试", desc: "基于平台真实服务旅程生成端到端脚本，对运行中服务发起真实请求" },
+];
+
 export function Workbench() {
   const repos = useQuery({ queryKey: ["repos"], queryFn: () => get<any[]>("/api/repos") });
   const [repoId, setRepoId] = useState<number>();
@@ -204,27 +212,31 @@ export function Workbench() {
   return (
     <div>
       <PageHeader title="生成工作台" subtitle="六路上下文 + 两阶段生成 + 沙箱验证闭环" />
-      <Card title="生成新用例" style={{ marginBottom: 16 }}>
+      <Card title="生成新用例（四层）" style={{ marginBottom: 16 }}>
+        <Segmented
+          value={layer}
+          onChange={(v) => {
+            setLayer(v as string);
+            setFn(undefined);
+            setResult(null);
+          }}
+          options={LAYERS.map((l) => ({ value: l.value, label: l.label }))}
+          style={{ marginBlockEnd: 10 }}
+        />
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBlockEnd: 12 }}
+          message={LAYERS.find((l) => l.value === layer)?.desc}
+        />
         <Space wrap>
           <Select
             style={{ width: 240, maxWidth: "100%" }}
             placeholder="选择仓库"
             value={repoId}
             onChange={setRepoId}
+            disabled={layer === "api" || layer === "e2e"}
             options={(repos.data ?? []).map((r) => ({ value: r.id, label: `#${r.id} ${String(r.url).split("/").pop()}` }))}
-          />
-          <Select
-            style={{ width: 130 }}
-            value={layer}
-            onChange={(v) => {
-              setLayer(v);
-              setFn(undefined);
-            }}
-            options={[
-              { value: "ut", label: "单元测试" },
-              { value: "api", label: "接口测试" },
-              { value: "e2e", label: "E2E 测试" },
-            ]}
           />
           <Select
             style={{ width: 320, maxWidth: "100%" }}
@@ -233,10 +245,10 @@ export function Workbench() {
             showSearch
             optionFilterProp="label"
             disabled={layer === "api" || layer === "e2e"}
-            placeholder={layer === "api" ? "目标：网关实时 OpenAPI 契约" : layer === "e2e" ? "目标：平台真实旅程" : "选择目标函数"}
+            placeholder={layer === "api" ? "目标：网关实时 OpenAPI 契约（自动抓取）" : layer === "e2e" ? "目标：平台真实旅程（自动发现）" : "选择目标函数"}
             options={(fns.data ?? []).map((f) => ({ value: f.name, label: `${f.name} (${f.module})` }))}
           />
-          <Button type="primary" loading={running} disabled={!repoId || (layer === "ut" && !fn)} onClick={start}>
+          <Button type="primary" loading={running} disabled={!repoId || !(layer === "api" || layer === "e2e" || fn)} onClick={start}>
             ▶ 开始生成
           </Button>
         </Space>
@@ -284,6 +296,15 @@ export function Workbench() {
         </Space>
       </Card>
       <GeneratedCases genId={genId} />
+      {result && (
+        <NextStep
+          title={`生成完成：通过 ${result.passed}/${result.total}，覆盖率 ${result.coverage}%——用例已按层入库`}
+          actions={[
+            { label: "去用例库查看", view: "cases" },
+            { label: "看执行记录", view: "runs" },
+          ]}
+        />
+      )}
       {result && (
         <Card title="闭环结果" size="small" style={{ marginTop: 16 }}>
           <Row gutter={12}>
