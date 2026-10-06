@@ -618,26 +618,34 @@ def _repo_fs_root(repo_id: int):
 
 
 def _build_agent(thread_id: int, repo_id: int, role: str):
-    """构建 deepagents 深度代理：领域工具 + 执行沙箱（thread-scoped）+ 仓库只读挂载 + 调查协议。"""
+    """构建 deepagents 深度代理：领域工具 + 执行沙箱（thread-scoped）+ 仓库只读挂载 + 记忆/摘要 + 调查协议。"""
     from deepagents import create_deep_agent
+    from deepagents.middleware import MemoryMiddleware, SummarizationMiddleware
 
     runners, specs = _tools_for(repo_id, role)
     lc_tools = [_to_lc_tool(spec, runners[spec["function"]["name"]]) for spec in specs]
 
-    from services.assistant_sandbox import routed_backend
+    from services.assistant_sandbox import memory_backend, routed_backend
 
     fs_root = _repo_fs_root(repo_id)
     backend = routed_backend(thread_id, fs_root)
+    llm = _llm_model()
     scope = (
         f"（当前对话绑定仓库 repo_id={repo_id}：/repo/ 前缀下是只读的仓库源码，工作区可写可执行）"
         if repo_id
         else "（未绑定仓库，检索工具将跨全库；工作区可写可执行）"
     )
     return create_deep_agent(
-        model=_llm_model(),
+        model=llm,
         tools=lc_tools,
         system_prompt=SYSTEM_PROMPT + f"\n\n当前范围：{scope}",
         backend=backend,
+        middleware=[
+            # 跨会话记忆：/memory/memory.md 注入系统提示，模型可 edit_file 更新（项目约定/用户偏好越用越懂）
+            MemoryMiddleware(backend=memory_backend(), sources=["memory.md"]),
+            # 长对话保护：接近上下文上限时自动摘要压缩（深调查 18+ 工具轮次不爆上下文）
+            SummarizationMiddleware(model=llm, backend=backend),
+        ],
     ), runners
 
 

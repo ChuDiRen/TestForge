@@ -133,8 +133,23 @@ class TestForgeSandbox(BaseSandbox):
         return responses
 
 
+def memory_backend():
+    """跨会话记忆目录（可写）：模型经 /memory/ 前缀 edit_file 更新，MemoryMiddleware 读取注入。"""
+    root = Path("data/assistant_memory")
+    root.mkdir(parents=True, exist_ok=True)
+    mem_file = root / "memory.md"
+    if not mem_file.exists():
+        mem_file.write_text(
+            "# TestForge 智能体记忆\n\n"
+            "<!-- 跨会话持久：项目约定、用户偏好、常见误区。模型可编辑本文件。 -->\n\n"
+            "## 项目约定\n- 测试框架：pytest\n- 用例分层：ut / fn / api / e2e / contract\n",
+            encoding="utf-8",
+        )
+    return FilesystemBackend(root_dir=str(root), virtual_mode=True)
+
+
 def routed_backend(thread_id: int, repo_root: str | None):
-    """沙箱为默认 backend（execute + 工作区文件）；仓库检出以 /repo/ 前缀只读挂载。"""
+    """沙箱为默认 backend（execute + 工作区文件）；/repo/ 只读挂仓库检出；/memory/ 可写跨会话记忆。"""
     sandbox = TestForgeSandbox(thread_id)
 
     class _Routed(CompositeBackend, SandboxBackendProtocol):
@@ -150,6 +165,7 @@ def routed_backend(thread_id: int, repo_root: str | None):
         async def aexecute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:  # noqa: D102
             return sandbox.execute(command, timeout=timeout)
 
+    routes: dict = {"/memory/": memory_backend()}
     if repo_root:
-        return _Routed(default=sandbox, routes={"/repo/": FilesystemBackend(root_dir=repo_root, virtual_mode=True)})
-    return sandbox
+        routes["/repo/"] = FilesystemBackend(root_dir=repo_root, virtual_mode=True)
+    return _Routed(default=sandbox, routes=routes)
