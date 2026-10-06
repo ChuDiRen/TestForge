@@ -505,29 +505,27 @@ def _repo_fs_root(repo_id: int):
     return str(p) if p.exists() else None
 
 
-def _build_agent(repo_id: int, role: str):
-    """构建 deepagents 深度代理：领域工具 + 仓库文件工具（只读）+ 调查协议系统提示。"""
-    from deepagents import FilesystemMiddleware, create_deep_agent
-    from deepagents.backends import FilesystemBackend
+def _build_agent(thread_id: int, repo_id: int, role: str):
+    """构建 deepagents 深度代理：领域工具 + 执行沙箱（thread-scoped）+ 仓库只读挂载 + 调查协议。"""
+    from deepagents import create_deep_agent
 
     runners, specs = _tools_for(repo_id, role)
     lc_tools = [_to_lc_tool(spec, runners[spec["function"]["name"]]) for spec in specs]
 
-    middleware = []
+    from services.assistant_sandbox import routed_backend
+
     fs_root = _repo_fs_root(repo_id)
-    if fs_root:
-        middleware.append(
-            FilesystemMiddleware(
-                backend=FilesystemBackend(root_dir=fs_root, virtual_mode=True),
-                tools=["ls", "read_file", "glob", "grep"],  # 只读：改仓库必须走正式回写管线
-            )
-        )
-    scope = f"（当前对话绑定仓库 repo_id={repo_id}，文件工具根目录即仓库根）" if repo_id else "（未绑定仓库，检索工具将跨全库）"
+    backend = routed_backend(thread_id, fs_root)
+    scope = (
+        f"（当前对话绑定仓库 repo_id={repo_id}：/repo/ 前缀下是只读的仓库源码，工作区可写可执行）"
+        if repo_id
+        else "（未绑定仓库，检索工具将跨全库；工作区可写可执行）"
+    )
     return create_deep_agent(
         model=_llm_model(),
         tools=lc_tools,
         system_prompt=SYSTEM_PROMPT + f"\n\n当前范围：{scope}",
-        middleware=middleware,
+        backend=backend,
     ), runners
 
 
@@ -540,7 +538,7 @@ async def _agent_stream(thread: ChatThread, content: str, role: str = "admin") -
         with get_session() as sess:
             if repo_id and sess.get(Repos, repo_id) is None:
                 repo_id = 0
-        agent, runners = _build_agent(repo_id, role)
+        agent, runners = _build_agent(thread.id, repo_id, role)
 
         messages: list = []
         for hist_role, hist in _history(thread.id):
