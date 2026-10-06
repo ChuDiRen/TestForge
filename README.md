@@ -46,10 +46,10 @@ netsh advfirewall firewall add rule name="TestForge Vite 5173" dir=in action=all
 
 ## 技术栈（锁定）
 
-- **仓库形态**：monorepo。后端 Python 3.12（uv），前端 pnpm + Vite；
+- **仓库形态**：前后端分离 monorepo——`frontend/`（React）+ `backend/`（Python 3.12，uv 工程根，.env/data/.run 均在其下）；根 Makefile 总入口；
 - **前端**：React 18 + TypeScript + Ant Design 5 + React Query + Zustand + ECharts；
-- **后端单体**：一个 FastAPI 进程 = REST/SSE 网关 + 全部 9 个服务（repo/wiki/契约/需求/生成/执行/trace/缺陷/计划），服务间经进程内直调（`MONO_MODE=1` 默认）；模块边界与 proto 契约保持不变，`MONO_MODE=0` 可退回微服务拓扑（各 `services/*/main.py` 仍可独立起 gRPC 进程）；
-- **proto**：`proto/testforge.proto` 为消息与服务契约唯一事实源，`make proto` 生成 stub；
+- **后端**（backend/）：一个 FastAPI 进程 = REST/SSE 网关 + 全部 9 个服务（repo/wiki/契约/需求/生成/执行/trace/缺陷/计划），服务间经进程内直调（`MONO_MODE=1` 默认）；模块边界与 proto 契约保持不变，`MONO_MODE=0` 可退回微服务拓扑（各 `services/*/main.py` 仍可独立起 gRPC 进程）；
+- **proto**：`backend/proto/testforge.proto` 为消息与服务契约唯一事实源，`make proto` 生成 stub；
 - **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）。本机开发库跑在 WSL docker（`testforge-pg`，host 网络，镜像网络经局域网 IP 直达）；`make dev` 启动时自动做 PG 握手健康检查，不通则依次回退 wsl 控制台隧道（`scripts/pg_tunnel.py`）与直连候选；
 - **LLM**：DeepSeek（OpenAI 兼容：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-chat`），全管线无 mock 实现——填入 `LLM_API_KEY` → `make llm-check` 验证后即启用；
 - **规划智能体**：[deepagents](https://github.com/langchain-ai/deepagents) 框架 + DeepSeek 大模型——智能体带领域工具（读源码/模块清单/调用图）自主探索被测函数上下文，只设计输入与打桩，期望值由探针对真实代码执行捕获（现实即规格）；精选/探针靶标保持确定性策略；
@@ -60,24 +60,27 @@ netsh advfirewall firewall add rule name="TestForge Vite 5173" dir=in action=all
 ## 目录结构
 
 ```
-TestForge/
-├── proto/testforge.proto      # 全部 .proto，唯一事实源（PRD 3.3 全部 9 服务）
-├── gateway/                   # FastAPI 网关：REST + SSE + 统一封套 + trace 中间件
-├── services/
-│   ├── repo_svc/              # Git 接入/拉取 + 多语言 tree-sitter 索引（函数卡片/调用图；py/go/java/ts/js/rs/c/cpp/cs/rb/php/kt/swift/bash）
-│   ├── wiki_builder/          # 分层 Wiki 编译 + git diff 增量重建 + stale 传播
-│   ├── contract_registry/     # 契约注册/diff/breaking/影响分析
-│   ├── req_svc/               # 需求四步解析管线 + 可测性评分（G0）
-│   ├── testgen_svc/           # 六路上下文 + 两阶段生成 + 覆盖守卫
-│   ├── runner_svc/            # 沙箱执行 + 修复循环≤3轮 + junit/coverage 解析
-│   ├── trace_svc/             # traceID 账本（+缺陷闭环 + 迭代计划/报告）
-│   └── shared/                # 配置/JSON 日志/DB 模型/LLM 双实现/RAG/脱敏
-├── frontend/                  # React 12 视图（数据全部来自真实接口）
-├── fixtures/sample-repo/      # M1 被测仓库（create_order 及依赖，含存量测试）
-├── fixtures/api-repo/         # M4 多仓第二仓库（submit_payment）
-├── deploy/                    # docker-compose + Dockerfile + nginx
-├── scripts/                   # dev 编排 + demo-m0~m5 验收脚本
-├── Makefile  README.md  docs/
+TestForge/                       # 前后端分离 monorepo：frontend/ + backend/
+├── frontend/                    # React 前端（14 视图，数据全部来自真实接口）
+├── backend/                     # Python 后端工程根（uv；.env/data/.run 也在其下）
+│   ├── proto/testforge.proto    # 全部 .proto，唯一事实源（PRD 3.3 全部 9 服务）
+│   ├── gateway/                 # FastAPI 网关：REST + SSE + 统一封套 + trace 中间件
+│   ├── services/
+│   │   ├── repo_svc/            # Git 接入/拉取 + 多语言 tree-sitter 索引（函数卡片/调用图；15 语言）
+│   │   ├── wiki_builder/        # 分层 Wiki 编译 + git diff 增量重建 + stale 传播
+│   │   ├── contract_registry/   # 契约注册/diff/breaking/影响分析
+│   │   ├── req_svc/             # 需求四步解析管线 + 可测性评分（G0）
+│   │   ├── testgen_svc/         # 六路上下文 + 两阶段生成 + 覆盖守卫
+│   │   ├── runner_svc/          # 沙箱执行 + 修复循环≤3轮 + junit/coverage 解析
+│   │   ├── trace_svc/           # traceID 账本（+缺陷闭环 + 迭代计划/报告）
+│   │   └── shared/              # 配置/JSON 日志/DB 模型/LLM 角色路由/RAG/知识图谱/脱敏
+│   ├── fixtures/sample-repo/    # M1 被测仓库（create_order 及依赖，含存量测试）
+│   ├── fixtures/api-repo/       # M4 多仓第二仓库（submit_payment）
+│   ├── scripts/                 # dev 编排 + demo-m0~m5 验收脚本 + 知识增强 CLI
+│   ├── tests/                   # pytest 单测（独立 testforge_test 库）
+│   └── pyproject.toml  uv.lock
+├── deploy/                      # docker-compose + Dockerfile + nginx
+├── Makefile  README.md  docs/   # 根 Makefile 为总入口（命令自动进入 backend/ 执行）
 ```
 
 ## 关键设计（平台灵魂）
@@ -92,7 +95,33 @@ TestForge/
 7. **真实数据**：沙箱只有真实执行（local/docker），用例期望值来自真实行为与真实执行捕获；通用函数规划走 DeepSeek。
 8. **变更驱动回归**：pull 检出函数源码 diff → 关联用例标 stale → 自动回归（按 code_file 分组执行真实沙箱）→ 通过清 stale / 失败自动建缺陷并保持待回归（自愈闭环）；`POST /api/repos/{id}/webhook` 可远程触发；
 9. **任务队列**：生成/回归全部持久化入 jobs 表，gateway 内 worker 池消费（并发 `JOB_WORKERS`），进程崩溃重启自动重排队，`GET /api/jobs` 全程可观测；
-10. **认证**：除 health/login 外全部端点需 Bearer token（HMAC 签名，admin 全权 / viewer 只读），首启自动引导 admin（密码 `ADMIN_PASSWORD`，默认 testforge-admin）；SSE 走 `?token=` 查询参数。
+10. **认证**：除 health/login 外全部端点需 Bearer token（HMAC 签名 12h，剩余 <6h 自动续签 `X-Renewed-Token`），admin 全权 / viewer 只读；登录限速（同 IP 60s×5 / 同账号 15min×10 锁定）、密码策略（≥8 位含字母数字）、自助改密、默认口令强制修改、账号停用、用户管理（列表/创建/改角色/重置密码/删除，保底一个可用 admin）、登录/停用/删除全量审计（trace_events type=认证）；SSE 走 `?token=` 查询参数。
+    认证端点：`POST /api/auth/login`、`POST /api/auth/change-password`、`GET|POST /api/auth/users`、`PUT|DELETE /api/auth/users/{username}`、`POST /api/auth/users/{username}/reset-password`。
+    **已知限制**（内网工具可接受）：无状态 token 无法单个吊销（改 `SECRET_KEY` 全员下线）；SSE token 走 URL 查询参数可能进代理日志；`SECRET_KEY`/`ADMIN_PASSWORD` 生产部署必须改默认值。
+
+## 知识增强（GitNexus / LightRAG 借鉴改造）
+
+对照 GitNexus（企业代码库上下文引擎）与 LightRAG（图基 RAG）完成的一轮能力升级：
+
+| 能力 | 来源思路 | TestForge 落地 |
+| --- | --- | --- |
+| 混合检索 | GitNexus（BM25+语义+RRF）/ LightRAG（双层检索） | 统一文档表 `rag_documents`（case/wiki/defect/function/kg 多语料），pgvector 向量 + tsvector 全文双路召回，RRF(k=60) 融合；`shared/rag.py` |
+| LLM 角色路由 | LightRAG 四角色分工 | `extract`（抽取/摘要，快）/ `query`（生成/报告，可插拔 deepseek-reasoner）/ `keyword`（检索词，轻量）；`LLM_MODEL_EXTRACT/QUERY/KEYWORD` 配置，空则回退主模型 |
+| 抽取缓存 | LightRAG 增量更新复用 LLM 缓存 | `llm_cache` 表按 (role, model, system, prompt) hash 键控，同样的输入只付一次 token，增量重建零成本；`make kg-build` 幂等 |
+| 索引原子发布 | GitNexus copy-and-swap | reindex 单事务提交（读者要么完整旧索引要么完整新索引）；批量 RAG 索引/影响面/聚类同为单事务换内容 |
+| 变更精确归因 | GitNexus detect_changes | `git diff -U0` 行级 hunk → tree-sitter 函数 span（end_line）→ 变更函数精确集合（源码 diff ∪ 删除 ∪ hunk 命中），不再文件级误伤 |
+| 影响面预计算 | GitNexus impact/blast radius | 索引期反向 BFS 预计算每个函数的可达集/深度/影响分（`fn_impacts` 表），`GET /api/functions/{name}/impact` 带深度+置信度；回归只跑直接变更，上游出影响报告；`/api/graph` 节点带影响分 |
+| 功能聚类 | GitNexus Leiden → Louvain | 索引期社区检测自动划分测试域（`fn_clusters` 表），`GET /api/repos/{id}/clusters`；networkx Louvain，缺失回退连通分量 |
+| 文档知识图谱 | LightRAG 实体/关系抽取 + local/global 检索 | LLM 从 Wiki/需求/缺陷文本抽实体+关系入 `kg_entities/kg_relations`，`GET /api/kg/query?q=&mode=local\|global\|mix` 双层检索；内容 hash 跳过未变更文档；按 source_ref 选择性删除；Key 未配置时构建显式失败、检索自动降级确定性关键词 |
+| 生成引用溯源 | LightRAG citations | 六路上下文每一路登记 citation（file:line/契约@版本/wiki 页/kg 实体/CASE/BUG），随生成管线进入用例 schema 与 result 事件——生成物逐条可回溯 |
+| 上下文 token 预算 | GitNexus token budget | 六路上下文超 `CTX_TOKEN_BUDGET`（默认 16000）按优先级从低到高裁剪，GROUND TRUTH（code/contract）只截不清 |
+| 文档状态跟踪 | LightRAG 文档状态机 | `doc_status` 表记录索引/wiki/kg 摄入状态（ok/failed/stale），`GET /api/knowledge/status` 摄入健康视图 |
+| RAG 评估闭环 | LightRAG RAGAS 思路 | 黄金集自动构建（已入库用例为正例），recall@k + MRR，混合检索 vs 向量单路对照；`make rag-eval` 或 `GET /api/rag/eval` |
+| 跨仓契约匹配 | GitNexus group_sync | 契约注册时扫描全部仓库函数源码，命中端点/rpc/字段词的仓库自动登记为消费方；breaking 影响分析双通道（源码精确命中 + 域词启发式） |
+| MCP 工具面 | GitNexus 19 MCP tools | `make mcp` 起 stdio MCP server（零依赖 JSON-RPC 2.0）：`list_functions` / `function_impact` / `search_cases` / `get_symbol_context` / `knowledge_query` / `repo_status`，只读面供 Cursor/Claude Code 等接入；写操作仍走带鉴权的 REST |
+
+相关命令：`make analyze`（影响面+聚类重算）、`make kg-build`（文档图谱构建，需 LLM Key）、`make rag-eval`（检索质量评估）、`make mcp`（MCP server）。
+新增端点：`POST /api/kg/build`、`GET /api/kg/query`、`GET /api/kg/stats`、`POST /api/repos/{id}/analyze`、`GET /api/repos/{id}/clusters`、`GET /api/functions/{name}/impact`、`GET /api/knowledge/status`、`GET/DELETE /api/llm/cache`、`GET /api/rag/eval`。
 
 ## Windows 主机注意
 

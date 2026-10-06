@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
 import { Badge, Button, Card, Drawer, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -66,6 +67,7 @@ export function Wiki() {
 
   return (
     <div>
+      <PageHeader title="代码库 / Wiki" subtitle="预编译知识层：函数卡片 / 模块页 · 增量重建 · stale 传播" />
       <Card
         title="代码库 / Wiki（预编译知识层）"
         extra={

@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { Button, Card, Dropdown, message, Space, Table, Tag } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadGeneratedTest, get, post } from "../api";
@@ -54,7 +55,9 @@ export function Runs() {
   };
 
   return (
-    <Card title="执行记录（沙箱执行统一台账 · 产物可导出）">
+    <div>
+      <PageHeader title="执行记录" subtitle="真实沙箱执行统一台账 · 产物可导出回写仓库" />
+      <Card>
       <Table<RunRow>
         rowKey="code"
         size="small"
@@ -108,5 +111,6 @@ export function Runs() {
         ]}
       />
     </Card>
+    </div>
   );
 }

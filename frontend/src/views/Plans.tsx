@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
 import { Button, Card, Drawer, Select, Space, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -45,8 +46,9 @@ export function Plans() {
 
   return (
     <div>
+      <PageHeader title="测试计划" subtitle="以迭代为纲 · 准入 / 准出自动判定" />
       <Card
-        title="测试计划（以迭代为纲，准入/准出自动判定）"
+        title="迭代列表"
         style={{ marginBottom: 16 }}
         extra={
           <Space wrap>

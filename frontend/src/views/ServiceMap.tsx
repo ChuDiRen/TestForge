@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useMemo, useState } from "react";
 import { Button, Card, Col, Empty, message, Row, Table, Tag } from "antd";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -127,7 +128,9 @@ export function Map() {
   });
 
   return (
-    <Row gutter={[16, 16]}>
+    <div>
+      <PageHeader title="服务地图 / 契约" subtitle="真实契约拓扑 · 点 breaking 边看影响分析" />
+      <Row gutter={[16, 16]}>
       <Col xs={24} lg={14}>
         <Card title="服务地图（真实契约拓扑 · 点 breaking 边看影响分析）">
           <ServiceMap contracts={contracts.data ?? []} onImpact={runImpact} />
@@ -183,5 +186,6 @@ export function Map() {
         )}
       </Col>
     </Row>
+    </div>
   );
 }

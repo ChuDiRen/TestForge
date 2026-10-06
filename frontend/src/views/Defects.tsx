@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { Button, Card, Drawer, message, Space, Table, Tag } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -40,7 +41,8 @@ export function Defects() {
 
   return (
     <div>
-      <Card title="缺陷管理（失败自动建缺陷 · 回归只跑关联用例 · AI 修复建议）">
+      <PageHeader title="缺陷管理" subtitle="失败自动建缺陷 · 回归只跑关联用例 · AI 修复建议" />
+      <Card>
         <Table<DefectRow>
           rowKey="id"
           size="small"

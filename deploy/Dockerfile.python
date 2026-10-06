@@ -5,7 +5,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
 
 # 依赖层
-COPY pyproject.toml ./
+COPY backend/pyproject.toml ./
 RUN pip install --no-cache-dir \
     "fastapi>=0.115" "uvicorn[standard]>=0.30" "pydantic>=2.7" "pydantic-settings>=2.3" \
     "grpcio>=1.62" "grpcio-tools>=1.62" "protobuf>=4.25" \
@@ -15,12 +15,11 @@ RUN pip install --no-cache-dir \
     "docker>=7.0" "redis>=5.0" "python-multipart>=0.0.9"
 
 # 代码层
-COPY proto/ proto/
-COPY gateway/ gateway/
-COPY services/ services/
-COPY fixtures/ fixtures/
-COPY scripts/ scripts/
-COPY Makefile ./
+COPY backend/proto/ proto/
+COPY backend/gateway/ gateway/
+COPY backend/services/ services/
+COPY backend/fixtures/ fixtures/
+COPY backend/scripts/ scripts/
 
 # proto stub 已随 services/shared/gen 提交；缺失时现场生成
 RUN python -m grpc_tools.protoc -Iproto --python_out=services/shared/gen --grpc_python_out=services/shared/gen proto/testforge.proto \

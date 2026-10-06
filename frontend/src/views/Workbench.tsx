@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useEffect, useState } from "react";
 import { Button, Card, Col, Input, Popconfirm, Progress, Row, Select, Space, Steps, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -202,7 +203,8 @@ export function Workbench() {
 
   return (
     <div>
-      <Card title="生成工作台（六路上下文 + 两阶段生成 + 沙箱闭环）" style={{ marginBottom: 16 }}>
+      <PageHeader title="生成工作台" subtitle="六路上下文 + 两阶段生成 + 沙箱验证闭环" />
+      <Card title="生成新用例" style={{ marginBottom: 16 }}>
         <Space wrap>
           <Select
             style={{ width: 240, maxWidth: "100%" }}

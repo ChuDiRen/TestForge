@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { Card, Progress, Table, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../api";
@@ -20,7 +21,9 @@ export function Quality() {
   const q = useQuery({ queryKey: ["quality"], queryFn: () => get<QualityRow[]>("/api/quality/requirements"), refetchInterval: 10000 });
 
   return (
-    <Card title="需求质量流水线（G0~G5 六道关卡，AI 自动判定推进）">
+    <div>
+      <PageHeader title="需求质量流水线" subtitle="G0~G5 六道关卡 · AI 自动判定推进" />
+      <Card>
       <Table<QualityRow>
         rowKey="code"
         size="small"
@@ -49,6 +52,7 @@ export function Quality() {
         ]}
       />
     </Card>
+    </div>
   );
 }
 

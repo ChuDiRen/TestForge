@@ -1,6 +1,9 @@
-import { Card, Col, Row, Statistic, Table, Tag, Typography } from "antd";
+import { Card, Col, Row, Table, Tag } from "antd";
+import { ApartmentOutlined, BookOutlined, CheckCircleOutlined, DatabaseOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../api";
+import { PageHeader } from "../components/PageHeader";
+import { StatCard } from "../components/StatCard";
 
 interface ServiceStatus {
   name: string;
@@ -33,33 +36,53 @@ export function Dashboard() {
   const stats = useQuery({ queryKey: ["stats"], queryFn: () => get<Stats>("/api/stats/summary") });
 
   const s = stats.data;
+  const wikiOk = (s?.wiki_pages ?? 0) - (s?.wiki_stale ?? 0);
 
   return (
     <div>
+      <PageHeader
+        title="仪表盘"
+        subtitle="平台运行全景 · 数据全部来自真实接口，15s 自动刷新服务状态"
+      />
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic title="接入仓库" value={s?.repos ?? 0} suffix="个" />
-          </Card>
+        <Col xs={24} sm={12} xl={6}>
+          <StatCard
+            icon={<ApartmentOutlined />}
+            label="接入仓库"
+            value={s?.repos ?? 0}
+            suffix="个"
+            tone="indigo"
+          />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic title="用例总数" value={s?.cases_total ?? 0} suffix="条" />
-          </Card>
+        <Col xs={24} sm={12} xl={6}>
+          <StatCard
+            icon={<DatabaseOutlined />}
+            label="用例总数"
+            value={s?.cases_total ?? 0}
+            suffix="条"
+            tone="violet"
+            footer={`单测/接口/E2E 分层管理${s?.cases_total ? ` · 当前 ${(s?.cases_by_layer?.ut ?? 0) + (s?.cases_by_layer?.api ?? 0) + (s?.cases_by_layer?.e2e ?? 0)} 条在库` : ""}`}
+          />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic title="执行通过率" value={s?.runs_pass_rate ?? 0} precision={1} suffix="%" />
-          </Card>
+        <Col xs={24} sm={12} xl={6}>
+          <StatCard
+            icon={<CheckCircleOutlined />}
+            label="执行通过率"
+            value={s?.runs_pass_rate ?? 0}
+            suffix="%"
+            tone={(s?.runs_pass_rate ?? 0) >= 90 ? "green" : "amber"}
+            footer={`累计执行 ${s?.runs_total ?? 0} 次（真实沙箱）`}
+          />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Wiki 健康"
-              value={(s?.wiki_pages ?? 0) - (s?.wiki_stale ?? 0)}
-              suffix={`/ ${s?.wiki_pages ?? 0} 页`}
-            />
-          </Card>
+        <Col xs={24} sm={12} xl={6}>
+          <StatCard
+            icon={<BookOutlined />}
+            label="Wiki 健康"
+            value={wikiOk}
+            suffix={`/ ${s?.wiki_pages ?? 0} 页`}
+            tone="cyan"
+            footer={(s?.wiki_stale ?? 0) > 0 ? `${s?.wiki_stale} 页待重建（源码已变更）` : "知识全部新鲜"}
+          />
         </Col>
       </Row>
 
@@ -68,7 +91,7 @@ export function Dashboard() {
         style={{ marginTop: 16 }}
         extra={
           services.data ? (
-            <Tag color={services.data.all_green ? "green" : "red"}>
+            <Tag color={services.data.all_green ? "green" : "red"} style={{ fontWeight: 500 }}>
               {services.data.all_green ? "全部 GREEN" : "存在 FAIL"}
             </Tag>
           ) : null
@@ -82,7 +105,7 @@ export function Dashboard() {
           loading={services.isLoading}
           dataSource={services.data?.services ?? []}
           columns={[
-            { title: "服务", dataIndex: "name" },
+            { title: "服务", dataIndex: "name", render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
             { title: "端口", dataIndex: "port" },
             {
               title: "gRPC",
@@ -99,10 +122,6 @@ export function Dashboard() {
           ]}
         />
       </Card>
-
-      <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>
-        里程碑视图按 M1~M5 渐次上线；本页数据全部来自真实接口。
-      </Typography.Paragraph>
     </div>
   );
 }

@@ -10,6 +10,7 @@ data/
 .run/
 *.log
 .env.local
-/fixtures/sample-repo/.git/
-/fixtures/api-repo/.git/
+/backend/fixtures/sample-repo/.git/
+/backend/fixtures/api-repo/.git/
 .env
+.venv-wsl/

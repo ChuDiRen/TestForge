@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
 import { Button, Card, Drawer, Input, Select, Steps, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,6 +50,7 @@ export function Requirements() {
 
   return (
     <div>
+      <PageHeader title="需求录入" subtitle="全流程唯一源头：解析 → 可测性评分 → 确认生效 → 自动编排" />
       <Card title="需求录入（全流程唯一源头）" style={{ marginBottom: 16 }}>
         <Input placeholder="需求标题" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} style={{ marginBottom: 8 }} />
         <Input.TextArea

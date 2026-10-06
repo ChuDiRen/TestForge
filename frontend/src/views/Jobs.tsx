@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { Button, Card, Drawer, Space, Table, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -32,7 +33,8 @@ export function Jobs() {
 
   return (
     <div>
-      <Card title="任务队列（生成 / 变更回归 · 持久化 · 崩溃自动重排队）">
+      <PageHeader title="任务队列" subtitle="生成与回归任务持久化执行 · 崩溃自动重排队" />
+      <Card>
         <Table<JobRow>
           rowKey="code"
           size="small"

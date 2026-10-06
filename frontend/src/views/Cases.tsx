@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
 import { Button, Card, Drawer, Input, Popconfirm, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -155,8 +156,9 @@ export function Cases() {
 
   return (
     <div>
+      <PageHeader title="用例库" subtitle="五层可执行 schema · 服务端分页 · 变更驱动自动标待回归" />
       <Card
-        title={`用例库（五层可执行 schema · 服务端分页${cases.data?.stale_total ? ` · 待回归 ${cases.data.stale_total} 条` : ""}）`}
+        title="用例列表"
         extra={
           <span style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
             <Tag

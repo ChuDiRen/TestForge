@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
 import { Button, Card, Input, Table, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
@@ -31,9 +32,10 @@ export function Logs() {
   });
 
   return (
-    <Card
-      title="日志 / 追溯（traceID 全链路）"
-      extra={
+    <div>
+      <PageHeader title="日志 / 追溯" subtitle="traceID 全链路台账 · 写操作全量留痕" />
+      <Card
+        extra={
         <span style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           <Input
             style={{ width: 280, maxWidth: "100%" }}
@@ -74,5 +76,6 @@ export function Logs() {
         <div style={{ color: "#999" }}>提示：任意用例/执行详情里的 traceID 可回溯「需求录入 → 生成 → 沙箱执行」全链路。</div>
       )}
     </Card>
+    </div>
   );
 }

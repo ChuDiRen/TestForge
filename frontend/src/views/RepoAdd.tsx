@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
 import { Alert, Button, Card, Form, Input, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -58,6 +59,7 @@ export function RepoAdd() {
 
   return (
     <div>
+      <PageHeader title="仓库接入" subtitle="远程 Git URL 一键接入：clone → tree-sitter 索引 → Wiki 编译" />
       <Card title="接入仓库（远程 Git URL）" style={{ marginBottom: 16 }}>
         <Alert
           type="info"

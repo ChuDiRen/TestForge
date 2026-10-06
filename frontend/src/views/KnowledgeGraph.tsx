@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, Col, Drawer, Empty, Row, Select, Space, Table, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
@@ -35,7 +36,8 @@ interface GraphData {
 }
 
 const CATEGORIES = ["仓库", "模块", "函数", "需求", "用例", "缺陷"];
-const COLORS = ["#0b1021", "#4f46e5", "#2563eb", "#9333ea", "#16a34a", "#dc2626"];
+// 节点色板对齐品牌系统：仓库墨色 / 模块靛蓝 / 函数紫罗兰 / 需求青 / 用例绿 / 缺陷红
+const COLORS = ["#181c2a", "#4f46e5", "#7c3aed", "#0891b2", "#16a34a", "#dc2626"];
 
 /** 知识图谱：节点/边全部来自 /api/graph 真实业务关系 */
 export function KnowledgeGraph() {
@@ -127,6 +129,7 @@ export function KnowledgeGraph() {
 
   return (
     <div>
+      <PageHeader title="知识图谱" subtitle="仓库 · 模块 · 函数调用 · 需求 · 用例 · 缺陷的真实业务关系，节点带影响分与测试域" />
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space wrap>
           <Select
