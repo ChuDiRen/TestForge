@@ -71,7 +71,7 @@ export function Assistant() {
                     padding: "6px 8px",
                     borderRadius: 8,
                     cursor: "pointer",
-                    background: t.id === chat.activeId ? "rgba(79,70,229,0.1)" : "transparent",
+                    background: t.id === chat.activeId ? "var(--tf-acc-soft)" : "transparent",
                     fontWeight: t.id === chat.activeId ? 600 : 400,
                   }}
                 >

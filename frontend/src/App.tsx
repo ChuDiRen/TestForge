@@ -15,6 +15,8 @@ import {
   FileTextOutlined,
   FileSearchOutlined,
   LogoutOutlined,
+  MoonOutlined,
+  SunOutlined,
   NodeIndexOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
@@ -27,7 +29,7 @@ import {
 import type { ThemeConfig } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { get, setToken } from "./api";
-import { theme } from "./theme";
+import { themes, getInitialThemeMode, THEME_STORAGE_KEY, type ThemeMode } from "./theme";
 import { Dashboard } from "./views/Dashboard";
 import { KnowledgeGraph } from "./views/KnowledgeGraph";
 import { Wiki } from "./views/Wiki";
@@ -130,7 +132,7 @@ interface Me {
   role: string;
 }
 
-function Shell({ user }: { user: Me }) {
+function Shell({ user, mode, onToggleTheme }: { user: Me; mode: ThemeMode; onToggleTheme: () => void }) {
   // 视图切换用 React 状态（SPA），URL 仅作刷新恢复用——绝不全页 reload
   const [view, setView] = useState<ViewKey>(currentView);
   const screens = Grid.useBreakpoint();
@@ -193,13 +195,13 @@ function Shell({ user }: { user: Me }) {
   };
 
   return (
-    <ConfigProvider locale={zhCN} theme={theme as ThemeConfig}>
+    <ConfigProvider locale={zhCN} theme={themes[mode] as ThemeConfig}>
       <Layout style={{ minHeight: "100vh" }}>
         {!isMobile && (
           <Sider width={220} className="tf-sider" style={{ overflow: "hidden" }}>
             <Brand />
             <Menu
-              theme="dark"
+              theme="light"
               mode="inline"
               selectedKeys={[view]}
               defaultOpenKeys={defaultOpenKeys}
@@ -226,9 +228,18 @@ function Shell({ user }: { user: Me }) {
                 {current?.label}
               </Typography.Text>
             </div>
-            <Dropdown menu={userMenu} placement="bottomRight">
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Button
+                className="tf-theme-toggle"
+                type="text"
+                aria-label={mode === "dark" ? "切换到亮色主题" : "切换到暗色主题"}
+                title={mode === "dark" ? "切换到亮色主题" : "切换到暗色主题"}
+                icon={mode === "dark" ? <SunOutlined style={{ fontSize: 15 }} /> : <MoonOutlined style={{ fontSize: 15 }} />}
+                onClick={onToggleTheme}
+              />
+              <Dropdown menu={userMenu} placement="bottomRight">
               <div className="tf-user-chip">
-                <Avatar size={26} style={{ background: "linear-gradient(135deg, #4f46e5, #7c3aed)", flexShrink: 0 }}>
+                <Avatar size={26} style={{ background: "var(--tf-primary)", flexShrink: 0 }}>
                   {(user.username || "U").slice(0, 1).toUpperCase()}
                 </Avatar>
                 {!isMobile && (
@@ -240,7 +251,8 @@ function Shell({ user }: { user: Me }) {
                   </Typography.Text>
                 )}
               </div>
-            </Dropdown>
+              </Dropdown>
+            </div>
           </Header>
           <Content className="tf-content">
             <div className="tf-page">{body}</div>
@@ -276,16 +288,24 @@ export function App() {
     staleTime: Infinity,
   });
 
+  // 主题模式：亮色「暖灰杉青」/ 暗色「杉青夜航」，选择持久化并同步 html[data-theme]
+  const [mode, setMode] = useState<ThemeMode>(getInitialThemeMode);
+  useEffect(() => {
+    document.documentElement.dataset.theme = mode;
+    localStorage.setItem(THEME_STORAGE_KEY, mode);
+  }, [mode]);
+  const toggleTheme = () => setMode((m) => (m === "dark" ? "light" : "dark"));
+
   if (me.isLoading) {
     // 认证校验通常 <100ms：渲染空白而不是全屏 Spin，避免刷新时的转圈动画
     return null;
   }
   if (me.isError || !me.data) {
     return (
-      <ConfigProvider locale={zhCN} theme={theme as ThemeConfig}>
+      <ConfigProvider locale={zhCN} theme={themes[mode] as ThemeConfig}>
         <Login onLogin={() => me.refetch()} />
       </ConfigProvider>
     );
   }
-  return <Shell user={me.data} />;
+  return <Shell user={me.data} mode={mode} onToggleTheme={toggleTheme} />;
 }

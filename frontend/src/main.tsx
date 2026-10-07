@@ -2,7 +2,11 @@ import "./styles.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { getInitialThemeMode } from "./theme";
 import { App } from "./App";
+
+// 首帧前同步主题，避免暗色用户刷新时闪一下亮色底
+document.documentElement.dataset.theme = getInitialThemeMode();
 
 // 标题兜底：任何运行时干扰后仍保持品牌名（正常情况下 index.html 的 <title> 已生效）
 document.title = "TestForge · AI 测试用例生成平台";

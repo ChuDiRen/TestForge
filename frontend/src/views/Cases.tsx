@@ -249,15 +249,15 @@ export function Cases() {
                       gap: 8,
                       padding: "8px 12px",
                       borderRadius: "10px 10px 0 0",
-                      background: "#1d1f3f",
-                      color: "#dcdde8",
+                      background: "#24272b",
+                      color: "#e6e6e9",
                       fontSize: 12.5,
                       fontFamily: "monospace",
                     }}
                   >
-                    <FileTextOutlined style={{ color: "#8f95b2" }} />
+                    <FileTextOutlined style={{ color: "#9aa0a6" }} />
                     <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{filename}</span>
-                    <span style={{ color: "#8f95b2" }}>{(new Blob([code]).size / 1024).toFixed(1)} KB</span>
+                    <span style={{ color: "#9aa0a6" }}>{(new Blob([code]).size / 1024).toFixed(1)} KB</span>
                     <Button
                       size="small"
                       type="text"

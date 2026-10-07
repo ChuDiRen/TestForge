@@ -18,7 +18,7 @@ const TYPE_COLOR: Record<string, string> = {
   生成: "blue",
   执行: "green",
   仓库: "cyan",
-  契约: "geekblue",
+  契约: "cyan",
   缺陷: "red",
   计划: "orange",
   认证: "magenta",

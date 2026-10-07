@@ -132,7 +132,7 @@ export function AssistantMsg({ m }: { m: ChatMsg }) {
             dot: t.running ? <Spin indicator={<LoadingOutlined />} size="small" /> : <ToolOutlined />,
             children: (
               <div style={{ fontSize: 12.5 }}>
-                <Tag color="geekblue" style={{ marginInlineEnd: 6 }}>
+                <Tag color="cyan" style={{ marginInlineEnd: 6 }}>
                   {TOOL_LABEL[t.name] ?? t.name}
                 </Tag>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>

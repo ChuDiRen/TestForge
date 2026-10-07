@@ -1,17 +1,123 @@
 /* ==========================================================================
-   TestForge 设计系统 · 深空靛蓝
-   配套 src/theme.ts（AntD token）；页面骨架样式集中在处理，视图只管内容。
+   TestForge 设计系统 · 暖灰杉青（Warm Paper Teal）
+   配套 src/theme.ts（AntD 双主题 token）。
+   品质基准 Linear / Vercel：细线分层代替投影，无渐变无光晕，布局不变只换风格。
+   html[data-theme="dark"] 为「杉青夜航」暗色；切换入口在顶栏，选择持久化。
    ========================================================================== */
 
 :root {
-  --tf-primary: #4f46e5;
-  --tf-violet: #7c3aed;
-  --tf-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  --tf-ink: #181c2a;
-  --tf-ink-2: #5a6072;
-  --tf-line: #e8eaf4;
-  --tf-card-shadow: 0 1px 2px rgba(24, 28, 42, 0.04), 0 4px 16px rgba(24, 28, 42, 0.06);
-  --tf-card-shadow-hover: 0 2px 6px rgba(24, 28, 42, 0.06), 0 14px 34px rgba(63, 55, 201, 0.14);
+  /* 品牌与强调 */
+  --tf-primary: #0d7d72;
+  --tf-primary-deep: #0b655c;
+  --tf-acc-soft: #eaf4f2;
+  --tf-acc-border: #d3e6e2;
+
+  /* 纸面与文字 */
+  --tf-bg: #f7f7f5;
+  --tf-panel: #ffffff;
+  --tf-ink: #24272b;
+  --tf-ink-2: #6b6f76;
+  --tf-ink-3: #9a9ea5;
+
+  /* 线与投影（细线分层，投影只做极轻的浮起） */
+  --tf-line: #eeece7;
+  --tf-line-strong: #e2dfd8;
+  --tf-card-shadow: 0 1px 2px rgba(28, 30, 33, 0.03);
+  --tf-card-shadow-hover: 0 6px 18px rgba(28, 30, 33, 0.08);
+
+  /* 侧栏 / 顶栏 */
+  --tf-sider-bg: #ffffff;
+  --tf-sider-line: var(--tf-line);
+  --tf-sider-ink: var(--tf-ink);
+  --tf-sider-ink-2: var(--tf-ink-2);
+  --tf-sider-ink-3: var(--tf-ink-3);
+  --tf-sider-hover: #f4f3f0;
+  --tf-sider-selected-bg: var(--tf-acc-soft);
+  --tf-sider-selected-ink: var(--tf-primary-deep);
+  --tf-sider-sub-bg: rgba(28, 30, 33, 0.025);
+  --tf-brand-mark-bg: var(--tf-primary);
+  --tf-brand-mark-fg: #ffffff;
+  --tf-header-bg: rgba(255, 255, 255, 0.82);
+  --tf-header-line: var(--tf-line);
+
+  /* 语义色（与 theme.ts token 保持同族） */
+  --tf-ok: #15803d;
+  --tf-ok-soft: #e5f3ea;
+  --tf-warn: #b45309;
+  --tf-warn-soft: #fdf3e5;
+  --tf-bad: #c93a2e;
+  --tf-bad-soft: #fdecea;
+
+  /* 指标卡图标芯片（StatCard 六种 tone 的平涂底） */
+  --tf-chip-teal-bg: var(--tf-acc-soft);
+  --tf-chip-teal-fg: var(--tf-primary-deep);
+  --tf-chip-slate-bg: #eceff1;
+  --tf-chip-slate-fg: #454b52;
+  --tf-chip-blue-bg: #e8f0fa;
+  --tf-chip-blue-fg: #2563ae;
+  --tf-chip-green-bg: var(--tf-ok-soft);
+  --tf-chip-green-fg: #116a34;
+  --tf-chip-amber-bg: var(--tf-warn-soft);
+  --tf-chip-amber-fg: #8f4a08;
+  --tf-chip-rose-bg: var(--tf-bad-soft);
+  --tf-chip-rose-fg: #a52f24;
+
+  --tf-scrollbar: rgba(90, 94, 100, 0.3);
+  --tf-scrollbar-hover: rgba(90, 94, 100, 0.48);
+}
+
+html[data-theme="dark"] {
+  --tf-primary: #2fb3a4;
+  --tf-primary-deep: #5ad0c2;
+  --tf-acc-soft: rgba(47, 179, 164, 0.13);
+  --tf-acc-border: rgba(47, 179, 164, 0.3);
+
+  --tf-bg: #101113;
+  --tf-panel: #1a1c1f;
+  --tf-ink: #e4e6e8;
+  --tf-ink-2: #9aa0a6;
+  --tf-ink-3: #6b7077;
+
+  --tf-line: rgba(255, 255, 255, 0.07);
+  --tf-line-strong: rgba(255, 255, 255, 0.12);
+  --tf-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --tf-card-shadow-hover: 0 8px 22px rgba(0, 0, 0, 0.45);
+
+  --tf-sider-bg: #16181b;
+  --tf-sider-ink: #e4e6e8;
+  --tf-sider-ink-2: #9aa0a6;
+  --tf-sider-ink-3: #6b7077;
+  --tf-sider-hover: rgba(255, 255, 255, 0.05);
+  --tf-sider-selected-bg: rgba(47, 179, 164, 0.15);
+  --tf-sider-selected-ink: #5ad0c2;
+  --tf-sider-sub-bg: rgba(255, 255, 255, 0.03);
+  --tf-brand-mark-bg: rgba(47, 179, 164, 0.16);
+  --tf-brand-mark-fg: #5ad0c2;
+  --tf-header-bg: rgba(16, 17, 19, 0.78);
+  --tf-header-line: var(--tf-line);
+
+  --tf-ok: #4cb782;
+  --tf-ok-soft: rgba(76, 183, 130, 0.14);
+  --tf-warn: #dfa050;
+  --tf-warn-soft: rgba(223, 160, 80, 0.14);
+  --tf-bad: #e5645a;
+  --tf-bad-soft: rgba(229, 100, 90, 0.14);
+
+  --tf-chip-teal-bg: rgba(47, 179, 164, 0.16);
+  --tf-chip-teal-fg: #5ad0c2;
+  --tf-chip-slate-bg: rgba(255, 255, 255, 0.07);
+  --tf-chip-slate-fg: #b9bec4;
+  --tf-chip-blue-bg: rgba(96, 152, 224, 0.15);
+  --tf-chip-blue-fg: #8ab6ee;
+  --tf-chip-green-bg: rgba(76, 183, 130, 0.15);
+  --tf-chip-green-fg: #6fcaa0;
+  --tf-chip-amber-bg: rgba(223, 160, 80, 0.15);
+  --tf-chip-amber-fg: #e6b877;
+  --tf-chip-rose-bg: rgba(229, 100, 90, 0.15);
+  --tf-chip-rose-fg: #ef948c;
+
+  --tf-scrollbar: rgba(255, 255, 255, 0.18);
+  --tf-scrollbar-hover: rgba(255, 255, 255, 0.3);
 }
 
 html,
@@ -21,11 +127,7 @@ body,
 }
 
 body {
-  /* 亮色内容区 + 顶部两团极淡的品牌色光晕，避免纯灰底的呆板感 */
-  background:
-    radial-gradient(900px 420px at 8% -8%, rgba(79, 70, 229, 0.07), transparent 60%),
-    radial-gradient(800px 400px at 96% -12%, rgba(124, 58, 237, 0.06), transparent 55%),
-    #f3f5fb;
+  background: var(--tf-bg);
   color: var(--tf-ink);
   -webkit-font-smoothing: antialiased;
 }
@@ -33,37 +135,28 @@ body {
 /* ---------------- 滚动条（桌面端纤细，悬停加深） ---------------- */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(90, 96, 114, 0.35) transparent;
+  scrollbar-color: var(--tf-scrollbar) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(90, 96, 114, 0.28);
+  background: var(--tf-scrollbar);
   border-radius: 8px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(90, 96, 114, 0.45);
+  background: var(--tf-scrollbar-hover);
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* ---------------- 侧边栏（深空渐变） ---------------- */
+/* ---------------- 侧边栏（白纸面 + 右缘发丝线） ---------------- */
 .tf-sider {
-  background: linear-gradient(180deg, #12142b 0%, #1d1f3f 100%) !important;
+  background: var(--tf-sider-bg) !important;
+  border-right: 1px solid var(--tf-sider-line);
   position: relative;
-}
-.tf-sider::after {
-  /* 右缘 1px 高光，让深色侧栏与亮色内容之间有一条精致的分割光边 */
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 1px;
-  background: linear-gradient(180deg, rgba(124, 120, 255, 0.45), rgba(124, 120, 255, 0.05));
 }
 .tf-brand {
   display: flex;
@@ -78,22 +171,21 @@ body {
   display: grid;
   place-items: center;
   border-radius: 10px;
-  background: var(--tf-gradient);
-  color: #fff;
+  background: var(--tf-brand-mark-bg);
+  color: var(--tf-brand-mark-fg);
   font-weight: 800;
   font-size: 15px;
   letter-spacing: 0.5px;
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.45);
 }
 .tf-brand-name {
-  color: #fff;
+  color: var(--tf-sider-ink);
   font-weight: 700;
   font-size: 15.5px;
   line-height: 1.2;
   letter-spacing: 0.2px;
 }
 .tf-brand-sub {
-  color: rgba(226, 229, 245, 0.55);
+  color: var(--tf-sider-ink-3);
   font-size: 11px;
   margin-top: 2px;
 }
@@ -102,13 +194,13 @@ body {
   border-inline-end: none !important;
 }
 .tf-sider .ant-menu-item-selected {
-  /* 选中项左侧品牌色高亮条 */
-  box-shadow: inset 3px 0 0 var(--tf-primary);
+  /* 选中项左缘 2px 杉青条：整站唯一的重音语言 */
+  box-shadow: inset 2px 0 0 var(--tf-primary);
 }
 .tf-sider .ant-menu-sub.ant-menu-inline {
-  /* 展开的子菜单：内嵌更深一层，做出分组纵深感 */
-  background: rgba(8, 10, 26, 0.5) !important;
-  border-radius: 10px;
+  /* 展开的子菜单：极浅一层，保持纸面秩序 */
+  background: var(--tf-sider-sub-bg) !important;
+  border-radius: 8px;
   margin-inline: 10px !important;
   padding-block: 4px !important;
 }
@@ -122,7 +214,7 @@ body {
   letter-spacing: 0.02em;
 }
 
-/* ---------------- 顶栏（玻璃拟态） ---------------- */
+/* ---------------- 顶栏（轻玻璃，随主题换底色） ---------------- */
 .tf-header {
   position: sticky;
   top: 0;
@@ -134,10 +226,10 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.72) !important;
+  background: var(--tf-header-bg) !important;
   backdrop-filter: blur(14px) saturate(1.4);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  border-bottom: 1px solid rgba(24, 28, 42, 0.06);
+  border-bottom: 1px solid var(--tf-header-line);
 }
 .tf-header-view {
   display: flex;
@@ -151,7 +243,7 @@ body {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: rgba(79, 70, 229, 0.1);
+  background: var(--tf-acc-soft);
   color: var(--tf-primary);
   font-size: 14px;
   flex-shrink: 0;
@@ -163,13 +255,21 @@ body {
   cursor: pointer;
   padding: 4px 10px 4px 4px;
   border-radius: 999px;
-  border: 1px solid rgba(24, 28, 42, 0.08);
-  background: rgba(255, 255, 255, 0.7);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  border: 1px solid var(--tf-line-strong);
+  background: var(--tf-panel);
+  transition: border-color 0.2s ease;
 }
 .tf-user-chip:hover {
-  border-color: rgba(79, 70, 229, 0.35);
-  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.16);
+  border-color: var(--tf-primary);
+}
+
+/* 顶栏主题切换按钮 */
+.tf-theme-toggle {
+  color: var(--tf-ink-2) !important;
+}
+.tf-theme-toggle:hover {
+  color: var(--tf-primary) !important;
+  background: var(--tf-acc-soft) !important;
 }
 
 /* ---------------- 内容区容器 ---------------- */
@@ -216,8 +316,7 @@ body {
   width: 4px;
   height: 20px;
   border-radius: 4px;
-  background: var(--tf-gradient);
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.4);
+  background: var(--tf-primary);
 }
 .tf-page-head-sub {
   width: 100%;
@@ -226,10 +325,10 @@ body {
   font-size: 12.5px;
 }
 
-/* ---------------- 卡片 ---------------- */
+/* ---------------- 卡片（发丝线为主，投影只做极轻浮起） ---------------- */
 .ant-card {
   box-shadow: var(--tf-card-shadow);
-  transition: box-shadow 0.22s ease, transform 0.22s ease;
+  transition: box-shadow 0.22s ease, border-color 0.22s ease;
 }
 .ant-card .ant-card-head {
   border-bottom-color: var(--tf-line);
@@ -240,50 +339,36 @@ body {
   font-size: 13.5px;
 }
 .tf-lift:hover {
-  transform: translateY(-2px);
+  transform: none;
+  border-color: var(--tf-line-strong) !important;
   box-shadow: var(--tf-card-shadow-hover) !important;
 }
 
-/* ---------------- 主按钮（品牌渐变） ---------------- */
+/* ---------------- 主按钮（杉青平涂，去渐变去浮起） ---------------- */
 .ant-btn-primary {
-  background: var(--tf-gradient);
+  background: var(--tf-primary);
   border: none;
 }
 .ant-btn-primary:not(:disabled):hover {
-  background: linear-gradient(135deg, #5a52f0 0%, #8b4bf0 100%);
-  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.45);
-  transform: translateY(-1px);
+  background: var(--tf-primary-deep);
 }
 .ant-btn-primary:not(:disabled):active {
-  transform: translateY(0);
+  background: var(--tf-primary-deep);
 }
 
-/* ---------------- 统计卡 ---------------- */
+/* ---------------- 统计卡（图标芯片平涂，去角落光晕） ---------------- */
 .tf-stat-card {
   position: relative;
   overflow: hidden;
   cursor: default;
 }
-.tf-stat-card::before {
-  /* 右上角一团品牌色光，纯装饰 */
-  content: "";
-  position: absolute;
-  top: -46px;
-  right: -46px;
-  width: 130px;
-  height: 130px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(79, 70, 229, 0.12), transparent 70%);
-  pointer-events: none;
-}
 .tf-stat-chip {
   width: 40px;
   height: 40px;
-  border-radius: 11px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
   font-size: 18px;
-  color: #fff;
   flex-shrink: 0;
 }
 .tf-stat-value {
@@ -312,12 +397,12 @@ body {
   margin-bottom: 0;
 }
 
-/* ---------------- 登录页 ---------------- */
+/* ---------------- 登录页（深杉青夜色 + 暖白登录卡） ---------------- */
 .tf-login {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1.1fr 1fr;
-  background: linear-gradient(150deg, #101228 0%, #191b38 55%, #2a2250 100%);
+  background: linear-gradient(150deg, #0c2b27 0%, #103b35 55%, #0d4a42 100%);
   position: relative;
   overflow: hidden;
 }
@@ -333,14 +418,14 @@ body {
   height: 620px;
   left: -180px;
   top: -180px;
-  background: radial-gradient(circle, rgba(79, 70, 229, 0.35), transparent 65%);
+  background: radial-gradient(circle, rgba(47, 179, 164, 0.22), transparent 65%);
 }
 .tf-login::after {
   width: 560px;
   height: 560px;
   right: -160px;
   bottom: -200px;
-  background: radial-gradient(circle, rgba(124, 58, 237, 0.28), transparent 65%);
+  background: radial-gradient(circle, rgba(13, 125, 114, 0.3), transparent 65%);
 }
 .tf-login-hero {
   position: relative;
@@ -360,7 +445,7 @@ body {
   line-height: 1.3;
 }
 .tf-login-hero p {
-  color: rgba(226, 229, 245, 0.72);
+  color: rgba(224, 240, 237, 0.72);
   font-size: 14px;
   line-height: 1.9;
   max-width: 460px;
@@ -370,11 +455,11 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  color: rgba(226, 229, 245, 0.88);
+  color: rgba(224, 240, 237, 0.88);
   font-size: 13px;
 }
 .tf-login-point .anticon {
-  color: #8f88ff;
+  color: #5ad0c2;
   font-size: 16px;
   margin-top: 2px;
 }
@@ -389,10 +474,10 @@ body {
 .tf-login-card {
   width: 100%;
   max-width: 392px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.94);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(18px);
-  box-shadow: 0 24px 70px rgba(6, 8, 24, 0.5);
+  box-shadow: 0 24px 70px rgba(4, 20, 18, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.5);
 }
 @media (max-width: 860px) {
@@ -467,19 +552,22 @@ body {
   padding-left: 22px;
 }
 .md-body code {
-  background: rgba(79, 70, 229, 0.07);
+  background: var(--tf-acc-soft);
   border-radius: 5px;
   padding: 1.5px 5px;
   font-size: 12px;
-  color: #4340b8;
+  color: var(--tf-primary-deep);
 }
 .md-body pre {
-  background: #f7f8fd;
-  border: 1px solid var(--tf-line);
-  color: #24292e;
+  background: var(--tf-panel);
+  border: 1px solid var(--tf-line-strong);
+  color: var(--tf-ink);
   padding: 14px;
   border-radius: 10px;
   overflow-x: auto;
+}
+html[data-theme="dark"] .md-body pre {
+  background: #141618;
 }
 .md-body pre code {
   display: block;
@@ -502,14 +590,14 @@ body {
   text-align: left;
 }
 .md-body th {
-  background: rgba(79, 70, 229, 0.045);
+  background: var(--tf-acc-soft);
   font-weight: 600;
 }
 .md-body blockquote {
   margin: 8px 0;
   padding: 6px 14px;
   border-left: 3px solid var(--tf-primary);
-  background: rgba(79, 70, 229, 0.05);
+  background: var(--tf-acc-soft);
   border-radius: 0 8px 8px 0;
   color: var(--tf-ink-2);
 }
@@ -522,7 +610,7 @@ body {
   margin: 12px 0;
 }
 
-/* ---------------- 代码块语法高亮（highlight.js，浅色精修） ---------------- */
+/* ---------------- 代码块语法高亮（highlight.js，双主题） ---------------- */
 .md-body pre code.hljs {
   background: transparent;
   padding: 0;
@@ -535,16 +623,21 @@ body {
 .md-body .hljs-comment, .md-body .hljs-quote { color: #8b949e; font-style: italic; }
 .md-body .hljs-title, .md-body .hljs-function, .md-body .hljs-name { color: #b35900; }
 .md-body .hljs-attr, .md-body .hljs-attribute { color: #0550ae; }
+html[data-theme="dark"] .md-body .hljs-keyword, html[data-theme="dark"] .md-body .hljs-built_in, html[data-theme="dark"] .md-body .hljs-meta { color: #c8a6f5; }
+html[data-theme="dark"] .md-body .hljs-string { color: #7fd39a; }
+html[data-theme="dark"] .md-body .hljs-number, html[data-theme="dark"] .md-body .hljs-literal { color: #79b3f0; }
+html[data-theme="dark"] .md-body .hljs-comment, html[data-theme="dark"] .md-body .hljs-quote { color: #737a82; font-style: italic; }
+html[data-theme="dark"] .md-body .hljs-title, html[data-theme="dark"] .md-body .hljs-function, html[data-theme="dark"] .md-body .hljs-name { color: #e0a45e; }
+html[data-theme="dark"] .md-body .hljs-attr, html[data-theme="dark"] .md-body .hljs-attribute { color: #79b3f0; }
 
 /* ---------------- AI 助手对话 ---------------- */
 .tf-chat-user {
   max-width: 72%;
   padding: 9px 14px;
   border-radius: 14px 14px 4px 14px;
-  background: var(--tf-gradient);
+  background: var(--tf-primary);
   color: #fff;
   font-size: 13.5px;
   line-height: 1.65;
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.25);
   white-space: pre-wrap;
 }

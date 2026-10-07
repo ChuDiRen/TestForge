@@ -76,7 +76,7 @@ function ServiceMap({ contracts, onImpact }: { contracts: ContractRow[]; onImpac
       )}
       {consumers.map((n, i) => (
         <g key={n}>
-          <rect x={50} y={y(i, consumers.length) - 20} width={110} height={40} rx={8} fill="#0b1021" opacity={0.85} />
+          <rect x={50} y={y(i, consumers.length) - 20} width={110} height={40} rx={8} fill="#33383f" opacity={0.95} />
           <text x={105} y={y(i, consumers.length) + 5} textAnchor="middle" fill="#fff" fontSize={12}>
             {n}
           </text>
@@ -84,7 +84,7 @@ function ServiceMap({ contracts, onImpact }: { contracts: ContractRow[]; onImpac
       ))}
       {providers.map((n, i) => (
         <g key={n}>
-          <rect x={320} y={y(i, providers.length) - 20} width={110} height={40} rx={8} fill="#4f46e5" opacity={0.92} />
+          <rect x={320} y={y(i, providers.length) - 20} width={110} height={40} rx={8} fill="var(--tf-primary)" opacity={0.95} />
           <text x={375} y={y(i, providers.length) + 5} textAnchor="middle" fill="#fff" fontSize={12}>
             {n}
           </text>

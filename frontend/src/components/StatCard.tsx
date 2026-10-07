@@ -1,17 +1,18 @@
 import type { ReactNode } from "react";
 import { Card } from "antd";
 
-const CHIP_STYLES: Record<string, string> = {
-  indigo: "linear-gradient(135deg, #4f46e5, #6d28d9)",
-  violet: "linear-gradient(135deg, #7c3aed, #a21caf)",
-  cyan: "linear-gradient(135deg, #0891b2, #2563eb)",
-  green: "linear-gradient(135deg, #059669, #16a34a)",
-  amber: "linear-gradient(135deg, #d97706, #ea580c)",
-  rose: "linear-gradient(135deg, #e11d48, #dc2626)",
+// 平涂芯片：底色/前景色走 styles.css 的变量，亮暗主题自动跟随
+const CHIP_STYLES: Record<string, { bg: string; fg: string }> = {
+  indigo: { bg: "var(--tf-chip-teal-bg)", fg: "var(--tf-chip-teal-fg)" },
+  violet: { bg: "var(--tf-chip-slate-bg)", fg: "var(--tf-chip-slate-fg)" },
+  cyan: { bg: "var(--tf-chip-blue-bg)", fg: "var(--tf-chip-blue-fg)" },
+  green: { bg: "var(--tf-chip-green-bg)", fg: "var(--tf-chip-green-fg)" },
+  amber: { bg: "var(--tf-chip-amber-bg)", fg: "var(--tf-chip-amber-fg)" },
+  rose: { bg: "var(--tf-chip-rose-bg)", fg: "var(--tf-chip-rose-fg)" },
 };
 
 /**
- * 高端统计卡：渐变图标芯片 + 大数字 + 标签/后缀，悬停轻浮起。
+ * 统计卡：平涂图标芯片 + 大数字 + 标签/后缀，悬停轻浮起。
  * 覆盖 antd Statistic 的默认排版，视觉与仪表盘/列表页一致。
  */
 export function StatCard({
@@ -32,7 +33,13 @@ export function StatCard({
   return (
     <Card className="tf-stat-card tf-lift" styles={{ body: { padding: "18px 20px" } }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div className="tf-stat-chip" style={{ background: CHIP_STYLES[tone] ?? CHIP_STYLES.indigo }}>
+        <div
+          className="tf-stat-chip"
+          style={{
+            background: (CHIP_STYLES[tone] ?? CHIP_STYLES.indigo).bg,
+            color: (CHIP_STYLES[tone] ?? CHIP_STYLES.indigo).fg,
+          }}
+        >
           {icon}
         </div>
         <div style={{ minWidth: 0 }}>

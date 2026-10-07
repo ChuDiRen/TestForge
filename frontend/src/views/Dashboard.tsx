@@ -91,10 +91,10 @@ export function Dashboard() {
                     border: "1px solid var(--tf-line, #e5e7f0)",
                     transition: "box-shadow .18s ease",
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 6px 18px rgba(79,70,229,.14)")}
+                  onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 6px 18px rgba(11,101,92,.16)")}
                   onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}
                 >
-                  <Tag color="geekblue">第 {q.step} 步</Tag>
+                  <Tag color="cyan">第 {q.step} 步</Tag>
                   <div style={{ fontWeight: 700, marginBlockStart: 6 }}>{q.title}</div>
                   <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                     {q.desc}
@@ -111,7 +111,7 @@ export function Dashboard() {
               {activeTodos.map((t) => (
                 <Button key={t.label} onClick={() => nav(t.view)} style={{ height: "auto", padding: "6px 14px" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <Tag color={t.count > 5 ? "volcano" : "geekblue"} style={{ marginInlineEnd: 0 }}>
+                    <Tag color={t.count > 5 ? "volcano" : "cyan"} style={{ marginInlineEnd: 0 }}>
                       {t.count}
                     </Tag>
                     <span style={{ fontSize: 13 }}>{t.label}</span>

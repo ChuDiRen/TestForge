@@ -118,11 +118,11 @@ export function Login({ onLogin }: { onLogin: () => void }) {
                 display: "grid",
                 placeItems: "center",
                 borderRadius: 12,
-                background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+                background: "var(--tf-primary)",
                 color: "#fff",
                 fontWeight: 800,
                 fontSize: 17,
-                boxShadow: "0 8px 22px rgba(79,70,229,0.4)",
+                boxShadow: "0 8px 22px rgba(11,101,92,0.35)",
               }}
             >
               TF
@@ -169,7 +169,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
       <Modal
         title={
           <span>
-            <LockOutlined style={{ color: "var(--tf-primary, #4f46e5)", marginRight: 8 }} />
+            <LockOutlined style={{ color: "var(--tf-primary, #0d7d72)", marginRight: 8 }} />
             检测到默认口令，请先修改密码
           </span>
         }
