@@ -44,7 +44,8 @@ const CATEGORIES = ["仓库", "模块", "函数", "需求", "用例", "缺陷"];
 // 节点色板对齐品牌系统：仓库墨色 / 模块杉青 / 函数深杉青 / 需求青 / 用例绿 / 缺陷红
 const COLORS = ["#24272b", "#0d7d72", "#0b655c", "#0891b2", "#15803d", "#c93a2e"];
 // 自闭环默认视图：接入仓库的代码结构；需求/用例/缺陷为下游溯源资产，点图例叠加
-const DEFAULT_HIDDEN = ["需求", "用例", "缺陷"];
+// GitNexus 同款：力导默认只看代码调用图（函数层），层级/溯源资产点图例叠加
+const DEFAULT_HIDDEN = ["仓库", "模块", "需求", "用例", "缺陷"];
 
 // ECharts/Sigma 画布吃不到 CSS 变量，按当前主题解析出实际色值
 const cssVar = (name: string, fallback: string) =>
@@ -68,11 +69,11 @@ function useThemeMode() {
 // FA2 参数按节点规模分档（对齐 GitNexus getFA2Settings）
 function fa2Settings(n: number) {
   if (n < 100) return { gravity: 0.8, scalingRatio: 15, slowDown: 1, barnesHutOptimize: false, theta: 0.6 };
-  if (n < 300) return { gravity: 0.5, scalingRatio: 30, slowDown: 2, barnesHutOptimize: false, theta: 0.6 };
-  if (n < 1000) return { gravity: 0.3, scalingRatio: 60, slowDown: 3, barnesHutOptimize: true, theta: 0.8 };
-  return { gravity: 0.15, scalingRatio: 100, slowDown: 5, barnesHutOptimize: true, theta: 0.8 };
+  if (n < 300) return { gravity: 0.25, scalingRatio: 80, slowDown: 2, barnesHutOptimize: true, theta: 0.8 };
+  if (n < 1000) return { gravity: 0.12, scalingRatio: 150, slowDown: 3, barnesHutOptimize: true, theta: 0.8 };
+  return { gravity: 0.08, scalingRatio: 220, slowDown: 5, barnesHutOptimize: true, theta: 0.8 };
 }
-const FA2_DURATION = (n: number) => (n < 100 ? 8000 : n < 300 ? 14000 : 20000);
+const FA2_DURATION = (n: number) => (n < 150 ? 8000 : n < 350 ? 18000 : 26000);
 
 interface SigmaRefs {
   graph: Graph;
@@ -105,7 +106,7 @@ export function KnowledgeGraph() {
   const graph = useQuery({
     queryKey: ["graph", repoId, module],
     queryFn: () =>
-      get<GraphData>(`/api/graph?repo_id=${repoId ?? ""}&module=${encodeURIComponent(module)}&max_functions=120`),
+      get<GraphData>(`/api/graph?repo_id=${repoId ?? ""}&module=${encodeURIComponent(module)}&max_functions=600`),
     enabled: repoId !== undefined,
   });
 
@@ -153,8 +154,17 @@ export function KnowledgeGraph() {
       return true;
     });
     const nodeIds = new Set(nodes.map((n) => n.id));
-    const edges = d.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
-    return { nodes, edges };
+    // 孤立判定与布局投影同源：只用语义边（调用/派生/覆盖/暴露）——
+    // 「包含」边把每个函数都连到模块上，算进去孤立数永远是 0
+    const edges = d.edges.filter((e) => e.relation !== "包含" && nodeIds.has(e.source) && nodeIds.has(e.target));
+    const linked = new Set<string>();
+    for (const e of edges) {
+      linked.add(e.source);
+      linked.add(e.target);
+    }
+    const isolates = new Set(nodes.filter((n) => n.category === "函数" && !linked.has(n.id)).map((n) => n.name));
+    const allEdges = d.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
+    return { nodes, edges, allEdges, isolates };
   }, [graph.data]);
 
   const nodeById = useMemo(() => new Map((clean?.nodes ?? []).map((n) => [n.id, n])), [clean]);
@@ -169,6 +179,11 @@ export function KnowledgeGraph() {
   const R = useRef<SigmaRefs | null>(null);
   const hiddenRef = useRef<Record<string, boolean>>(hiddenCats);
   hiddenRef.current = hiddenCats;
+  const [showIsolates, setShowIsolates] = useState(false);
+  const showIsolatesRef = useRef(showIsolates);
+  showIsolatesRef.current = showIsolates;
+  const isolatesRef = useRef<Set<string>>(clean?.isolates ?? new Set());
+  isolatesRef.current = clean?.isolates ?? new Set();
   const [tick, setTick] = useState(0); // 布局运行指示
 
   const themeColors = useCallback(
@@ -195,25 +210,24 @@ export function KnowledgeGraph() {
   };
 
   const nodeSize = (n: GraphNode) =>
-    n.category === "仓库" ? 18
-    : n.category === "模块" ? 10
-    : n.category === "需求" ? 8
-    : n.category === "缺陷" ? 7
-    : n.category === "用例" ? 6
-    : Math.min(11, 4 + (n.度数 ?? 0));
+    n.category === "仓库" ? 16
+    : n.category === "模块" ? 9
+    : n.category === "需求" ? 7
+    : n.category === "缺陷" ? 6
+    : n.category === "用例" ? 5
+    : Math.min(9, 3 + (n.度数 ?? 0));
 
   const buildGraph = useCallback((data: { nodes: GraphNode[]; edges: GraphEdge[] }) => {
     const g = new Graph({ multi: false, type: "directed" });
     const N = data.nodes.length;
     data.nodes.forEach((n, i) => {
-      // 同心圆初始位：按类别分环撒点，给 FA2 一个收敛快的起点
-      const ring = CATEGORIES.indexOf(n.category) + 1;
+      // 均匀随机播种：同心环播种会被 FA2 原样保留成"鬼圆环"（低度节点挪不动）
       const angle = (i * 2 * Math.PI * 0.618) % (2 * Math.PI);
-      const radius = ring * 60;
+      const radius = 40 + ((i * 97) % 400);
       g.addNode(n.id, {
         label: n.name,
-        x: radius * Math.cos(angle),
-        y: radius * Math.sin(angle),
+        x: radius * Math.cos(angle) + ((i % 7) - 3) * 8,
+        y: radius * Math.sin(angle) + ((i % 5) - 2) * 8,
         size: nodeSize(n),
         color: COLORS[CATEGORIES.indexOf(n.category)] ?? COLORS[0],
         hidden: false,
@@ -223,6 +237,9 @@ export function KnowledgeGraph() {
     });
     void N;
     data.edges.forEach((e, i) => {
+      // GitNexus 的布局投影只保留语义边（调用/派生/覆盖/暴露）：
+      // 包含（仓库→模块→函数）边会造成星型辐射，把枢纽函数全部压进画布中心
+      if (e.relation === "包含") return;
       if (!g.hasNode(e.source) || !g.hasNode(e.target) || g.hasEdge(e.source, e.target)) return;
       g.addDirectedEdge(e.source, e.target, {
         relation: e.relation,
@@ -263,6 +280,7 @@ export function KnowledgeGraph() {
         const attrs: Record<string, unknown> = { ...data };
         const n = data.node as GraphNode | undefined;
         if (n && hiddenRef.current[n.category]) attrs.hidden = true;
+        if (!showIsolatesRef.current && isolatesRef.current.has(String(data.label))) attrs.hidden = true;
         if (r.blast) {
           if (r.blast.has(String(data.label))) {
             attrs.color = "#e5645a";
@@ -344,6 +362,8 @@ export function KnowledgeGraph() {
     });
 
     R.current = { graph: g, sigma, layout: null, selected: null, hover: null, blast: null, cycles: null, changes: null, colors };
+    // 调试钩子：布局诊断用（读节点坐标判断 FA2 是否真的在动）
+    (window as unknown as Record<string, unknown>).__kg = { sigma, getGraph: () => R.current?.graph ?? null, getLayout: () => R.current?.layout ?? null };
 
     sigma.on("enterNode", ({ node }) => {
       const r = R.current;
@@ -438,7 +458,12 @@ export function KnowledgeGraph() {
         layout.kill();
         if (R.current) R.current.layout = null;
         try {
-          noverlap.assign(r.graph, { maxIterations: 25 });
+          // 动态边距：FA2 输出坐标跨度数千，静态 margin 无意义，按包围盒比例取
+          let span = 1;
+          r.graph.forEachNode((_id, a) => {
+            span = Math.max(span, Math.abs(a.x), Math.abs(a.y));
+          });
+          noverlap.assign(r.graph, { maxIterations: 150, settings: { margin: span / 25 } });
         } catch {
           /* noverlap 失败不影响展示 */
         }
@@ -479,7 +504,8 @@ export function KnowledgeGraph() {
       r!.graph.setNodeAttribute(id, "hidden", !!(n && hiddenCats[n.category]));
     });
     r.sigma.refresh();
-  }, [hiddenCats]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hiddenCats, canvasReady]);
 
   // 影响半径结果 → 红色高亮集合（按节点名匹配）
   useEffect(() => {
@@ -524,7 +550,7 @@ export function KnowledgeGraph() {
   const searchOptions = useMemo(
     () =>
       (clean?.nodes ?? [])
-        .filter((n) => !hiddenCats[n.category] && n.name.toLowerCase().includes(searching.toLowerCase()))
+        .filter((n) => !hiddenCats[n.category] && (showIsolates || !isolatesRef.current.has(n.name)) && n.name.toLowerCase().includes(searching.toLowerCase()))
         .slice(0, 12)
         .map((n) => ({ value: n.id, label: `${n.name}（${n.category}）` })),
     [clean, searching, hiddenCats]
@@ -557,6 +583,15 @@ export function KnowledgeGraph() {
           </Space>
           {graph.data && (
             <Space wrap size={6}>
+              <Tooltip title="无任何调用关系的函数——默认隐藏，点击显示">
+                <Tag
+                  color={showIsolates ? "cyan" : "default"}
+                  style={{ cursor: "pointer", marginInlineEnd: 0 }}
+                  onClick={() => setShowIsolates((v) => !v)}
+                >
+                  孤立 {clean?.isolates.size ?? 0}
+                </Tag>
+              </Tooltip>
               {cyclesQ.data && cyclesQ.data.total > 0 && (
                 <Tooltip title="调用环（循环依赖）——点击在图上高亮成环节点">
                   <Tag color={cycleOn ? "red" : "default"} style={{ cursor: "pointer", marginInlineEnd: 0 }} onClick={() => setCycleOn((v) => !v)}>
@@ -786,8 +821,8 @@ export function KnowledgeGraph() {
             </Space>
             {/* 引用导航（GitNexus context 轻量版）：直接调用方/被调，点击跳转聚焦 */}
             {(() => {
-              const callers = (clean?.edges ?? []).filter((e) => e.target === selected.id).map((e) => e.source);
-              const callees = (clean?.edges ?? []).filter((e) => e.source === selected.id).map((e) => e.target);
+              const callers = (clean?.allEdges ?? []).filter((e) => e.relation !== "包含" && e.target === selected.id).map((e) => e.source);
+              const callees = (clean?.allEdges ?? []).filter((e) => e.relation !== "包含" && e.source === selected.id).map((e) => e.target);
               if (!callers.length && !callees.length) return null;
               const chip = (ids: string[]) => (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>

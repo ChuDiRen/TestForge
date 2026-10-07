@@ -24,7 +24,7 @@ def knowledge_graph(request: Request):
     qp = request.query_params
     repo_id = int(qp.get("repo_id") or 0)
     module_prefix = (qp.get("module") or "").strip()
-    max_functions = max(10, min(int(qp.get("max_functions") or 120), 300))
+    max_functions = max(10, min(int(qp.get("max_functions") or 120), 600))
 
     with get_session() as sess:
         repo = sess.get(Repos, repo_id) if repo_id else sess.query(Repos).order_by(Repos.id.desc()).first()
