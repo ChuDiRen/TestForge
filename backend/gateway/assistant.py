@@ -171,6 +171,27 @@ def _tool_impact(repo_id: int) -> Callable[[dict], dict]:
     return run
 
 
+def _tool_changes(repo_id: int) -> Callable[[dict], dict]:
+    def run(args: dict) -> dict:
+        from services.repo_svc.changes import detect_changes
+
+        try:
+            res = detect_changes(repo_id, scope=str(args.get("scope") or "unstaged"))
+        except FileNotFoundError as e:
+            return {"error": str(e)}
+        return {
+            "scope": res["scope"],
+            "changed_files": res["changed_files"],
+            "affected_functions": res["affected_functions"],
+            "functions": [
+                {"name": f["name"], "module": f["module"], "callers": f["direct_callers"][:5], "risk": f["risk"]}
+                for f in res["functions"][:15]
+            ],
+        }
+
+    return run
+
+
 def _tool_trace(repo_id: int) -> Callable[[dict], dict]:
     def run(args: dict) -> dict:
         src = str(args.get("src") or "").strip()
@@ -428,6 +449,19 @@ TOOL_SPECS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "changes",
+            "description": "变更影响检测：当前仓库 git 工作区未提交的改动映射到已索引函数，返回受影响函数及其调用方与风险分。回答『我这次改了什么、会影响谁』。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "scope": {"type": "string", "enum": ["unstaged", "staged", "all"], "description": "默认 unstaged（未暂存改动）"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "overview",
             "description": "仓库概览：模块/函数/Wiki/需求/用例/缺陷/契约的规模统计与模块清单。",
             "parameters": {"type": "object", "properties": {}},
@@ -518,6 +552,7 @@ def _tools_for(repo_id: int, role: str = "admin") -> tuple[dict[str, Callable[[d
         "read": _tool_read(repo_id),
         "impact": _tool_impact(repo_id),
         "trace": _tool_trace(repo_id),
+        "changes": _tool_changes(repo_id),
         "overview": _tool_overview(repo_id),
         "cases": _tool_cases(repo_id),
         "generate_case": _tool_generate_case(repo_id, role),

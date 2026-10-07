@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Alert, Button, Card, Col, Input, Popconfirm, Progress, Row, Segmented, Select, Space, Steps, Table, Tag, message } from "antd";
 import { NextStep } from "../components/NextStep";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, post, sseUrl } from "../api";
+import { get, post, sseUrl, repoName } from "../api";
 import { Json } from "../components/Json";
 
 const STAGES = ["plan", "guard", "codegen", "sandbox", "coverage"];
@@ -236,7 +236,7 @@ export function Workbench() {
             value={repoId}
             onChange={setRepoId}
             disabled={layer === "api" || layer === "e2e"}
-            options={(repos.data ?? []).map((r) => ({ value: r.id, label: `#${r.id} ${String(r.url).split("/").pop()}` }))}
+            options={(repos.data ?? []).map((r) => ({ value: r.id, label: repoName(r.url) }))}
           />
           <Select
             style={{ width: 320, maxWidth: "100%" }}

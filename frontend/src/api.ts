@@ -84,3 +84,10 @@ export async function downloadGeneratedTest(genCode: string): Promise<string> {
   URL.revokeObjectURL(url);
   return data.filename;
 }
+
+/** 仓库展示名：取 url 末段并去掉 .git 后缀（TestForge.git → TestForge） */
+export const repoName = (url: string) =>
+  decodeURIComponent(String(url).replace(/\/+$/, ""))
+    .split("/")
+    .pop()
+    ?.replace(/\.git$/i, "") || String(url);

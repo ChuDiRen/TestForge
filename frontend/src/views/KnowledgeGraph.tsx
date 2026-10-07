@@ -1,6 +1,6 @@
 import { PageHeader } from "../components/PageHeader";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AutoComplete, Button, Card, Divider, Drawer, Empty, Popover, Select, Space, Table, Tag, Tooltip } from "antd";
+import { AutoComplete, Button, Card, Divider, Drawer, Empty, message, Popover, Select, Space, Table, Tag, Tooltip } from "antd";
 import { AimOutlined, DragOutlined, MinusOutlined, PlusOutlined, QuestionCircleOutlined, RedoOutlined, RestOutlined, ScissorOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import Graph from "graphology";
@@ -8,7 +8,7 @@ import Sigma from "sigma";
 import EdgeCurveProgram from "@sigma/edge-curve";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
 import noverlap from "graphology-layout-noverlap";
-import { get } from "../api";
+import { get, repoName } from "../api";
 
 interface GraphNode {
   id: string;
@@ -81,6 +81,8 @@ interface SigmaRefs {
   selected: string | null;
   hover: string | null;
   blast: Set<string> | null;
+  cycles: Set<string> | null;
+  changes: Set<string> | null;
   colors: { ink: string; ink2: string; panel: string; line: string; dim: string };
 }
 
@@ -118,6 +120,23 @@ export function KnowledgeGraph() {
       `/api/functions/${encodeURIComponent(selected!.name)}/impact`
     ),
     enabled: blastOn && !!selected && selected.category === "函数",
+  });
+
+  // 循环依赖（GitNexus check）与未提交变更（detect_changes）的高亮状态
+  const [cycleOn, setCycleOn] = useState(false);
+  const [changesOn, setChangesOn] = useState(false);
+  const cyclesQ = useQuery({
+    queryKey: ["cycles", repoId],
+    queryFn: () => get<{ total: number; cycles: { members: string[]; size: number }[] }>(`/api/repos/${repoId}/cycles`),
+    enabled: repoId !== undefined,
+  });
+  const changesQ = useQuery({
+    queryKey: ["changes", repoId],
+    queryFn: () =>
+      get<{ scope: string; changed_files: number; affected_functions: number; functions: { name: string; module: string; risk: number; direct_callers: string[] }[] }>(
+        `/api/repos/${repoId}/changes?scope=all`
+      ),
+    enabled: false,
   });
 
   // ── 净化后的图数据（重复 id/name 会让渲染层崩，先过滤）──
@@ -257,6 +276,30 @@ export function KnowledgeGraph() {
           }
           return attrs;
         }
+        // 循环依赖：成环节点红色，其余暗化（GitNexus check）
+        if (r.cycles) {
+          if (r.cycles.has(String(data.label))) {
+            attrs.color = "#e5645a";
+            attrs.size = (data.size as number) * 1.35;
+            attrs.highlighted = true;
+            attrs.zIndex = 4;
+          } else {
+            attrs.color = dimColor(String(data.color), 0.85, r.colors.dim);
+          }
+          return attrs;
+        }
+        // 未提交变更：波及函数橙色（GitNexus detect_changes）
+        if (r.changes) {
+          if (r.changes.has(String(data.label))) {
+            attrs.color = "#dfa050";
+            attrs.size = (data.size as number) * 1.25;
+            attrs.highlighted = true;
+            attrs.zIndex = 3;
+          } else {
+            attrs.color = dimColor(String(data.color), 0.85, r.colors.dim);
+          }
+          return attrs;
+        }
         const focus = r.hover || r.selected;
         if (focus) {
           const isFocus = node === focus;
@@ -300,7 +343,7 @@ export function KnowledgeGraph() {
       },
     });
 
-    R.current = { graph: g, sigma, layout: null, selected: null, hover: null, blast: null, colors };
+    R.current = { graph: g, sigma, layout: null, selected: null, hover: null, blast: null, cycles: null, changes: null, colors };
 
     sigma.on("enterNode", ({ node }) => {
       const r = R.current;
@@ -367,6 +410,8 @@ export function KnowledgeGraph() {
     r.selected = null;
     r.hover = null;
     r.blast = null;
+    r.cycles = null;
+    r.changes = null;
     r.graph.clear();
     const g = buildGraph(clean);
     r.graph.import(g.export());
@@ -378,6 +423,8 @@ export function KnowledgeGraph() {
     });
     setSelected(null);
     setBlastOn(false);
+    setCycleOn(false);
+    setChangesOn(false);
 
     if (layoutMode === "force") {
       setTick(1);
@@ -442,6 +489,22 @@ export function KnowledgeGraph() {
     r.sigma.refresh();
   }, [blast.data, blastOn]);
 
+  // 循环依赖成员 → 红色高亮
+  useEffect(() => {
+    const r = R.current;
+    if (!r) return;
+    r.cycles = cycleOn ? new Set((cyclesQ.data?.cycles ?? []).flatMap((c) => c.members)) : null;
+    r.sigma.refresh();
+  }, [cyclesQ.data, cycleOn]);
+
+  // 未提交变更波及函数 → 橙色高亮
+  useEffect(() => {
+    const r = R.current;
+    if (!r) return;
+    r.changes = changesOn && changesQ.data ? new Set(changesQ.data.functions.map((f) => f.name)) : null;
+    r.sigma.refresh();
+  }, [changesQ.data, changesOn]);
+
   // 主题切换 → 更新画布配色
   useEffect(() => {
     const r = R.current;
@@ -481,7 +544,7 @@ export function KnowledgeGraph() {
                 setRepoId(v);
                 setModule("");
               }}
-              options={(repos.data ?? []).map((r) => ({ value: r.id, label: `#${r.id} ${String(r.url).split("/").pop()}` }))}
+              options={(repos.data ?? []).map((r) => ({ value: r.id, label: repoName(r.url) }))}
             />
             <Select
               style={{ width: 260 }}
@@ -493,11 +556,38 @@ export function KnowledgeGraph() {
             />
           </Space>
           {graph.data && (
-            <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>
-              {Object.entries(graph.data.stats)
-                .map(([k, v]) => `${k} ${v}`)
-                .join(" · ")}
-            </span>
+            <Space wrap size={6}>
+              {cyclesQ.data && cyclesQ.data.total > 0 && (
+                <Tooltip title="调用环（循环依赖）——点击在图上高亮成环节点">
+                  <Tag color={cycleOn ? "red" : "default"} style={{ cursor: "pointer", marginInlineEnd: 0 }} onClick={() => setCycleOn((v) => !v)}>
+                    循环依赖 {cyclesQ.data.total}
+                  </Tag>
+                </Tooltip>
+              )}
+              <Tooltip title="变更检测（GitNexus detect_changes）：git 工作区改动 → 受影响函数，点击橙色高亮">
+                <Tag
+                  color={changesOn ? "orange" : "default"}
+                  style={{ cursor: "pointer", marginInlineEnd: 0 }}
+                  onClick={async () => {
+                    if (!changesOn) {
+                      const d = await changesQ.refetch();
+                      if (!d.data?.affected_functions) {
+                        message.info("git 工作区没有未提交的代码改动");
+                        return;
+                      }
+                    }
+                    setChangesOn((v) => !v);
+                  }}
+                >
+                  变更检测{changesQ.data?.affected_functions ? ` · ${changesQ.data.affected_functions} 函数` : ""}
+                </Tag>
+              </Tooltip>
+              <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>
+                {Object.entries(graph.data.stats)
+                  .map(([k, v]) => `${k} ${v}`)
+                  .join(" · ")}
+              </span>
+            </Space>
           )}
         </Space>
       </Card>
@@ -694,6 +784,37 @@ export function KnowledgeGraph() {
               {typeof selected.度数 === "number" && <Tag>度数 {selected.度数}</Tag>}
               {selected.module && <Tag>{selected.module}</Tag>}
             </Space>
+            {/* 引用导航（GitNexus context 轻量版）：直接调用方/被调，点击跳转聚焦 */}
+            {(() => {
+              const callers = (clean?.edges ?? []).filter((e) => e.target === selected.id).map((e) => e.source);
+              const callees = (clean?.edges ?? []).filter((e) => e.source === selected.id).map((e) => e.target);
+              if (!callers.length && !callees.length) return null;
+              const chip = (ids: string[]) => (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                  {ids.map((id) => (
+                    <Tag key={id} style={{ cursor: "pointer" }} onClick={() => selectNode(id)}>
+                      {nodeById.get(id)?.name ?? id}
+                    </Tag>
+                  ))}
+                </div>
+              );
+              return (
+                <div style={{ marginBottom: 12, display: "grid", gap: 10 }}>
+                  {callers.length > 0 && (
+                    <div>
+                      <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>被谁调用（{callers.length}）</span>
+                      {chip(callers)}
+                    </div>
+                  )}
+                  {callees.length > 0 && (
+                    <div>
+                      <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>调用谁（{callees.length}）</span>
+                      {chip(callees)}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <Table
               rowKey="k"
               size="small"

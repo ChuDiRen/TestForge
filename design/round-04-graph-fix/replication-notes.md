@@ -1,8 +1,8 @@
-# GitNexus + OpenWiki 功能复刻对照（2026-10-07）
+# GitNexus + OpenWiki 功能复刻（2026-10-07 · 两轮）
 
 > 源项目：[abhigyanpatwari/GitNexus](https://github.com/abhigyanpatwari/GitNexus)（代码智能引擎，Sigma.js+Graphology+FA2+tree-sitter+Leiden）
 > [kdsz001/OpenWiki](https://github.com/kdsz001/OpenWiki)（Tauri 桌面 AI 知识管理：捕获→LLM 编译成个人 Wiki+图谱）
-> 本文档记录两项目功能在 TestForge 的落点：已有 / 本轮实现 / 不适用（含原因）。
+> 本文档记录两项目功能在 TestForge 的落点：已有 / 已实现 / 不适用（含原因）。
 
 ## 一、GitNexus → TestForge
 
@@ -17,7 +17,16 @@
 | 类别过滤 | 图例胶囊（左下角标） | 需求/用例/缺陷默认关（仓库接入→代码结构自闭环），点击叠加 |
 
 ### 已有（前轮借鉴，本轮核对确认）
-tree-sitter 解析与调用图（repo_svc/indexer.py）、Leiden 式聚类（/api/repos/{id}/clusters）、混合检索 BM25+向量 RRF（/api/kg/query + search_cases）、符号 360° 上下文（MCP get_symbol_context）、impact 预计算表（FnImpact）、MCP stdio 服务器（services/mcp_server.py，本轮 6→7 工具）、detect_changes 等价物（wiki_builder.rebuild 的 changed_files 增量 + stale 传播）。
+tree-sitter 解析与调用图（repo_svc/indexer.py）、Leiden 式聚类（/api/repos/{id}/clusters）、混合检索 BM25+向量 RRF（/api/kg/query + search_cases）、符号 360° 上下文（MCP get_symbol_context）、impact 预计算表（FnImpact）、MCP stdio 服务器（services/mcp_server.py，两轮后 12 工具）、detect_changes 等价物（wiki_builder.rebuild 的 changed_files 增量 + stale 传播）。
+
+### 第二轮追加（commit round-05）
+| GitNexus 功能 | TestForge 落点 | 实现 |
+|---|---|---|
+| check（循环依赖） | `GET /api/repos/{id}/cycles` + 图谱页「循环依赖」chip 一键红色高亮成环节点 | `repo_svc/graph_analysis.py::call_cycles`——迭代版 Tarjan SCC；实测抓到 1 个 15 成员真环 |
+| Processes（执行流） | `GET /api/repos/{id}/chains` + MCP 工具 `entry_chains` | `entry_chains`——入度 0 入口出发最长简单路径；实测 369 入口、最长 13 跳 |
+| detect_changes | `GET /api/repos/{id}/changes?scope=|base_ref=` + 图谱页「变更检测」chip 橙色高亮波及函数 + MCP 工具 `detect_changes` + 助手工具 `changes` | `repo_svc/changes.py`——git diff（unstaged/staged/all/base）→ 后缀匹配已索引函数 → 直接调用方 + FnImpact 风险分 |
+| context 引用导航 | 图谱节点 Drawer「被谁调用 / 调用谁」可点 chip，点击相机飞到该节点 | 前端从已加载边表直接计算，零额外请求 |
+| 仓库命名治理 | 全站仓库下拉统一 `repoName()`（去 `.git` 与 `#id`），图谱仓库节点同步 | `frontend/src/api.ts::repoName` + `gateway/graph.py` 节点名 |
 
 ### 不移植（原因）
 - Web 端 WASM 本地索引 / LadybugDB：TestForge 是服务端索引架构，已有 SQLite+RAG 层。
@@ -32,6 +41,12 @@ tree-sitter 解析与调用图（repo_svc/indexer.py）、Leiden 式聚类（/ap
 | TF-IDF 页面互链（link_pages_by_shared_tags） | `GET /api/wiki/{id}/related` + Wiki 抽屉「相关页面」 | `services/wiki_builder/analytics.py::related_map`：ASCII 词+中文二元组、IDF=ln((N+1)/(df+1))、每页 top-40 判别 token、倒排稀疏点积、阈值 0.05（OpenWiki 0.3 是长文 tag 向量，中文短页实测 0.05 区分度最好）、top-6；实测 create_order 的邻居全部落在订单模块（release/reserve/get_price/测试/模块页，0.21-0.31） |
 | Wiki 健康体检（lint） | `GET /api/wiki/lint?repo_id=` + Wiki 页「Wiki 体检」卡 | `analytics.py::lint_repo` 确定性规则：stale 页/超短页(<120字)/重复标题/孤儿页(无互链)/模块覆盖缺口，severity 三档；实测抓出 26 个「函数 main」重名页 |
 
+### 第二轮追加（OpenWiki）
+| OpenWiki 功能 | TestForge 落点 | 实现 |
+|---|---|---|
+| Wiki Ask（RAG 问答侧栏） | `POST /api/wiki/ask` + Wiki 页「Wiki 问答」侧栏 + MCP 工具 `wiki_ask` | `wiki_builder/ask.py`——hybrid_search(wiki) top-6 → LLM 依据资料作答 → 来源页可点击跳转；资料不足明说不编造。实测订单流程问答：分点流程+涉及函数全对 |
+| Wiki Lint（健康体检） | `GET /api/wiki/lint?repo_id=` + Wiki 页体检卡 + MCP 工具 `wiki_lint` | `analytics.py::lint_repo` 确定性规则：stale/超短页/重复标题/孤儿页/模块覆盖缺口 |
+
 ### 已有映射
 Wiki 问答 RAG → TestForge AI 助手（search/explore/knowledge_query 工具 + 引用溯源）；Wiki 自动编译 → wiki_builder（repo→repo/module/function 三级页面+增量重建）；多提供商 LLM → TestForge LLM 网关；MCP 只读服务器 → services/mcp_server.py。
 
@@ -43,6 +58,7 @@ Wiki 问答 RAG → TestForge AI 助手（search/explore/knowledge_query 工具 
 ## 三、验证证据（design/round-04-graph-fix/shots/）
 
 - `v2-light-graph.png` / `v2-dark-graph.png`：Sigma 沉浸式图谱亮暗两态（FA2 收敛后 hub-spoke 可读、标签密度受控、主题跟随）。
+- `v3-light-graph.png`：仓库下拉显示「TestForge」（.git 已清）、右上「循环依赖 1」「变更检测」chips。
+- `v3-wiki-ask.png`：Wiki 问答侧栏真实问答（订单流程分点作答+涉及函数+来源页）。
 - `final-light/dark-servicemap.png`：服务调用链路（分层贝塞尔+胶囊标签+breaking 红点，亮暗）。
-- `final-light/dark-wiki.png`：Wiki 体检卡。
-- 冒烟：`smoke_kg.py`（控制台零错误，仅存量 401/antd 弃用告警）；端点实测 trace 3 跳、lint 真发现、related 模块级召回。
+- 冒烟：`smoke_kg.py`（控制台零错误，仅存量 401/antd 弃用告警）；端点实测 trace 3 跳、cycles 1 环 15 成员、chains 13 跳、changes 0（干净克隆）、lint 真发现、related 模块级召回、ask 带 LLM 真答。

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy import Integer, func, select
 
 from gateway.envelope import ApiError, err, ok
@@ -358,6 +359,23 @@ def wiki_related(page_id: int, limit: int = 6):
             if n["id"] != page_id
         ][:limit]
     )
+
+
+class WikiAskBody(BaseModel):
+    question: str
+    repo_id: int = 0
+    history: str = ""
+
+
+@app.post("/api/wiki/ask")
+def wiki_ask_route(body: WikiAskBody):
+    """Wiki 问答（OpenWiki wiki_ask 移植）：检索 wiki 页 → LLM 依据资料作答 → 带来源。"""
+    from services.wiki_builder.ask import ask_wiki
+
+    question = body.question.strip()
+    if not question:
+        raise ApiError(400, "question 必填", 400)
+    return ok(ask_wiki(body.repo_id, question, history=body.history))
 
 
 @app.get("/api/wiki/{page_id}")

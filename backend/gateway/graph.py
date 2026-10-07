@@ -100,7 +100,7 @@ def knowledge_graph(request: Request):
             first_fnode_by_name.setdefault(f.name, _fnode_id(f))
 
         nodes: list[dict] = [
-            {"id": f"repo:{repo.id}", "name": repo.url.rsplit("/", 1)[-1], "category": "仓库", "repo_id": repo.id, "status": repo.status}
+            {"id": f"repo:{repo.id}", "name": repo.url.rsplit("/", 1)[-1].removesuffix(".git"), "category": "仓库", "repo_id": repo.id, "status": repo.status}
         ]
         for m in modules:
             n_fn = sum(1 for f in fns_top if f.module == m)

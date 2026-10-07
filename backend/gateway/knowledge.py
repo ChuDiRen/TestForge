@@ -85,6 +85,35 @@ def repo_clusters(repo_id: int):
     return ok(clusters)
 
 
+@app.get("/api/repos/{repo_id}/cycles")
+def repo_cycles(repo_id: int, max_cycles: int = 20):
+    """调用环检测（GitNexus check 移植）：Tarjan SCC，循环依赖清单。"""
+    from services.repo_svc.graph_analysis import call_cycles
+
+    return ok(call_cycles(repo_id, max_cycles))
+
+
+@app.get("/api/repos/{repo_id}/chains")
+def repo_chains(repo_id: int, max_chains: int = 10, max_len: int = 14):
+    """执行链路（GitNexus Processes 轻量版）：入口函数出发的最长调用链。"""
+    from services.repo_svc.graph_analysis import entry_chains
+
+    return ok(entry_chains(repo_id, max_chains, max_len))
+
+
+@app.get("/api/repos/{repo_id}/changes")
+def repo_changes(repo_id: int, scope: str = "unstaged", base_ref: str = ""):
+    """变更影响检测（GitNexus detect_changes 移植）：git diff → 受影响函数 → 调用方/风险。"""
+    from services.repo_svc.changes import detect_changes
+
+    try:
+        return ok(detect_changes(repo_id, scope=scope, base_ref=base_ref))
+    except FileNotFoundError as e:
+        raise ApiError(404, str(e), 404)
+    except LookupError as e:
+        raise ApiError(404, str(e), 404)
+
+
 @app.get("/api/functions/trace")
 def function_trace(src: str, dst: str, repo_id: int = 0, max_depth: int = 10):
     """两符号最短调用路径（GitNexus trace 对齐）：caller→callee BFS 逐跳返回。"""

@@ -1,8 +1,8 @@
 import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
-import { Badge, Button, Card, Drawer, Input, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
+import { Badge, Button, Card, Drawer, Empty, Input, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, post } from "../api";
+import { get, post, repoName } from "../api";
 import { Markdown } from "../components/Markdown";
 import { useIsMobile } from "../hooks";
 
@@ -47,6 +47,34 @@ export function Wiki() {
   const openPageById = (pid: number) => {
     const row = data.find((x) => x.id === pid);
     if (row) setDetail(row);
+  };
+
+  // Wiki 问答（OpenWiki wiki_ask 移植）：检索知识库 → LLM 依据资料作答 → 带来源
+  const [askOpen, setAskOpen] = useState(false);
+  const [askQ, setAskQ] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [askMsgs, setAskMsgs] = useState<{ q: string; a: string; sources: { id: number; title: string }[] }[]>([]);
+  const ask = async () => {
+    const q = askQ.trim();
+    if (!q || asking || !repoId) return;
+    setAsking(true);
+    setAskQ("");
+    try {
+      const history = askMsgs
+        .slice(-3)
+        .map((m) => `问：${m.q}`)
+        .join("\n");
+      const res = await post<{ answer: string; sources: { id: number; title: string }[] }>("/api/wiki/ask", {
+        question: q,
+        repo_id: repoId,
+        history,
+      });
+      setAskMsgs((m) => [...m, { q, a: res.answer, sources: res.sources ?? [] }]);
+    } catch (e: any) {
+      message.error(e.message);
+    } finally {
+      setAsking(false);
+    }
   };
   const [docTitle, setDocTitle] = useState("");
   const [docBody, setDocBody] = useState("");
@@ -151,11 +179,14 @@ export function Wiki() {
         title="代码库 / Wiki（预编译知识层）"
         extra={
           <Space wrap>
+            <Button size="small" type="primary" ghost onClick={() => setAskOpen(true)} disabled={!repoId}>
+              Wiki 问答
+            </Button>
             <select value={repoId} onChange={(e) => setRepoId(Number(e.target.value))} style={{ padding: 4 }}>
               <option value={0}>全部仓库</option>
               {(repos.data ?? []).map((r) => (
                 <option key={r.id} value={r.id}>
-                  #{r.id} {String(r.url).split("/").pop()?.replace(/\.git$/, "") || r.url}
+                  {repoName(r.url)}
                 </option>
               ))}
             </select>
@@ -207,6 +238,73 @@ export function Wiki() {
             )}
           </>
         )}
+      </Drawer>
+      <Drawer
+        title="Wiki 问答（检索知识库作答）"
+        open={askOpen}
+        onClose={() => setAskOpen(false)}
+        width={isMobile ? "100%" : 460}
+        extra={repoId === 0 ? <Tag color="orange">先选择仓库</Tag> : undefined}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {askMsgs.length === 0 && (
+            <Empty
+              description={
+                <span style={{ fontSize: 13, color: "var(--tf-ink-3)" }}>
+                  问点仓库里的事：
+                  <br />
+                  『订单创建的流程是怎样的？』『密码是怎么校验的？』
+                </span>
+              }
+              style={{ margin: "32px 0" }}
+            />
+          )}
+          {askMsgs.map((m, i) => (
+            <div key={i} style={{ display: "grid", gap: 8 }}>
+              <div
+                style={{
+                  alignSelf: "flex-end",
+                  background: "var(--tf-acc-soft)",
+                  borderRadius: 10,
+                  padding: "6px 12px",
+                  fontSize: 13,
+                  maxWidth: "85%",
+                }}
+              >
+                {m.q}
+              </div>
+              <div style={{ fontSize: 13.5 }}>
+                <Markdown>{m.a}</Markdown>
+              </div>
+              {m.sources.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>来源：</span>
+                  {m.sources.map((s) => (
+                    <Tag key={s.id} style={{ cursor: "pointer" }} onClick={() => openPageById(s.id)}>
+                      {s.title}
+                    </Tag>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          <Input.TextArea
+            value={askQ}
+            onChange={(e) => setAskQ(e.target.value)}
+            placeholder={repoId === 0 ? "先在上面选择仓库" : "问知识库…（Enter 发送，Shift+Enter 换行）"}
+            disabled={!repoId}
+            autoSize={{ minRows: 1, maxRows: 4 }}
+            onPressEnter={(e) => {
+              if (!e.shiftKey) {
+                e.preventDefault();
+                ask();
+              }
+            }}
+          />
+          <Button type="primary" loading={asking} disabled={!repoId || !askQ.trim()} onClick={ask}>
+            发送
+          </Button>
+        </div>
       </Drawer>
     </div>
   );

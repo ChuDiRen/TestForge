@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Popconfirm, Select, Space, Typography } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { del, get, post } from "../api";
+import { del, get, post, repoName } from "../api";
 import type { Thread } from "../components/AIChat";
 
 /** AI 助手完整页：会话列表 + 对话区（复用 AIChat 共享对话组件） */
@@ -15,7 +15,7 @@ export function Assistant() {
 
   const repoOptions = (chat.repos.data ?? []).map((r) => ({
     value: r.id,
-    label: `#${r.id} ${String(r.url).split("/").pop()?.replace(/\.git$/, "")}`,
+    label: repoName(r.url),
   }));
 
   const createThread = useMutation({

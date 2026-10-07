@@ -3,7 +3,7 @@ import { NextStep } from "../components/NextStep";
 import { useState } from "react";
 import { Button, Card, Drawer, Input, Select, Steps, Table, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, post } from "../api";
+import { get, post, repoName } from "../api";
 import { useIsMobile } from "../hooks";
 
 interface ReqRow {
@@ -77,7 +77,7 @@ export function Requirements() {
           placeholder="绑定仓库（必选）"
           value={form.repo_id || undefined}
           onChange={(v) => setForm({ ...form, repo_id: v })}
-          options={(repos.data ?? []).map((r) => ({ value: r.id, label: `#${r.id} ${String(r.url).split("/").pop()}` }))}
+          options={(repos.data ?? []).map((r) => ({ value: r.id, label: repoName(r.url) }))}
         />
         <Button type="primary" loading={ingest.isPending} disabled={!form.title || !form.body || !form.repo_id} onClick={() => ingest.mutate()}>
           录入并解析（四步管线）

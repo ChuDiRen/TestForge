@@ -75,6 +75,62 @@ def _tool_defs() -> list[dict]:
             },
         },
         {
+            "name": "detect_changes",
+            "description": "变更影响检测：git diff（未暂存/已暂存/对比基线）→ 受影响函数清单（带直接调用方与风险分）",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_id": {"type": "integer"},
+                    "scope": {"type": "string", "enum": ["unstaged", "staged", "all"], "description": "默认 unstaged"},
+                    "base_ref": {"type": "string", "description": "对比基线（分支/tag/commit），提供时优先"},
+                },
+            },
+        },
+        {
+            "name": "call_cycles",
+            "description": "调用环检测：循环依赖强连通分量清单（Tarjan SCC）",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_id": {"type": "integer"},
+                    "max_cycles": {"type": "integer"},
+                },
+            },
+        },
+        {
+            "name": "entry_chains",
+            "description": "执行链路：从入口函数（无调用方）出发的最长调用链，理解代码主干流程",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_id": {"type": "integer"},
+                    "max_chains": {"type": "integer"},
+                    "max_len": {"type": "integer"},
+                },
+            },
+        },
+        {
+            "name": "wiki_ask",
+            "description": "Wiki 知识库问答：检索该仓库 Wiki 页后由 LLM 依据资料作答，带来源页；资料不足会明说",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "repo_id": {"type": "integer"},
+                },
+                "required": ["question"],
+            },
+        },
+        {
+            "name": "wiki_lint",
+            "description": "Wiki 健康体检：stale/超短页/重复标题/孤儿页/模块覆盖缺口（确定性规则）",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"repo_id": {"type": "integer"}},
+                "required": ["repo_id"],
+            },
+        },
+        {
             "name": "search_cases",
             "description": "用例库混合检索（向量+全文 RRF 融合），返回相似用例及元数据",
             "inputSchema": {
@@ -178,6 +234,55 @@ def _call_tool(name: str, args: dict) -> str:
         if res is None:
             return json.dumps({"error": "起点或终点函数未索引"}, ensure_ascii=False)
         return json.dumps(res, ensure_ascii=False)
+
+    if name == "detect_changes":
+        from services.repo_svc.changes import detect_changes
+
+        try:
+            return json.dumps(
+                detect_changes(int(args.get("repo_id") or 0), scope=args.get("scope") or "unstaged", base_ref=args.get("base_ref") or ""),
+                ensure_ascii=False,
+            )
+        except FileNotFoundError as exc:
+            return json.dumps({"error": str(exc)}, ensure_ascii=False)
+        except LookupError as exc:
+            return json.dumps({"error": str(exc)}, ensure_ascii=False)
+
+    if name == "call_cycles":
+        from services.repo_svc.graph_analysis import call_cycles
+
+        return json.dumps(call_cycles(int(args.get("repo_id") or 0), int(args.get("max_cycles") or 20)), ensure_ascii=False)
+
+    if name == "entry_chains":
+        from services.repo_svc.graph_analysis import entry_chains
+
+        return json.dumps(
+            entry_chains(int(args.get("repo_id") or 0), int(args.get("max_chains") or 10), int(args.get("max_len") or 14)),
+            ensure_ascii=False,
+        )
+
+    if name == "wiki_ask":
+        from services.wiki_builder.ask import ask_wiki
+
+        return json.dumps(ask_wiki(int(args.get("repo_id") or 0), args["question"]), ensure_ascii=False)
+
+    if name == "wiki_lint":
+        from services.shared.db import get_session as _gs
+        from services.shared.models import WikiPages as _Wp
+        from services.wiki_builder.analytics import lint_repo, related_map
+
+        rid = int(args.get("repo_id") or 0)
+        with _gs() as s:
+            rows = s.query(_Wp).filter(_Wp.repo_id == rid).all()
+        related = related_map([{"id": w.id, "title": w.title, "text": f"{w.title}\n{(w.content_md or '')[:2000]}"} for w in rows])
+        return json.dumps(
+            lint_repo(
+                [{"id": w.id, "title": w.title, "level": w.level, "module": w.module, "stale": w.stale, "len": len(w.content_md or "")} for w in rows],
+                [],
+                related,
+            ),
+            ensure_ascii=False,
+        )
 
     if name == "search_cases":
         from services.shared.rag import similar_cases
