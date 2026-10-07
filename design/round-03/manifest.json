@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "lang": "zh",
+  "project": "TestForge",
+  "brief": "第 3 轮。前两轮的结论已确认：现有布局（左侧栏 + PageHeader + 待办卡 + 指标卡 + 服务状态表）不动，只调整页面展示风格，品质基准对齐 Linear / Vercel。三个候选的 HTML 结构与现有 Dashboard 逐字节一致（同侧栏、同卡片、同表格、同真实数据：用例 163 · 通过率 51.2% · Wiki 795 页 · 待办 21 · 服务 8/8），只有 CSS 设计变量不同——比的就是风格本身。",
+  "round": "03",
+  "serve": {
+    "command": "npm run dev",
+    "cwd": "E:\\TestForge\\frontend",
+    "url": "http://localhost:5173"
+  },
+  "candidates": [
+    {
+      "id": "baseline",
+      "name": "现状 · 深空靛蓝",
+      "baseline": true,
+      "kind": "url",
+      "url": "http://localhost:5173/?view=dashboard",
+      "concept": "现有 AntD 5 主题：布局就是候选保留的那套，要换掉的是靛蓝紫渐变、大圆角、彩色图标底和光晕。若卡片显示登录页，点一次『一键登录（演示管理员）』",
+      "typography": "系统无衬线（Segoe UI / 微软雅黑），AntD 默认字阶",
+      "palette": ["#4f46e5", "#7c3aed", "#f3f5fb"],
+      "traits": ["靛蓝紫渐变品牌色", "14px 大圆角卡片 + 彩色投影", "彩色渐变图标底", "深空渐变侧栏"]
+    },
+    {
+      "id": "a-vercel-light",
+      "name": "A · 纸白高对比",
+      "kind": "html",
+      "source": "a-vercel-light.html",
+      "concept": "Vercel Light：白卡浮在 #fafafa 上，#eaeaea 细线代替阴影，黑色是唯一的重音——信息靠自己站住，不靠装饰",
+      "typography": "Segoe UI Variable 栈，标题 650 字重 -0.01em，数字 Consolas tabular",
+      "palette": ["#fafafa", "#111111", "#0070f3"],
+      "traits": ["6px 小圆角、直角气质", "细线分层，卡片几乎无投影", "黑色主按钮、蓝只给链接和徽标", "侧栏白底细线，选中态浅灰"]
+    },
+    {
+      "id": "b-linear",
+      "name": "B · 暗夜石墨",
+      "kind": "html",
+      "source": "b-linear.html",
+      "concept": "Linear Dark：近黑底 + 半透明发丝线，扁平面板同层堆叠，灰调靛蓝 #5e6ad2 只作点缀——现状的渐变、光晕、彩色投影全部删除",
+      "typography": "同一 Segoe UI 栈，650 字重标题，等宽数字 tabular",
+      "palette": ["#0f1011", "#e6e6e9", "#5e6ad2"],
+      "traits": ["近黑底 + rgba 发丝线，面板无投影", "灰调靛蓝徽标与头像，不发光", "侧栏与内容同层，靠一条细线分隔", "状态徽标 = 半透明色块"]
+    },
+    {
+      "id": "c-warm",
+      "name": "C · 暖灰杉青",
+      "kind": "html",
+      "source": "c-warm.html",
+      "concept": "Linear Light 的暖调变体：#f7f7f5 暖白纸面，等线标题，深杉青 #0d7d72 单强调色——亮色里最有身份感的一版",
+      "typography": "等线（DengXian）标题 + 雅黑正文 + Consolas tabular 数字，标题略放宽字距",
+      "palette": ["#f7f7f5", "#24272b", "#0d7d72"],
+      "traits": ["暖白底 + 米灰细线，12px 圆角", "杉青只给：选中态、图标底、徽标", "标题用等线，与正文拉开气质", "侧栏选中态 = 青底 + 左缘 2px 青条"]
+    }
+  ]
+}

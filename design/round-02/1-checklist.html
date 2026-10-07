@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TestForge · 今日清单</title>
+<style>
+  :root {
+    --bg: #fafbfc;
+    --ink: #1f2328;
+    --ink-2: #59636e;
+    --ink-3: #8c959f;
+    --line: #e4e8ec;
+    --amber: #b45309;
+    --amber-bg: #fef3e2;
+    --green: #15803d;
+    --mono: Consolas, "Courier New", monospace;
+    --sans: "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 13.5px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+
+  /* 顶部：一行细状态条，不抢戏 */
+  .top {
+    display: flex; align-items: center; gap: 18px;
+    padding: 10px 28px; border-bottom: 1px solid var(--line); background: #fff;
+  }
+  .brand { font-weight: 700; font-size: 14px; }
+  .brand i { font-style: normal; color: var(--amber); margin-right: 6px; }
+  .stats { display: flex; gap: 16px; font-size: 12px; color: var(--ink-2); }
+  .stats b { font-family: var(--mono); font-weight: 700; color: var(--ink); }
+  .top .sys { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+  .top .sys b { color: var(--green); font-weight: 400; }
+
+  .wrap { max-width: 860px; margin: 0 auto; padding: 26px 24px 48px; }
+
+  /* 今日总额 */
+  .today { display: flex; align-items: baseline; gap: 14px; }
+  .today h1 { font-size: 26px; font-weight: 700; letter-spacing: 0.01em; }
+  .today h1 b { font-family: var(--mono); }
+  .today .sub { color: var(--ink-2); font-size: 13px; }
+  .chips { margin-top: 10px; display: flex; gap: 8px; }
+  .chip { font-size: 12px; padding: 3px 10px; border-radius: 20px; background: var(--amber-bg); color: var(--amber); font-weight: 700; }
+  .chip.quiet { background: #eef1f4; color: var(--ink-2); font-weight: 400; }
+
+  /* 分组 */
+  section { margin-top: 34px; }
+  .sec-h { display: flex; align-items: baseline; gap: 10px; padding-bottom: 8px; border-bottom: 2px solid var(--ink); }
+  .sec-h h2 { font-size: 15px; font-weight: 700; }
+  .sec-h .n { font-family: var(--mono); font-weight: 700; color: var(--amber); }
+  .sec-h .hint { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+
+  /* 清单行：对象与动作挨在一起 */
+  .row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 4px; border-bottom: 1px solid var(--line);
+  }
+  .row:hover { background: #f5f7f9; }
+  .row .mark { flex: none; width: 18px; height: 18px; border: 1.5px solid var(--ink-3); border-radius: 4px; }
+  .row.done .mark { border-color: var(--green); background: var(--green); position: relative; }
+  .row.done .mark::after { content: "✓"; position: absolute; inset: 0; color: #fff; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+  .row .body { flex: 1; min-width: 0; }
+  .row .body b { display: block; font-size: 14px; font-weight: 700; line-height: 1.45; }
+  .row .body small { display: block; color: var(--ink-2); font-size: 12px; margin-top: 1px; }
+  .row .body small .m { font-family: var(--mono); }
+  .lay {
+    flex: none; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em;
+    color: var(--ink-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 7px;
+  }
+  .acts { flex: none; display: flex; gap: 8px; }
+  .btn {
+    font-size: 12.5px; font-weight: 700; padding: 5px 14px; border-radius: 6px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; font-family: var(--sans);
+  }
+  .btn:hover { border-color: var(--ink-2); }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .btn.primary:hover { background: #343a41; }
+  .btn.link { border: none; background: none; color: var(--ink-2); font-weight: 400; text-decoration: underline; text-underline-offset: 3px; }
+
+  /* 已处理：沉降划线 */
+  .row.done { opacity: 0.55; }
+  .row.done .body b { text-decoration: line-through; text-decoration-thickness: 1px; font-weight: 400; }
+  .row.done .acts { display: none; }
+  .row.done .when { font-family: var(--mono); font-size: 11.5px; color: var(--green); font-weight: 700; }
+
+  /* 失败行 */
+  .row.fail .mark { border-radius: 50%; border-color: var(--amber); background: var(--amber-bg); }
+  .row.fail .body b::after { content: "失败 · 修复循环 3/3 轮"; font-size: 11px; font-weight: 700; color: var(--amber); margin-left: 10px; }
+
+  /* 空闲组折叠成一行 */
+  .idle { display: flex; gap: 10px; align-items: baseline; padding: 12px 4px; border-bottom: 1px solid var(--line); color: var(--ink-2); font-size: 13px; }
+  .idle b { font-family: var(--mono); color: var(--ink); }
+
+  footer { margin-top: 30px; font-size: 12px; color: var(--ink-3); display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+  <header class="top">
+    <span class="brand"><i>▚</i>TestForge · 今日清单</span>
+    <span class="stats">
+      <span>用例 <b>163</b></span><span>通过率 <b>51.2%</b>（43 次）</span><span>Wiki <b>795</b> 页</span>
+    </span>
+    <span class="sys">服务 <b>8/8 全绿</b> · MONO · 09:30</span>
+  </header>
+
+  <div class="wrap">
+    <div class="today">
+      <h1>今日待处理 <b>61</b> 件</h1>
+      <span class="sub">按动线排序 · 处理完自动沉降 · 快捷键 J/K 逐条过</span>
+    </div>
+    <div class="chips">
+      <span class="chip">39 条草稿待人审</span>
+      <span class="chip">21 个缺陷未关闭</span>
+      <span class="chip">1 条需求待看</span>
+      <span class="chip quiet">队列空闲 · 0 运行中</span>
+      <span class="chip quiet">0 条待回归</span>
+    </div>
+
+    <section>
+      <div class="sec-h"><h2>人审草稿用例</h2><span class="n">39</span><span class="hint">读一遍断言，通过入库 / 打回重生成</span></div>
+      <div class="row">
+        <span class="mark"></span><span class="lay">UT</span>
+        <span class="body"><b>verify_password：连续错误 5 次触发锁定</b><small>verify_password · 11 断言 · 覆盖 30.0% · 生成于 09:12</small></span>
+        <span class="acts"><button class="btn link">预览</button><button class="btn">打回</button><button class="btn primary">通过入库</button></span>
+      </div>
+      <div class="row">
+        <span class="mark"></span><span class="lay">UT</span>
+        <span class="body"><b>validate_remote_url：拒绝内网地址与非常规协议</b><small>validate_remote_url · 10 断言 · 覆盖 28.6% · 生成于 09:12</small></span>
+        <span class="acts"><button class="btn link">预览</button><button class="btn">打回</button><button class="btn primary">通过入库</button></span>
+      </div>
+      <div class="row">
+        <span class="mark"></span><span class="lay">UT</span>
+        <span class="body"><b>tokenize：空串与连续分隔符的边界</b><small>tokenize · 9 断言 · 覆盖 10.6% · 生成于 09:11</small></span>
+        <span class="acts"><button class="btn link">预览</button><button class="btn">打回</button><button class="btn primary">通过入库</button></span>
+      </div>
+      <div class="row done">
+        <span class="mark"></span><span class="lay">UT</span>
+        <span class="body"><b>short_code：长度 8 与自定义字母表</b><small>short_code · 9 断言</small></span>
+        <span class="when">09:38 通过入库</span>
+      </div>
+      <div class="row done">
+        <span class="mark"></span><span class="lay">UT</span>
+        <span class="body"><b>verify_password：空口令直接拒绝</b><small>verify_password · 4 断言</small></span>
+        <span class="when">09:36 通过入库</span>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-h"><h2>跟进失败与缺陷</h2><span class="n">21</span><span class="hint">失败自动建档 · 全链路可追溯</span></div>
+      <div class="row fail">
+        <span class="mark"></span><span class="lay">API</span>
+        <span class="body"><b>web-api 下单链路 · 第 6 例（库存校验）</b><small>5/6 例通过 · 修复循环 3 轮未过 · traceID 9f2c…e81</small></span>
+        <span class="acts"><button class="btn link">执行日志</button><button class="btn">派单修复</button><button class="btn primary">去处理</button></span>
+      </div>
+      <div class="idle"><span>其余 20 个缺陷按服务分组在 <b>缺陷</b> 页跟进，无新失败。</span></div>
+    </section>
+
+    <section>
+      <div class="sec-h"><h2>需求与队列</h2><span class="hint">当前空闲</span></div>
+      <div class="idle"><span>需求 <b>1</b> 条已全部处理 · 任务队列空闲 · 无待回归用例</span></div>
+    </section>
+
+    <footer><span>数据实时 · 15 秒自动刷新</span><span>处理记录全链路追溯 · traceID 账本</span></footer>
+  </div>
+</body>
+</html>

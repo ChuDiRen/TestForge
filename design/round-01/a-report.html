@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TestForge · 质量检验日报</title>
+<style>
+  :root {
+    --paper: #f7f4ec;
+    --paper-deep: #efeadd;
+    --ink: #211d14;
+    --ink-2: #6f695a;
+    --ink-3: #9b9482;
+    --rule: #d9d2bd;
+    --rule-hard: #211d14;
+    --seal: #b23a26;
+    --seal-soft: rgba(178, 58, 38, 0.08);
+    --ok: #3d6b35;
+    --sans: "Microsoft YaHei", "PingFang SC", sans-serif;
+    --serif: "SimSun", "NSimSun", serif;
+    --kai: "KaiTi", "STKaiti", serif;
+    --mono: Consolas, "Courier New", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 纸面细横纹 */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; pointer-events: none; z-index: 9;
+    background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(33,29,20,0.012) 3px 4px);
+  }
+  .sheet { max-width: 1060px; margin: 0 auto; padding: 26px 64px 40px; position: relative; }
+
+  /* ============ 报头 ============ */
+  .mast-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-2);
+    letter-spacing: 0.08em; padding-bottom: 6px;
+  }
+  .masthead { text-align: center; padding: 10px 0 14px; }
+  .masthead .kicker { font-size: 11px; letter-spacing: 0.9em; text-indent: 0.9em; color: var(--ink-2); }
+  .masthead h1 {
+    font-family: var(--serif); font-weight: 700; font-size: 46px; letter-spacing: 0.06em;
+    line-height: 1.25; margin-top: 2px;
+  }
+  .masthead h1 .en { font-family: var(--serif); }
+  .masthead .issue { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); margin-top: 6px; letter-spacing: 0.12em; }
+  .rule-double { border-top: 3px solid var(--rule-hard); border-bottom: 1px solid var(--rule-hard); height: 6px; }
+  .rule-thin { border-top: 1px solid var(--rule); }
+
+  /* ============ 导航 ============ */
+  nav {
+    display: flex; justify-content: center; gap: 0;
+    padding: 8px 0; border-bottom: 1px solid var(--rule);
+    font-size: 12.5px; letter-spacing: 0.2em; color: var(--ink-2);
+  }
+  nav a { color: inherit; text-decoration: none; padding: 0 18px; position: relative; }
+  nav a + a::before { content: "·"; position: absolute; left: -4px; color: var(--ink-3); }
+  nav a.on { color: var(--ink); font-weight: 700; }
+  nav a.on::after {
+    content: ""; position: absolute; left: 16px; right: 16px; bottom: -9px;
+    border-bottom: 2px solid var(--seal);
+  }
+
+  /* ============ 批注栏 ============ */
+  .annotations {
+    margin-top: 22px; border: 1px solid var(--rule-hard);
+    display: flex; align-items: stretch;
+  }
+  .annotations .tag {
+    writing-mode: vertical-rl; text-orientation: upright;
+    font-family: var(--kai); font-size: 14px; letter-spacing: 0.35em;
+    padding: 10px 7px; border-right: 1px solid var(--rule-hard);
+    background: var(--paper-deep); color: var(--seal); font-weight: 700;
+  }
+  .annotations .list { flex: 1; display: flex; }
+  .annotations .item {
+    flex: 1; padding: 12px 16px 10px; display: flex; align-items: center; gap: 12px;
+  }
+  .annotations .item + .item { border-left: 1px dashed var(--rule); }
+  .ring {
+    flex: none; width: 34px; height: 34px; border: 1.6px solid var(--seal); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 14.5px; font-weight: 700; color: var(--seal);
+    transform: rotate(-4deg); background: var(--seal-soft);
+  }
+  .ring.quiet { border-color: var(--ink-3); color: var(--ink-2); background: none; }
+  .annotations b { display: block; font-size: 13px; line-height: 1.4; }
+  .annotations small { display: block; font-size: 11px; color: var(--ink-2); line-height: 1.5; }
+
+  /* ============ 章节 ============ */
+  section { margin-top: 30px; }
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  .sec-head h2 { font-family: var(--serif); font-weight: 700; font-size: 20px; letter-spacing: 0.1em; }
+  .sec-head .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.08em; }
+
+  /* 核心指标：台账式行 */
+  .ledger { border-top: 2px solid var(--rule-hard); }
+  .ledger .row {
+    display: flex; align-items: baseline; gap: 18px;
+    padding: 13px 2px 11px; border-bottom: 1px solid var(--rule);
+  }
+  .ledger .no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); width: 26px; flex: none; }
+  .ledger .name { font-size: 14.5px; font-weight: 700; width: 150px; flex: none; letter-spacing: 0.05em; }
+  .ledger .desc { flex: 1; font-size: 12px; color: var(--ink-2); }
+  .ledger .val {
+    font-family: var(--mono); font-size: 27px; font-weight: 700; letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .ledger .val small { font-size: 12px; color: var(--ink-2); font-weight: 400; margin-left: 4px; letter-spacing: 0; }
+  .ledger .val.alarm { color: var(--seal); }
+  .ledger .delta { font-family: var(--mono); font-size: 11px; color: var(--ok); width: 74px; text-align: right; flex: none; }
+
+  /* 流水线：条款式四步 */
+  .clauses { display: flex; border: 1px solid var(--rule-hard); }
+  .clauses .clause { flex: 1; padding: 14px 16px 12px; position: relative; }
+  .clauses .clause + .clause { border-left: 1px solid var(--rule); }
+  .clauses .no { font-family: var(--serif); font-weight: 700; font-size: 13px; color: var(--seal); letter-spacing: 0.1em; }
+  .clauses b { display: block; font-size: 14px; margin: 3px 0 2px; letter-spacing: 0.04em; }
+  .clauses small { font-size: 11.5px; color: var(--ink-2); line-height: 1.55; display: block; }
+  .clauses .live {
+    position: absolute; top: 12px; right: 12px;
+    font-family: var(--mono); font-size: 10.5px; color: var(--seal);
+  }
+  .clauses .live i {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--seal); margin-right: 5px; animation: blink 1.6s infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  /* 质量关卡：检验印章 */
+  .gates { display: flex; gap: 26px; padding: 16px 6px 6px; }
+  .gate { text-align: center; position: relative; }
+  .stamp {
+    width: 58px; height: 58px; margin: 0 auto; border-radius: 50%;
+    border: 2px solid var(--seal); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; color: var(--seal);
+    font-family: var(--mono); transform: rotate(-5deg); position: relative;
+    box-shadow: inset 0 0 0 1px var(--seal-soft);
+  }
+  .stamp::after {
+    content: ""; position: absolute; inset: 3px; border: 1px solid rgba(178,58,38,0.45); border-radius: 50%;
+  }
+  .stamp .g { font-size: 15px; font-weight: 700; line-height: 1.1; }
+  .stamp .s { font-size: 13px; line-height: 1; }
+  .stamp.void { border-color: var(--ink-3); color: var(--ink-3); box-shadow: none; }
+  .stamp.void::after { border-color: rgba(155,148,130,0.35); }
+  .gate span { display: block; font-size: 12px; margin-top: 9px; letter-spacing: 0.08em; }
+  .gate em { font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+
+  /* 最近运行：账目表 */
+  table.runs { width: 100%; border-collapse: collapse; border-top: 2px solid var(--rule-hard); }
+  table.runs th {
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.15em; color: var(--ink-2);
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule-hard);
+  }
+  table.runs td { padding: 10px; border-bottom: 1px solid var(--rule); font-size: 12.5px; vertical-align: baseline; }
+  table.runs td.id { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  table.runs td.case b { font-size: 13px; font-weight: 700; display: block; line-height: 1.45; }
+  table.runs td.case small { color: var(--ink-2); font-size: 11.5px; }
+  table.runs td.layer { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-2); }
+  table.runs td.res { font-weight: 700; letter-spacing: 0.2em; }
+  table.runs td.res.pass { color: var(--ok); }
+  table.runs td.res.fail { color: var(--seal); }
+  table.runs td.res.fail small { display: block; font-weight: 400; letter-spacing: 0; color: var(--ink-2); font-size: 11px; }
+  table.runs td.dur { font-family: var(--mono); font-size: 12px; text-align: right; }
+
+  /* 页边竖排批语 */
+  .margin-note {
+    position: absolute; top: 260px; right: 18px;
+    writing-mode: vertical-rl; font-family: var(--kai); font-size: 15px;
+    letter-spacing: 0.5em; color: rgba(178, 58, 38, 0.55); font-weight: 700;
+  }
+  footer {
+    margin-top: 34px; padding-top: 10px; border-top: 1px solid var(--rule-hard);
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.1em;
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="margin-note">质量即准出 · 不合格不出厂</div>
+
+  <div class="mast-top">
+    <span>TESTFORGE QUALITY INSPECTION REPORT</span>
+    <span>编号 QIR-2026-081 · 密级 内部</span>
+  </div>
+  <header class="masthead">
+    <div class="kicker">测试锻造平台</div>
+    <h1>质量检验<span class="en">日报</span></h1>
+    <div class="issue">2026 年 10 月 07 日 · 第 081 期 · 数据截至 09:30 · 15 秒自动复检</div>
+  </header>
+  <div class="rule-double"></div>
+
+  <nav>
+    <a class="on" href="#">总览</a><a href="#">AI 助手</a><a href="#">知识资产</a><a href="#">测试流程</a><a href="#">质量运营</a><a href="#">系统管理</a>
+  </nav>
+
+  <div class="annotations">
+    <div class="tag">批注待办</div>
+    <div class="list">
+      <div class="item"><span class="ring">21</span><span><b>未关闭缺陷</b><small>执行失败自动建档 · 跟进修复</small></span></div>
+      <div class="item"><span class="ring">39</span><span><b>草稿用例</b><small>确认后入库</small></span></div>
+      <div class="item"><span class="ring">1</span><span><b>需求待处理</b><small>待人审 / 规则冲突</small></span></div>
+      <div class="item"><span class="ring quiet">0</span><span><b>运行中任务</b><small>生成与回归进度</small></span></div>
+      <div class="item"><span class="ring quiet">0</span><span><b>待回归用例</b><small>源码变更已失效</small></span></div>
+    </div>
+  </div>
+
+  <section>
+    <div class="sec-head"><h2>一、核心指标</h2><span class="meta">SUMMARY · 全部来自真实接口</span></div>
+    <div class="ledger">
+      <div class="row">
+        <span class="no">01</span><span class="name">用例总数</span>
+        <span class="desc">四层在库：UT 355 · FN 66 · API 12 · E2E 2，另有草稿 39 条待确认</span>
+        <span class="val">163<small>条</small></span><span class="delta">1 库在册</span>
+      </div>
+      <div class="row">
+        <span class="no">02</span><span class="name">执行通过率</span>
+        <span class="desc">累计 43 次沙箱执行，失败自动建缺陷并进入修复循环</span>
+        <span class="val">51.2<small>%</small></span><span class="delta">43 次执行</span>
+      </div>
+      <div class="row">
+        <span class="no">03</span><span class="name">需求覆盖</span>
+        <span class="desc">用户故事 + 验收条件录入，AI 先评可测性分</span>
+        <span class="val">1<small>条 / 待处理 0</small></span><span class="delta">—</span>
+      </div>
+      <div class="row">
+        <span class="no">04</span><span class="name">开放缺陷</span>
+        <span class="desc">执行失败自动建档，与用例、运行记录全链路追溯</span>
+        <span class="val alarm">21<small>个未关闭</small></span><span class="delta">自动建档</span>
+      </div>
+      <div class="row">
+        <span class="no">05</span><span class="name">知识资产</span>
+        <span class="desc">仓库 1 座已索引 · Wiki 795 页（过期 0）· 契约 2 份</span>
+        <span class="val">1<small>库 / 795 页</small></span><span class="delta">—</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>二、生成流水线</h2><span class="meta">PIPELINE · 四步串成第一条用例</span></div>
+    <div class="clauses">
+      <div class="clause"><span class="no">（一）</span><b>接入仓库</b><small>填远程 Git URL，自动克隆、多语言索引并编译 Wiki</small></div>
+      <div class="clause"><span class="no">（二）</span><b>录入需求</b><small>用户故事加验收条件，AI 先评可测性分</small></div>
+      <div class="clause"><span class="no">（三）</span><b>生成用例</b><small>选函数生成单测，或按模块批量入队</small><span class="live" style="color:var(--ink-3)"><i style="background:var(--ink-3);animation:none"></i>队列空闲</span></div>
+      <div class="clause"><span class="no">（四）</span><b>执行与回归</b><small>真实沙箱执行，失败自动建缺陷</small></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>三、质量关卡</h2><span class="meta">GATES G0–G5 · 逐关签章放行</span></div>
+    <div class="gates">
+      <div class="gate"><div class="stamp"><span class="g">G0</span><span class="s">✓</span></div><span>冒烟</span><em>PASS</em></div>
+      <div class="gate"><div class="stamp"><span class="g">G1</span><span class="s">✓</span></div><span>单测</span><em>PASS</em></div>
+      <div class="gate"><div class="stamp void"><span class="g">G2</span></div><span>接口</span><em>复检中</em></div>
+      <div class="gate"><div class="stamp void"><span class="g">G3</span></div><span>功能</span><em>排队</em></div>
+      <div class="gate"><div class="stamp"><span class="g">G4</span><span class="s">✓</span></div><span>E2E</span><em>PASS</em></div>
+      <div class="gate"><div class="stamp void"><span class="g">G5</span></div><span>准出</span><em>待 G2/G3</em></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>四、最近执行</h2><span class="meta">RECENT RUNS · 沙箱实测</span></div>
+    <table class="runs">
+      <thead><tr><th style="width:70px">编号</th><th>用例</th><th style="width:70px">层</th><th style="width:120px">结果</th><th style="width:80px;text-align:right">耗时</th></tr></thead>
+      <tbody>
+        <tr><td class="id">R-0043</td><td class="case"><b>web-api 下单链路契约用例</b><small>OpenAPI 实时抓取 · 修复循环 3 轮 · 5/6 例通过</small></td><td class="layer">API</td><td class="res fail">失 败<small>已自动建档 · 待复检</small></td><td class="dur">15s</td></tr>
+        <tr><td class="id">R-0042</td><td class="case"><b>web-e2e 全流程回归</b><small>真实网关回放 · 2/2 例通过</small></td><td class="layer">E2E</td><td class="res pass">通 过</td><td class="dur">4s</td></tr>
+        <tr><td class="id">R-0041</td><td class="case"><b>verify_password 口令校验</b><small>函数级管线 · 11/11 例 · 覆盖 30.0%</small></td><td class="layer">FN</td><td class="res pass">通 过</td><td class="dur">1s</td></tr>
+        <tr><td class="id">R-0040</td><td class="case"><b>tokenize 分词器</b><small>函数级管线 · 9/9 例 · 覆盖 10.6%</small></td><td class="layer">FN</td><td class="res pass">通 过</td><td class="dur">1s</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    <span>TESTFORGE 质量运营 · 本报告由 AI 生成、经人审签发</span>
+    <span>TRACE-QIR-081 · 第 1 页 / 共 1 页</span>
+  </footer>
+</div>
+</body>
+</html>

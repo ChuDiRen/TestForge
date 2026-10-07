@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TestForge 风格 A · 纸白高对比</title>
+<style>
+  :root {
+    --bg: #fafafa; --panel: #ffffff;
+    --line: #eaeaea; --line2: #f2f2f2;
+    --ink: #111111; --ink-2: #666666; --ink-3: #999999;
+    --acc: #0070f3; --ok: #15803d; --bad: #dc2626; --warn: #b45309;
+    --hover: #f5f5f5; --radius: 6px;
+    --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: Consolas, "Courier New", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 13.5px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+
+  /* —— 侧栏：白底细线，无渐变 —— */
+  .sider { background: var(--panel); border-right: 1px solid var(--line); padding: 18px 12px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 2px 8px 16px; }
+  .brand .mark { width: 30px; height: 30px; background: var(--ink); color: #fff; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 12px; font-weight: 700; }
+  .brand .name { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; }
+  .brand .sub { font-size: 10.5px; color: var(--ink-3); line-height: 1.4; }
+  nav .item, nav .sub { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: var(--radius); color: var(--ink-2); text-decoration: none; font-size: 13px; margin-bottom: 1px; }
+  nav .item:hover, nav .sub:hover { background: var(--hover); color: var(--ink); }
+  nav .item.on { background: var(--hover); color: var(--ink); font-weight: 650; }
+  nav .item .g { font-style: normal; color: var(--ink-3); font-size: 12px; width: 15px; text-align: center; }
+  nav .group { font-size: 11px; letter-spacing: 0.08em; color: var(--ink-3); padding: 14px 10px 5px; }
+  nav .sub { padding-left: 34px; font-size: 12.8px; }
+
+  /* —— 主区 —— */
+  .main { padding: 22px 28px 40px; max-width: 1160px; }
+  .pagehead { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+  .pagehead h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+  .pagehead p { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+  .userchip { font-size: 12.5px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; background: var(--panel); }
+  .userchip b { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: var(--acc); color: #fff; text-align: center; line-height: 18px; font-size: 11px; margin-right: 6px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .card-h { display: flex; align-items: baseline; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--line2); }
+  .card-h h2 { font-size: 14px; font-weight: 650; }
+  .card-h .extra { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+  .card-h .extra.green { color: var(--ok); font-weight: 650; }
+  .card-b { padding: 14px 18px; }
+
+  .todochip { display: inline-flex; align-items: center; gap: 9px; border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 7px 13px; font-size: 13px; color: var(--ink); cursor: pointer; font-family: var(--sans); }
+  .todochip:hover { border-color: var(--ink-3); }
+  .todochip b { font-family: var(--mono); font-size: 12.5px; background: #fdecea; color: var(--bad); border-radius: 4px; padding: 1px 7px; }
+  .todochip span { color: var(--ink-3); font-size: 12px; }
+
+  /* 指标卡：图标方格退成灰阶 */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 14px; }
+  .stat { display: flex; gap: 13px; padding: 16px; }
+  .s-icon { flex: none; width: 38px; height: 38px; border-radius: var(--radius); background: var(--hover); color: var(--ink-2); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .s-l { display: block; font-size: 12.5px; color: var(--ink-2); }
+  .s-v { display: block; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; font-variant-numeric: tabular-nums; }
+  .s-v small { font-size: 13px; font-weight: 400; color: var(--ink-3); margin-left: 2px; }
+  .s-d { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 12px; font-weight: 650; color: var(--ink-2); padding: 9px 18px; border-bottom: 1px solid var(--line); }
+  td { padding: 9px 18px; border-bottom: 1px solid var(--line2); }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--hover); }
+  td.m { font-family: var(--mono); font-size: 12.5px; }
+  .badge { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 1px 8px; border-radius: 999px; }
+  .badge.up { background: #e8f6ee; color: var(--ok); }
+  .badge.ok { background: #e8f6ee; color: var(--ok); }
+  .mode { font-size: 11.5px; color: var(--acc); border: 1px solid #d3e6fb; background: #f0f7ff; border-radius: 4px; padding: 1px 8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sider">
+    <div class="brand"><div class="mark">TF</div><div><div class="name">TestForge</div><div class="sub">AI 测试用例生成平台</div></div></div>
+    <nav>
+      <a class="item" href="#"><span class="g">◇</span>AI 助手</a>
+      <a class="item on" href="#"><span class="g">◈</span>总览</a>
+      <div class="group">知识资产</div>
+      <a class="sub" href="#">仓库接入</a><a class="sub" href="#">Wiki</a><a class="sub" href="#">知识图谱</a><a class="sub" href="#">服务地图</a>
+      <div class="group">测试流程</div>
+      <a class="sub" href="#">需求</a><a class="sub" href="#">测试计划</a><a class="sub" href="#">生成工作台</a><a class="sub" href="#">任务队列</a>
+      <div class="group">质量运营</div>
+      <a class="sub" href="#">用例库</a><a class="sub" href="#">执行运行</a><a class="sub" href="#">缺陷</a><a class="sub" href="#">质量</a><a class="sub" href="#">日志</a>
+      <div class="group">系统管理</div>
+      <a class="sub" href="#">用户管理</a>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="pagehead">
+      <div><h1>仪表盘</h1><p>平台运行全景 · 数据全部来自真实接口，15s 自动刷新服务状态</p></div>
+      <span class="userchip"><b>A</b>admin 管理员</span>
+    </div>
+
+    <section class="card" style="margin-bottom:14px">
+      <div class="card-h"><h2>待办</h2><span class="extra">点击直达对应页面</span></div>
+      <div class="card-b"><button class="todochip"><b>21</b>未关闭缺陷<span>跟进修复</span></button></div>
+    </section>
+
+    <section class="stats">
+      <div class="card stat"><div class="s-icon">◈</div><div class="s-body"><span class="s-l">接入仓库</span><span class="s-v">1<small>个</small></span></div></div>
+      <div class="card stat"><div class="s-icon">▤</div><div class="s-body"><span class="s-l">用例总数</span><span class="s-v">163<small>条</small></span><span class="s-d">单测/接口/E2E 分层管理 · 当前 369 条在库</span></div></div>
+      <div class="card stat"><div class="s-icon">✓</div><div class="s-body"><span class="s-l">执行通过率</span><span class="s-v">51.2<small>%</small></span><span class="s-d">累计执行 43 次（真实沙箱）</span></div></div>
+      <div class="card stat"><div class="s-icon">▦</div><div class="s-body"><span class="s-l">Wiki 健康</span><span class="s-v">795/795<small>页</small></span><span class="s-d">知识全部新鲜</span></div></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>服务状态</h2><span class="mode">单体模式 · 进程内直调</span><span class="extra green">全部 GREEN</span></div>
+      <table>
+        <thead><tr><th>模块</th><th>部署形态</th><th>状态</th><th>DB</th><th>版本</th><th>错误</th></tr></thead>
+        <tbody>
+          <tr><td class="m">repo-svc</td><td>同步进程直调</td><td><span class="badge up">UP</span></td><td><span class="badge ok">OK</span></td><td class="m">0.1.0</td><td>-</td></tr>
+          <tr><td class="m">wiki-builder</td><td>同步进程直调</td><td><span class="badge up">UP</span></td><td><span class="badge ok">OK</span></td><td class="m">0.1.0</td><td>-</td></tr>
+          <tr><td class="m">contract-registry</td><td>同步进程直调</td><td><span class="badge up">UP</span></td><td><span class="badge ok">OK</span></td><td class="m">0.1.0</td><td>-</td></tr>
+          <tr><td class="m">req-svc</td><td>同步进程直调</td><td><span class="badge up">UP</span></td><td><span class="badge ok">OK</span></td><td class="m">0.1.0</td><td>-</td></tr>
+          <tr><td class="m">testgen-svc</td><td>同步进程直调</td><td><span class="badge up">UP</span></td><td><span class="badge ok">OK</span></td><td class="m">0.1.0</td><td>-</td></tr>
+          <tr><td class="m">runner-svc</td><td>同步进程直调</td><td><span class="badge up">UP</span></td><td><span class="badge ok">OK</span></td><td class="m">0.1.0</td><td>-</td></tr>
+          <tr><td class="m">trace-svc</td><td>同步进程直调</td><td><span class="badge up">UP</span></td><td><span class="badge ok">OK</span></td><td class="m">0.1.0</td><td>-</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</div>
+</body>
+</html>
