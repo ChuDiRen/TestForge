@@ -61,6 +61,20 @@ def _tool_defs() -> list[dict]:
             },
         },
         {
+            "name": "trace_path",
+            "description": "调用链追踪：查两个函数之间的最短调用路径（caller→callee BFS 逐跳返回），回答『A 是怎么一步步调到 B 的』",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "src": {"type": "string", "description": "起点函数名"},
+                    "dst": {"type": "string", "description": "终点函数名"},
+                    "repo_id": {"type": "integer"},
+                    "max_depth": {"type": "integer", "description": "路径跳数上限，默认 10"},
+                },
+                "required": ["src", "dst"],
+            },
+        },
+        {
             "name": "search_cases",
             "description": "用例库混合检索（向量+全文 RRF 融合），返回相似用例及元数据",
             "inputSchema": {
@@ -147,6 +161,23 @@ def _call_tool(name: str, args: dict) -> str:
             {"function": args["function"], "repo_id": repo_id, "affected": impact_of(repo_id, args["function"], int(args.get("depth") or 0))},
             ensure_ascii=False,
         )
+
+    if name == "trace_path":
+        from services.repo_svc.impact import trace_path
+        from services.shared.db import get_session
+        from services.shared.models import Functions
+
+        repo_id = int(args.get("repo_id") or 0)
+        if not repo_id:
+            with get_session() as sess:
+                row = sess.query(Functions).filter(Functions.name == args["src"]).first()
+                repo_id = row.repo_id if row else 0
+        if not repo_id:
+            return json.dumps({"error": "起点函数未索引（repo_id 未知）"}, ensure_ascii=False)
+        res = trace_path(repo_id, args["src"], args["dst"], int(args.get("max_depth") or 10))
+        if res is None:
+            return json.dumps({"error": "起点或终点函数未索引"}, ensure_ascii=False)
+        return json.dumps(res, ensure_ascii=False)
 
     if name == "search_cases":
         from services.shared.rag import similar_cases

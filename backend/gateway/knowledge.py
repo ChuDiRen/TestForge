@@ -85,6 +85,24 @@ def repo_clusters(repo_id: int):
     return ok(clusters)
 
 
+@app.get("/api/functions/trace")
+def function_trace(src: str, dst: str, repo_id: int = 0, max_depth: int = 10):
+    """两符号最短调用路径（GitNexus trace 对齐）：caller→callee BFS 逐跳返回。"""
+    from services.repo_svc.impact import trace_path
+
+    rid = repo_id
+    if not rid:
+        with get_session() as sess:
+            row = sess.query(Functions).filter(Functions.name == src).order_by(Functions.id.desc()).first()
+            rid = row.repo_id if row else 0
+    if not rid:
+        raise ApiError(404, "起点函数未索引", 404)
+    res = trace_path(rid, src, dst, max_depth)
+    if res is None:
+        raise ApiError(404, "起点或终点函数未索引", 404)
+    return ok(res)
+
+
 @app.get("/api/functions/{function_name}/impact")
 def function_impact(function_name: str, repo_id: int = 0, depth: int = 0):
     """变更影响面：受该函数变更影响的调用方集合（深度+置信度）。repo_id 缺省自动解析。"""

@@ -171,6 +171,36 @@ def _tool_impact(repo_id: int) -> Callable[[dict], dict]:
     return run
 
 
+def _tool_trace(repo_id: int) -> Callable[[dict], dict]:
+    def run(args: dict) -> dict:
+        src = str(args.get("src") or "").strip()
+        dst = str(args.get("dst") or "").strip()
+        if not src or not dst:
+            raise ValueError("src / dst 参数必填")
+        from services.repo_svc.impact import trace_path
+        from services.shared.db import get_session as _gs
+        from services.shared.models import Functions as _Fn
+
+        rid = repo_id
+        if not rid:
+            with _gs() as s:
+                row = s.query(_Fn).filter(_Fn.name == src).order_by(_Fn.id.desc()).first()
+                rid = row.repo_id if row else 0
+        res = trace_path(rid, src, dst) if rid else None
+        if res is None:
+            return {"error": f"起点或终点未索引（repo={rid or '未知'}）", "hint": "先确认函数名，可用 search 检索"}
+        if not res["found"]:
+            return {"found": False, "src": src, "dst": dst, "conclusion": f"{src} 到 {dst} 在调用图上不存在路径（深度≤10）"}
+        return {
+            "found": True,
+            "length": res["length"],
+            "path": " → ".join([res["hops"][0]["from"]] + [h["to"] for h in res["hops"]]) if res["hops"] else src,
+            "hops": res["hops"],
+        }
+
+    return run
+
+
 def _tool_overview(repo_id: int) -> Callable[[dict], dict]:
     def run(_args: dict) -> dict:
         with get_session() as sess:
@@ -406,6 +436,21 @@ TOOL_SPECS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "trace",
+            "description": "调用链追踪：查两个函数之间是否存在调用路径及最短路径（逐跳列出 A→…→B）。回答『A 是怎么一步步调到 B 的』『改了 A 会不会传导到 B』。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "src": {"type": "string", "description": "起点函数名"},
+                    "dst": {"type": "string", "description": "终点函数名"},
+                },
+                "required": ["src", "dst"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "cases",
             "description": "查测试用例：按关键词/目标函数搜用例库（层别、状态、被测函数）。",
             "parameters": {
@@ -472,6 +517,7 @@ def _tools_for(repo_id: int, role: str = "admin") -> tuple[dict[str, Callable[[d
         "explore": _tool_explore(repo_id),
         "read": _tool_read(repo_id),
         "impact": _tool_impact(repo_id),
+        "trace": _tool_trace(repo_id),
         "overview": _tool_overview(repo_id),
         "cases": _tool_cases(repo_id),
         "generate_case": _tool_generate_case(repo_id, role),

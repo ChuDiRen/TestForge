@@ -641,3 +641,18 @@ html[data-theme="dark"] .md-body .hljs-attr, html[data-theme="dark"] .md-body .h
   line-height: 1.65;
   white-space: pre-wrap;
 }
+
+/* ---------------- 服务调用链路（服务地图）节点：面板底 + 发丝线，亮暗自动跟随 ---------------- */
+.tf-sm-node {
+  fill: var(--tf-panel);
+  stroke: var(--tf-line-strong);
+}
+.tf-sm-node-name {
+  fill: var(--tf-ink);
+}
+.tf-sm-node-sub {
+  fill: var(--tf-ink-3);
+}
+.tf-sm-node-breaking {
+  fill: var(--tf-bad);
+}

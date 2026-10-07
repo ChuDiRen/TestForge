@@ -318,6 +318,48 @@ def wiki_health():
         return ok([{"repo_id": rid, "pages": total, "stale": int(stale or 0)} for rid, total, stale in rows])
 
 
+@app.get("/api/wiki/lint")
+def wiki_lint(repo_id: int):
+    """Wiki 健康体检（OpenWiki lint 移植·确定性规则版）：stale/超短页/重复标题/孤儿页/模块覆盖缺口。"""
+    from services.shared.models import Functions, WikiPages
+    from services.wiki_builder.analytics import lint_repo, related_map
+
+    with get_session() as sess:
+        rows = sess.query(WikiPages).filter(WikiPages.repo_id == repo_id).all()
+        modules = [m for (m,) in sess.query(Functions.module).filter(Functions.repo_id == repo_id).distinct().all()]
+    pages = [
+        {"id": w.id, "title": w.title, "level": w.level, "module": w.module, "stale": w.stale, "len": len(w.content_md or "")}
+        for w in rows
+    ]
+    related = related_map([{"id": w.id, "title": w.title, "text": f"{w.title}\n{(w.content_md or '')[:2000]}"} for w in rows])
+    return ok(lint_repo(pages, modules, related))
+
+
+@app.get("/api/wiki/{page_id}/related")
+def wiki_related(page_id: int, limit: int = 6):
+    """相关页面（OpenWiki TF-IDF 互链移植）：同仓库页面按余弦相似度 top-K 推荐。"""
+    from services.shared.models import WikiPages
+    from services.wiki_builder.analytics import related_map
+
+    with get_session() as sess:
+        w = sess.get(WikiPages, page_id)
+        if w is None:
+            raise ApiError(404, "页面不存在", 404)
+        rows = sess.query(WikiPages).filter(WikiPages.repo_id == w.repo_id).all()
+    # 自身必须参与互链计算，再从结果里剔除，否则永远查不到邻居
+    related = related_map(
+        [{"id": x.id, "title": x.title, "text": f"{x.title}\n{(x.content_md or '')[:2000]}"} for x in rows],
+        top_k=limit + 1,
+    )
+    return ok(
+        [
+            {"id": n["id"], "title": n["title"], "score": n["score"]}
+            for n in related.get(page_id, [])
+            if n["id"] != page_id
+        ][:limit]
+    )
+
+
 @app.get("/api/wiki/{page_id}")
 def get_wiki_page(page_id: int):
     from services.shared.models import WikiPages

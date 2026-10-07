@@ -160,3 +160,60 @@ def top_impact(repo_id: int, n: int = 20) -> list[dict]:
             }
             for r in rows
         ]
+
+
+def trace_path(repo_id: int, src: str, dst: str, max_depth: int = 10) -> dict | None:
+    """两符号间最短调用路径（caller→callee BFS，对齐 GitNexus trace 工具）。
+
+    返回 {found, hops:[{from,to,depth}], length}；起点或终点未索引返回 None。
+    """
+    with get_session() as sess:
+        rows = (
+            sess.query(Functions.id, Functions.name)
+            .filter(Functions.repo_id == repo_id, Functions.name.in_([src, dst]))
+            .all()
+        )
+        sid = next((i for i, n in rows if n == src), None)
+        did = next((i for i, n in rows if n == dst), None)
+        if sid is None or did is None:
+            return None
+        id_name = {i: n for i, n in sess.query(Functions.id, Functions.name).filter(Functions.repo_id == repo_id).all()}
+        adj: dict[int, list[int]] = {}
+        for e in sess.query(CallEdges).all():
+            if e.caller_id in id_name and e.callee_id in id_name:
+                adj.setdefault(e.caller_id, []).append(e.callee_id)
+
+        if sid == did:
+            return {"from": src, "to": dst, "found": True, "length": 0, "hops": []}
+        parent: dict[int, int] = {}
+        seen = {sid}
+        q = deque([sid])
+        found = False
+        while q and not found:
+            cur = q.popleft()
+            for nxt in adj.get(cur, ()):
+                if nxt in seen:
+                    continue
+                seen.add(nxt)
+                parent[nxt] = cur
+                if nxt == did:
+                    found = True
+                    break
+                if len(seen) >= len(id_name) or len(parent) > 200_000:
+                    break
+                q.append(nxt)
+                if len(seen) > 500_000:
+                    break
+        if not found:
+            return {"from": src, "to": dst, "found": False, "length": -1, "hops": []}
+        path = [did]
+        while path[-1] != sid:
+            path.append(parent[path[-1]])
+        path.reverse()
+        depth_cap = max_depth
+        hops = [
+            {"from": id_name[path[i]], "to": id_name[path[i + 1]], "depth": i}
+            for i in range(len(path) - 1)
+            if i < depth_cap
+        ]
+        return {"from": src, "to": dst, "found": True, "length": len(path) - 1, "hops": hops}

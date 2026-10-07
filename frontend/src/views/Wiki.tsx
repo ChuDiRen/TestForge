@@ -33,6 +33,21 @@ export function Wiki() {
     queryFn: () => get<any>(`/api/wiki/${detail!.id}`),
     enabled: !!detail,
   });
+  // OpenWiki 移植：TF-IDF 互链推荐 + 确定性健康体检
+  const relatedQ = useQuery({
+    queryKey: ["wiki-related", detail?.id],
+    queryFn: () => get<{ id: number; title: string; score: number }[]>(`/api/wiki/${detail!.id}/related`),
+    enabled: !!detail,
+  });
+  const lintQ = useQuery({
+    queryKey: ["wiki-lint", repoId],
+    queryFn: () => get<{ findings: any[]; checked: { pages: number; modules: number } }>(`/api/wiki/lint?repo_id=${repoId}`),
+    enabled: repoId > 0,
+  });
+  const openPageById = (pid: number) => {
+    const row = data.find((x) => x.id === pid);
+    if (row) setDetail(row);
+  };
   const [docTitle, setDocTitle] = useState("");
   const [docBody, setDocBody] = useState("");
   const uploadDoc = useMutation({
@@ -104,6 +119,34 @@ export function Wiki() {
           入库并索引
         </Button>
       </Card>
+      {repoId > 0 && lintQ.data && (
+        <Card
+          title={`Wiki 体检（${lintQ.data.checked.pages} 页 · ${lintQ.data.findings.length} 项发现）`}
+          size="small"
+          style={{ marginBottom: 16 }}
+        >
+          {lintQ.data.findings.length === 0 ? (
+            <span style={{ fontSize: 13, color: "var(--tf-ink-3)" }}>无发现——没有 stale/重复/孤儿页，模块覆盖完整。</span>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {lintQ.data.findings.map((f: any, i: number) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 13, flexWrap: "wrap" }}>
+                  <Tag color={f.severity === "critical" ? "red" : f.severity === "warning" ? "orange" : "blue"} style={{ flexShrink: 0 }}>
+                    {f.severity}
+                  </Tag>
+                  <span style={{ fontWeight: 600 }}>{f.title}</span>
+                  <span style={{ color: "var(--tf-ink-3)" }}>{f.detail}</span>
+                  {(f.page_ids ?? []).slice(0, 8).map((pid: number) => (
+                    <Tag key={pid} style={{ cursor: "pointer" }} onClick={() => openPageById(pid)}>
+                      #{pid}
+                    </Tag>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
       <Card
         title="代码库 / Wiki（预编译知识层）"
         extra={
@@ -150,6 +193,18 @@ export function Wiki() {
               <Tag color={detailQ.data.stale ? "orange" : "green"}>{detailQ.data.stale ? "stale" : "最新"}</Tag>
             </Space>
             <Markdown>{detailQ.data.content_md}</Markdown>
+            {(relatedQ.data ?? []).length > 0 && (
+              <div style={{ marginTop: 20, paddingTop: 12, borderTop: "1px solid var(--tf-line)" }}>
+                <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>相关页面（TF-IDF 互链推荐）</span>
+                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {relatedQ.data!.map((r) => (
+                    <Tag key={r.id} style={{ cursor: "pointer" }} onClick={() => openPageById(r.id)}>
+                      {r.title}
+                    </Tag>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </Drawer>

@@ -1,8 +1,13 @@
 import { PageHeader } from "../components/PageHeader";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Card, Col, Drawer, Empty, Row, Select, Space, Table, Tag } from "antd";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AutoComplete, Button, Card, Divider, Drawer, Empty, Popover, Select, Space, Table, Tag, Tooltip } from "antd";
+import { AimOutlined, DragOutlined, MinusOutlined, PlusOutlined, QuestionCircleOutlined, RedoOutlined, RestOutlined, ScissorOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
-import * as echarts from "echarts";
+import Graph from "graphology";
+import Sigma from "sigma";
+import EdgeCurveProgram from "@sigma/edge-curve";
+import FA2Layout from "graphology-layout-forceatlas2/worker";
+import noverlap from "graphology-layout-noverlap";
 import { get } from "../api";
 
 interface GraphNode {
@@ -38,13 +43,62 @@ interface GraphData {
 const CATEGORIES = ["仓库", "模块", "函数", "需求", "用例", "缺陷"];
 // 节点色板对齐品牌系统：仓库墨色 / 模块杉青 / 函数深杉青 / 需求青 / 用例绿 / 缺陷红
 const COLORS = ["#24272b", "#0d7d72", "#0b655c", "#0891b2", "#15803d", "#c93a2e"];
+// 自闭环默认视图：接入仓库的代码结构；需求/用例/缺陷为下游溯源资产，点图例叠加
+const DEFAULT_HIDDEN = ["需求", "用例", "缺陷"];
 
-/** 知识图谱：节点/边全部来自 /api/graph 真实业务关系 */
+// ECharts/Sigma 画布吃不到 CSS 变量，按当前主题解析出实际色值
+const cssVar = (name: string, fallback: string) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+
+/** 跟随 App 根组件写入 html[data-theme] 的亮暗模式（MutationObserver，切换即时生效） */
+function useThemeMode() {
+  const [mode, setMode] = useState<"light" | "dark">(() =>
+    document.documentElement.dataset.theme === "dark" ? "dark" : "light"
+  );
+  useEffect(() => {
+    const ob = new MutationObserver(() =>
+      setMode(document.documentElement.dataset.theme === "dark" ? "dark" : "light")
+    );
+    ob.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => ob.disconnect();
+  }, []);
+  return mode;
+}
+
+// FA2 参数按节点规模分档（对齐 GitNexus getFA2Settings）
+function fa2Settings(n: number) {
+  if (n < 100) return { gravity: 0.8, scalingRatio: 15, slowDown: 1, barnesHutOptimize: false, theta: 0.6 };
+  if (n < 300) return { gravity: 0.5, scalingRatio: 30, slowDown: 2, barnesHutOptimize: false, theta: 0.6 };
+  if (n < 1000) return { gravity: 0.3, scalingRatio: 60, slowDown: 3, barnesHutOptimize: true, theta: 0.8 };
+  return { gravity: 0.15, scalingRatio: 100, slowDown: 5, barnesHutOptimize: true, theta: 0.8 };
+}
+const FA2_DURATION = (n: number) => (n < 100 ? 8000 : n < 300 ? 14000 : 20000);
+
+interface SigmaRefs {
+  graph: Graph;
+  sigma: Sigma;
+  layout: FA2Layout | null;
+  selected: string | null;
+  hover: string | null;
+  blast: Set<string> | null;
+  colors: { ink: string; ink2: string; panel: string; line: string; dim: string };
+}
+
+/** 知识图谱：Sigma.js/Graphology WebGL 渲染（对齐 GitNexus GraphCanvas 效果）。
+ *  节点/边全部来自 /api/graph 真实业务关系；FA2 worker 力导 + 标签密度控制 +
+ *  邻居高亮暗化 + 相机动画聚焦 + 搜索定位 + 同心圆布局 + 影响半径（blast radius）。 */
 export function KnowledgeGraph() {
   const repos = useQuery({ queryKey: ["repos"], queryFn: () => get<any[]>("/api/repos") });
   const [repoId, setRepoId] = useState<number | undefined>();
   const [module, setModule] = useState<string>("");
   const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [hiddenCats, setHiddenCats] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(CATEGORIES.map((c) => [c, DEFAULT_HIDDEN.includes(c)]))
+  );
+  const [layoutMode, setLayoutMode] = useState<"force" | "circles">("force");
+  const [blastOn, setBlastOn] = useState(false);
+  const [searching, setSearching] = useState("");
+  const themeMode = useThemeMode();
 
   const graph = useQuery({
     queryKey: ["graph", repoId, module],
@@ -57,13 +111,19 @@ export function KnowledgeGraph() {
     if (repoId === undefined && repos.data?.length) setRepoId(repos.data[0].id);
   }, [repos.data, repoId]);
 
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chart = useRef<echarts.ECharts>();
+  // 影响半径（blast radius）：受选中函数变更影响的调用方集合
+  const blast = useQuery({
+    queryKey: ["impact", selected?.name],
+    queryFn: () => get<{ function: string; affected: { name: string; depth: number; confidence: number }[] }>(
+      `/api/functions/${encodeURIComponent(selected!.name)}/impact`
+    ),
+    enabled: blastOn && !!selected && selected.category === "函数",
+  });
 
-  const option = useMemo(() => {
+  // ── 净化后的图数据（重复 id/name 会让渲染层崩，先过滤）──
+  const clean = useMemo(() => {
     const d = graph.data;
     if (!d) return null;
-    // 防线：ECharts 遇到重复 id/name 的节点会抛错并卸载整棵 React 树（白屏），先做净化
     const seen = new Set<string>();
     const nodes = d.nodes.filter((n) => {
       const kid = `id:${n.id}`;
@@ -75,104 +135,365 @@ export function KnowledgeGraph() {
     });
     const nodeIds = new Set(nodes.map((n) => n.id));
     const edges = d.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
-    return {
-      backgroundColor: "transparent",
-      tooltip: {
-        formatter: (p: any) =>
-          p.dataType === "edge"
-            ? `${p.data.sourceName} —[${p.data.relation}]→ ${p.data.targetName}`
-            : `<b>${p.data.category}</b> ${p.data.name}`,
-      },
-      legend: { data: CATEGORIES, textStyle: { fontSize: 11 }, top: 4 },
-      series: [
-        {
-          type: "graph",
-          layout: "force",
-          roam: true,
-          draggable: true,
-          data: nodes.map((n) => ({
-            id: n.id,
-            name: n.name,
-            category: CATEGORIES.indexOf(n.category),
-            symbolSize:
-              n.category === "仓库" ? 46 : n.category === "模块" ? 26 : n.category === "需求" ? 18 : n.category === "缺陷" ? 16 : Math.min(22, 8 + (n.度数 ?? 0) * 2),
-            node: n,
-            label: { show: n.category !== "函数" || (n.度数 ?? 0) > 0, fontSize: 10 },
-          })),
-          links: edges.map((e) => ({
-            source: e.source,
-            target: e.target,
-            relation: e.relation,
-            sourceName: nodes.find((n) => n.id === e.source)?.name ?? e.source,
-            targetName: nodes.find((n) => n.id === e.target)?.name ?? e.target,
-            lineStyle: { color: e.relation === "调用" ? "#94a3b8" : "#cbd5e1", width: e.relation === "调用" ? 1.6 : 1, curveness: e.relation === "调用" ? 0.18 : 0.05 },
-          })),
-          categories: CATEGORIES.map((c, i) => ({ name: c, itemStyle: { color: COLORS[i] } })),
-          force: { repulsion: 320, edgeLength: [40, 110], gravity: 0.08 },
-          label: { position: "right" },
-          emphasis: { focus: "adjacency", lineStyle: { width: 3 } },
-          lineStyle: { symbol: ["none", "arrow"], symbolSize: 6 },
-        },
-      ],
-    };
+    return { nodes, edges };
   }, [graph.data]);
 
-  useEffect(() => {
-    if (!chartRef.current || !option) return;
-    // StrictMode 卸载-重挂载后 chart.current 可能是被 dispose 的旧实例，必须重建
-    if (!chart.current || chart.current.isDisposed()) {
-      chart.current = echarts.init(chartRef.current);
-    }
-    chart.current.setOption(option);
-    const onClick = (p: any) => {
-      if (p.dataType === "node" && p.data.node) setSelected(p.data.node);
-    };
-    chart.current.on("click", onClick);
-    const onResize = () => chart.current?.resize();
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      chart.current?.off("click", onClick);
-    };
-  }, [option]);
+  const nodeById = useMemo(() => new Map((clean?.nodes ?? []).map((n) => [n.id, n])), [clean]);
 
-  useEffect(
-    () => () => {
-      chart.current?.dispose();
-      chart.current = undefined;
-    },
-    [],
+  // ── Sigma 实例：容器挂载后初始化（数据/主题/交互通过 ref + refresh 应用）──
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [canvasReady, setCanvasReady] = useState(false);
+  const initRef = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setCanvasReady(!!el);
+  }, []);
+  const R = useRef<SigmaRefs | null>(null);
+  const hiddenRef = useRef<Record<string, boolean>>(hiddenCats);
+  hiddenRef.current = hiddenCats;
+  const [tick, setTick] = useState(0); // 布局运行指示
+
+  const themeColors = useCallback(
+    () => ({
+      ink: cssVar("--tf-ink", "#24272b"),
+      ink2: cssVar("--tf-ink-2", "#6b6f76"),
+      panel: cssVar("--tf-panel", "#ffffff"),
+      line: cssVar("--tf-line-strong", "#e2dfd8"),
+      dim: cssVar("--tf-bg", "#f7f7f5"),
+    }),
+    []
   );
 
-  const props = selected
-    ? Object.entries(selected).filter(([k]) => !["id", "category"].includes(k))
-    : [];
+  const dimColor = (color: string, alpha: number, bg: string) => {
+    const hex = (c: string) => {
+      const m = c.replace("#", "");
+      const v = m.length === 3 ? m.split("").map((x) => x + x).join("") : m.slice(0, 6);
+      return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
+    };
+    const a = hex(color);
+    const b = hex(bg);
+    const mix = a.map((x, i) => Math.round(x + (b[i] - x) * (1 - alpha)));
+    return `#${mix.map((x) => x.toString(16).padStart(2, "0")).join("")}`;
+  };
+
+  const nodeSize = (n: GraphNode) =>
+    n.category === "仓库" ? 18
+    : n.category === "模块" ? 10
+    : n.category === "需求" ? 8
+    : n.category === "缺陷" ? 7
+    : n.category === "用例" ? 6
+    : Math.min(11, 4 + (n.度数 ?? 0));
+
+  const buildGraph = useCallback((data: { nodes: GraphNode[]; edges: GraphEdge[] }) => {
+    const g = new Graph({ multi: false, type: "directed" });
+    const N = data.nodes.length;
+    data.nodes.forEach((n, i) => {
+      // 同心圆初始位：按类别分环撒点，给 FA2 一个收敛快的起点
+      const ring = CATEGORIES.indexOf(n.category) + 1;
+      const angle = (i * 2 * Math.PI * 0.618) % (2 * Math.PI);
+      const radius = ring * 60;
+      g.addNode(n.id, {
+        label: n.name,
+        x: radius * Math.cos(angle),
+        y: radius * Math.sin(angle),
+        size: nodeSize(n),
+        color: COLORS[CATEGORIES.indexOf(n.category)] ?? COLORS[0],
+        hidden: false,
+        highlighted: false,
+        node: n,
+      });
+    });
+    void N;
+    data.edges.forEach((e, i) => {
+      if (!g.hasNode(e.source) || !g.hasNode(e.target) || g.hasEdge(e.source, e.target)) return;
+      g.addDirectedEdge(e.source, e.target, {
+        relation: e.relation,
+        size: e.relation === "调用" ? 1.2 : 0.7,
+        zIndex: e.relation === "调用" ? 1 : 0,
+        _i: i,
+      });
+    });
+    return g;
+  }, []);
+
+  // 初始化 Sigma（容器挂载后执行一次）
+  useEffect(() => {
+    if (!canvasReady || !containerRef.current || R.current) return;
+    const colors = themeColors();
+    const g = new Graph({ multi: false, type: "directed" });
+    const sigma = new Sigma(g, containerRef.current, {
+      renderLabels: true,
+      labelFont: "Consolas, DengXian, monospace",
+      labelSize: 11,
+      labelWeight: "500",
+      labelColor: { color: colors.ink },
+      labelRenderedSizeThreshold: 7,
+      labelDensity: 0.16,
+      labelGridCellSize: 80,
+      defaultNodeColor: COLORS[0],
+      defaultEdgeColor: colors.line,
+      defaultEdgeType: "curved",
+      edgeProgramClasses: { curved: EdgeCurveProgram },
+      minCameraRatio: 0.02,
+      maxCameraRatio: 20,
+      hideEdgesOnMove: true,
+      zIndex: true,
+      allowInvalidContainer: true,
+      nodeReducer: (node, data) => {
+        const r = R.current;
+        if (!r) return data;
+        const attrs: Record<string, unknown> = { ...data };
+        const n = data.node as GraphNode | undefined;
+        if (n && hiddenRef.current[n.category]) attrs.hidden = true;
+        if (r.blast) {
+          if (r.blast.has(String(data.label))) {
+            attrs.color = "#e5645a";
+            attrs.size = (data.size as number) * 1.6;
+            attrs.highlighted = true;
+            attrs.zIndex = 5;
+          } else {
+            attrs.color = dimColor(String(data.color), 0.85, r.colors.dim);
+            attrs.size = (data.size as number) * 0.5;
+            attrs.hidden = attrs.hidden || false;
+          }
+          return attrs;
+        }
+        const focus = r.hover || r.selected;
+        if (focus) {
+          const isFocus = node === focus;
+          const isNeighbor = r.graph.hasEdge(node, focus) || r.graph.hasEdge(focus, node);
+          if (isFocus) {
+            attrs.size = (data.size as number) * 1.5;
+            attrs.highlighted = true;
+            attrs.zIndex = 4;
+          } else if (isNeighbor) {
+            attrs.size = (data.size as number) * 1.15;
+            attrs.zIndex = 2;
+          } else {
+            attrs.color = dimColor(String(data.color), 0.8, r.colors.dim);
+            attrs.zIndex = 0;
+          }
+        }
+        return attrs;
+      },
+      edgeReducer: (edge, data) => {
+        const r = R.current;
+        if (!r) return data;
+        const attrs: Record<string, unknown> = { ...data };
+        const focus = r.hover || r.selected;
+        if (r.blast) {
+          const [s, t] = r.graph.extremities(edge);
+          const sn = r.graph.getNodeAttribute(s, "label");
+          const tn = r.graph.getNodeAttribute(t, "label");
+          attrs.hidden = !(r.blast.has(String(sn)) && r.blast.has(String(tn)));
+          return attrs;
+        }
+        if (focus) {
+          const [s, t] = r.graph.extremities(edge);
+          if (s === focus || t === focus) {
+            attrs.size = (data.size as number) * 2.2;
+            attrs.zIndex = 2;
+          } else {
+            attrs.hidden = true;
+          }
+        }
+        return attrs;
+      },
+    });
+
+    R.current = { graph: g, sigma, layout: null, selected: null, hover: null, blast: null, colors };
+
+    sigma.on("enterNode", ({ node }) => {
+      const r = R.current;
+      if (!r) return;
+      r.hover = node;
+      sigma.refresh();
+      sigma.getContainer().style.cursor = "pointer";
+    });
+    sigma.on("leaveNode", () => {
+      const r = R.current;
+      if (!r) return;
+      r.hover = null;
+      sigma.refresh();
+      sigma.getContainer().style.cursor = "default";
+    });
+    sigma.on("clickNode", ({ node }) => {
+      const r = R.current;
+      if (!r) return;
+      selectNode(node, false);
+    });
+    sigma.on("clickStage", () => {
+      const r = R.current;
+      if (!r) return;
+      r.selected = null;
+      r.blast = null;
+      setBlastOn(false);
+      setSelected(null);
+      sigma.refresh();
+    });
+
+    return () => {
+      R.current?.layout?.stop();
+      R.current?.layout?.kill();
+      sigma.kill();
+      R.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasReady]);
+
+  const selectNode = useCallback(
+    (id: string, animate = true) => {
+      const r = R.current;
+      if (!r) return;
+      r.selected = id;
+      r.blast = null;
+      setBlastOn(false);
+      setSelected((r.graph.getNodeAttribute(id, "node") as GraphNode) ?? null);
+      if (animate && r.sigma.getNodeDisplayData(id)) {
+        const p = r.sigma.getNodeDisplayData(id)!;
+        r.sigma.getCamera().animate({ x: p.x, y: p.y, ratio: 0.35 }, { duration: 400 });
+      }
+      r.sigma.refresh();
+    },
+    []
+  );
+
+  // 数据注入 / 变更：重建 graphology 并按模式跑布局
+  useEffect(() => {
+    const r = R.current;
+    if (!r || !clean) return;
+    r.layout?.stop();
+    r.layout?.kill();
+    r.layout = null;
+    r.selected = null;
+    r.hover = null;
+    r.blast = null;
+    r.graph.clear();
+    const g = buildGraph(clean);
+    r.graph.import(g.export());
+    // export/import 丢了对象引用，把 node 属性补回去
+    r.graph.forEachNode((id, attrs) => {
+      const n = clean.nodes.find((x) => x.id === id);
+      if (n) r!.graph.setNodeAttribute(id, "node", n);
+      void attrs;
+    });
+    setSelected(null);
+    setBlastOn(false);
+
+    if (layoutMode === "force") {
+      setTick(1);
+      const settings = fa2Settings(r.graph.order);
+      const layout = new FA2Layout(r.graph, { settings: { ...settings, outboundAttractionDistribution: true, adjustSizes: true, linLogMode: false } });
+      r.layout = layout;
+      layout.start();
+      window.setTimeout(() => {
+        if (R.current?.layout !== layout) return;
+        layout.stop();
+        layout.kill();
+        if (R.current) R.current.layout = null;
+        try {
+          noverlap.assign(r.graph, { maxIterations: 25 });
+        } catch {
+          /* noverlap 失败不影响展示 */
+        }
+        r.sigma.refresh();
+        setTick(0);
+      }, FA2_DURATION(r.graph.order));
+    } else {
+      runCircles(r.graph, r.sigma);
+    }
+    r.sigma.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clean, layoutMode, buildGraph, canvasReady]);
+
+  const runCircles = (g: Graph, sigma: Sigma) => {
+    // 同心圆：类别分环，环内按名称排序均匀铺角
+    g.forEachNode((id, attrs) => {
+      const n = attrs.node as GraphNode | undefined;
+      const ring = CATEGORIES.indexOf(n?.category ?? "函数") + 1;
+      const peers = g
+        .nodes()
+        .map((x) => ({ x, a: g.getNodeAttribute(x, "node") as GraphNode | undefined }))
+        .filter((p) => CATEGORIES.indexOf(p.a?.category ?? "函数") + 1 === ring);
+      const idx = peers.findIndex((p) => p.x === id);
+      const angle = (idx / Math.max(peers.length, 1)) * 2 * Math.PI;
+      const radius = ring * 55;
+      g.setNodeAttribute(id, "x", radius * Math.cos(angle));
+      g.setNodeAttribute(id, "y", radius * Math.sin(angle));
+    });
+    sigma.refresh();
+  };
+
+  // 图例开关 → hidden 属性
+  useEffect(() => {
+    const r = R.current;
+    if (!r) return;
+    r.graph.forEachNode((id) => {
+      const n = r!.graph.getNodeAttribute(id, "node") as GraphNode | undefined;
+      r!.graph.setNodeAttribute(id, "hidden", !!(n && hiddenCats[n.category]));
+    });
+    r.sigma.refresh();
+  }, [hiddenCats]);
+
+  // 影响半径结果 → 红色高亮集合（按节点名匹配）
+  useEffect(() => {
+    const r = R.current;
+    if (!r) return;
+    r.blast = blastOn && blast.data ? new Set(blast.data.affected.map((a) => a.name)) : null;
+    r.sigma.refresh();
+  }, [blast.data, blastOn]);
+
+  // 主题切换 → 更新画布配色
+  useEffect(() => {
+    const r = R.current;
+    if (!r) return;
+    r.colors = themeColors();
+    r.sigma.setSetting("labelColor", { color: r.colors.ink });
+    r.sigma.setSetting("defaultEdgeColor", r.colors.line);
+    r.sigma.refresh();
+  }, [themeMode, themeColors]);
+
+  const camera = {
+    in: () => R.current?.sigma.getCamera().animatedZoom({ duration: 250 }),
+    out: () => R.current?.sigma.getCamera().animatedUnzoom({ duration: 250 }),
+    reset: () => R.current?.sigma.getCamera().animatedReset({ duration: 350 }),
+  };
+
+  const searchOptions = useMemo(
+    () =>
+      (clean?.nodes ?? [])
+        .filter((n) => !hiddenCats[n.category] && n.name.toLowerCase().includes(searching.toLowerCase()))
+        .slice(0, 12)
+        .map((n) => ({ value: n.id, label: `${n.name}（${n.category}）` })),
+    [clean, searching, hiddenCats]
+  );
 
   return (
     <div>
-      <PageHeader title="知识图谱" subtitle="仓库 · 模块 · 函数调用 · 需求 · 用例 · 缺陷的真实业务关系，节点带影响分与测试域" />
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Space wrap>
-          <Select
-            style={{ width: 260 }}
-            placeholder="选择仓库"
-            value={repoId}
-            onChange={(v) => {
-              setRepoId(v);
-              setModule("");
-            }}
-            options={(repos.data ?? []).map((r) => ({ value: r.id, label: `#${r.id} ${String(r.url).split("/").pop()}` }))}
-          />
-          <Select
-            style={{ width: 280 }}
-            placeholder="全部模块"
-            value={module || undefined}
-            allowClear
-            onChange={(v) => setModule(v ?? "")}
-            options={(graph.data?.modules ?? []).map((m) => ({ value: m, label: m }))}
-          />
+      <PageHeader title="知识图谱" subtitle="接入仓库的代码知识图谱（Sigma.js WebGL 力导）：仓库 · 模块 · 函数调用；点图例叠加需求 / 用例 / 缺陷溯源" />
+      <Card size="small" style={{ marginBottom: 12 }}>
+        <Space wrap style={{ display: "flex", justifyContent: "space-between" }}>
+          <Space wrap>
+            <Select
+              style={{ width: 240 }}
+              placeholder="选择仓库"
+              value={repoId}
+              onChange={(v) => {
+                setRepoId(v);
+                setModule("");
+              }}
+              options={(repos.data ?? []).map((r) => ({ value: r.id, label: `#${r.id} ${String(r.url).split("/").pop()}` }))}
+            />
+            <Select
+              style={{ width: 260 }}
+              placeholder="全部模块"
+              value={module || undefined}
+              allowClear
+              onChange={(v) => setModule(v ?? "")}
+              options={(graph.data?.modules ?? []).map((m) => ({ value: m, label: m }))}
+            />
+          </Space>
           {graph.data && (
-            <span style={{ fontSize: 12, color: "#666" }}>
+            <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>
               {Object.entries(graph.data.stats)
                 .map(([k, v]) => `${k} ${v}`)
                 .join(" · ")}
@@ -180,75 +501,225 @@ export function KnowledgeGraph() {
           )}
         </Space>
       </Card>
-      <Card title="知识图谱（仓库 / 模块 / 函数调用 / 需求 / 用例 / 缺陷 的真实关系）" styles={{ body: { padding: 8 } }}>
+      <Card styles={{ body: { padding: 0, position: "relative" } }}>
         {graph.data ? (
-          <div ref={chartRef} style={{ width: "100%", height: 560 }} />
+          <div style={{ position: "relative" }}>
+            <div ref={initRef} style={{ width: "100%", height: "calc(100vh - 236px)", minHeight: 520, background: "var(--tf-bg)", borderRadius: 8 }} />
+
+            {/* 悬浮工具条（左上）：搜索 / 缩放 / 布局 / 影响半径 */}
+            <div
+              style={{
+                position: "absolute",
+                top: 10,
+                left: 10,
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                flexWrap: "wrap",
+                maxWidth: "calc(100% - 160px)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  gap: 4,
+                  alignItems: "center",
+                  background: "var(--tf-panel)",
+                  border: "1px solid var(--tf-line-strong)",
+                  borderRadius: 8,
+                  padding: "4px 6px",
+                  boxShadow: "var(--tf-card-shadow)",
+                }}
+              >
+                <AutoComplete
+                  style={{ width: 200 }}
+                  value={searching}
+                  options={searchOptions}
+                  onSearch={setSearching}
+                  onSelect={(id: string) => {
+                    selectNode(id);
+                    setSearching("");
+                  }}
+                  placeholder="搜索符号定位"
+                  allowClear
+                  size="small"
+                  variant="borderless"
+                />
+                <Divider type="vertical" style={{ marginInline: 2 }} />
+                <Tooltip title="放大">
+                  <Button size="small" type="text" icon={<PlusOutlined />} onClick={camera.in} />
+                </Tooltip>
+                <Tooltip title="缩小">
+                  <Button size="small" type="text" icon={<MinusOutlined />} onClick={camera.out} />
+                </Tooltip>
+                <Tooltip title="复位视角">
+                  <Button size="small" type="text" icon={<RestOutlined />} onClick={camera.reset} />
+                </Tooltip>
+                <Tooltip title={layoutMode === "force" ? "切换同心圆布局" : "切换力导布局（重新收敛）"}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={layoutMode === "force" ? <ScissorOutlined /> : <DragOutlined />}
+                    onClick={() => setLayoutMode(layoutMode === "force" ? "circles" : "force")}
+                  />
+                </Tooltip>
+                <Tooltip title="重新收敛力导布局">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<RedoOutlined />}
+                    disabled={layoutMode !== "force" || tick === 1}
+                    onClick={() => {
+                      // 触发重跑：先切圆再切回力导，复用数据注入效应
+                      setLayoutMode("circles");
+                      window.setTimeout(() => setLayoutMode("force"), 30);
+                    }}
+                  />
+                </Tooltip>
+                {selected?.category === "函数" && (
+                  <Tooltip title="影响半径：红色为受该函数变更影响的调用方（在线反向 BFS）">
+                    <Button
+                      size="small"
+                      danger={blastOn}
+                      type={blastOn ? "primary" : "text"}
+                      icon={<AimOutlined />}
+                      loading={blast.isFetching}
+                      onClick={() => setBlastOn((v) => !v)}
+                    />
+                  </Tooltip>
+                )}
+              </div>
+              {tick === 1 && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "var(--tf-ink-3)",
+                    background: "var(--tf-panel)",
+                    border: "1px solid var(--tf-line-strong)",
+                    borderRadius: 999,
+                    padding: "3px 10px",
+                  }}
+                >
+                  力导收敛中…
+                </span>
+              )}
+            </div>
+
+            {/* 关系说明（右上） */}
+            <div style={{ position: "absolute", top: 10, right: 10 }}>
+              <Popover
+                title="关系类型"
+                content={
+                  <div style={{ fontSize: 12.5, maxWidth: 320 }}>
+                    {[
+                      ["包含", "仓库 → 模块 → 函数（索引结构）"],
+                      ["调用", "函数 → 函数（tree-sitter 调用图）"],
+                      ["派生", "需求 → 用例（source_req 溯源）"],
+                      ["覆盖", "用例 → 被测函数（target_function）"],
+                      ["暴露", "用例 → 缺陷（沙箱失败自动关联）"],
+                    ].map(([r, d]) => (
+                      <div key={r} style={{ display: "flex", gap: 8, padding: "2px 0" }}>
+                        <b style={{ flexShrink: 0 }}>{r}</b>
+                        <span style={{ color: "var(--tf-ink-2)" }}>{d}</span>
+                      </div>
+                    ))}
+                  </div>
+                }
+              >
+                <Button size="small" type="text" icon={<QuestionCircleOutlined />} />
+              </Popover>
+            </div>
+
+            {/* 类别图例（左下，可点击开关类别） */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: 10,
+                left: 10,
+                display: "flex",
+                gap: 6,
+                flexWrap: "wrap",
+                alignItems: "center",
+                background: "var(--tf-panel)",
+                border: "1px solid var(--tf-line-strong)",
+                borderRadius: 8,
+                padding: "5px 10px",
+                boxShadow: "var(--tf-card-shadow)",
+              }}
+            >
+              {CATEGORIES.map((c, i) => (
+                <Tag.CheckableTag
+                  key={c}
+                  checked={!hiddenCats[c]}
+                  onChange={() => setHiddenCats((s) => ({ ...s, [c]: !s[c] }))}
+                  style={{ border: "1px solid var(--tf-line-strong)", borderRadius: 999, padding: "0 8px", fontSize: 12, marginInlineEnd: 0 }}
+                >
+                  <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 999, background: COLORS[i], marginInlineEnd: 5 }} />
+                  {c}
+                </Tag.CheckableTag>
+              ))}
+            </div>
+
+            {/* 操作提示（右下） */}
+            <span
+              style={{
+                position: "absolute",
+                bottom: 12,
+                right: 12,
+                fontSize: 12,
+                color: "var(--tf-ink-3)",
+                background: "var(--tf-panel)",
+                border: "1px solid var(--tf-line-strong)",
+                borderRadius: 999,
+                padding: "3px 10px",
+              }}
+            >
+              滚轮缩放 · 拖拽平移 · 悬停高亮邻接 · 点节点看详情
+            </span>
+          </div>
         ) : (
-          <Empty description="选择仓库后生成图谱" style={{ margin: "80px 0" }} />
+          <Empty description="选择仓库后生成图谱" style={{ margin: "120px 0" }} />
         )}
       </Card>
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={12}>
-          <Card title="节点明细（点击图中节点联动）" size="small">
-            {selected ? (
-              <Table
-                rowKey="k"
-                size="small"
-                pagination={false}
-                dataSource={props.map(([k, v]) => ({ k, v: String(v ?? "-") }))}
-                columns={[
-                  { title: "属性", dataIndex: "k", width: 120 },
-                  { title: "值", dataIndex: "v", ellipsis: true },
-                ]}
-              />
-            ) : (
-              <Empty description="点击图中任意节点查看属性" style={{ margin: "24px 0" }} />
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="图例与关系类型" size="small">
-            <Space wrap>
-              {CATEGORIES.map((c, i) => (
-                <Tag key={c} color={COLORS[i]}>
-                  {c}
-                </Tag>
-              ))}
+      <Drawer
+        title={selected ? `${selected.category} · ${selected.name}` : ""}
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        width={480}
+      >
+        {selected && (
+          <>
+            <Space wrap style={{ marginBottom: 12 }}>
+              <Tag>{selected.category}</Tag>
+              {typeof selected.度数 === "number" && <Tag>度数 {selected.度数}</Tag>}
+              {selected.module && <Tag>{selected.module}</Tag>}
             </Space>
             <Table
-              style={{ marginTop: 12 }}
-              rowKey="r"
+              rowKey="k"
               size="small"
               pagination={false}
-              dataSource={[
-                { r: "包含", d: "仓库 → 模块 → 函数（索引结构）" },
-                { r: "调用", d: "函数 → 函数（tree-sitter 调用图）" },
-                { r: "派生", d: "需求 → 用例（source_req 溯源）" },
-                { r: "覆盖", d: "用例 → 被测函数（target_function）" },
-                { r: "暴露", d: "用例 → 缺陷（沙箱失败自动关联）" },
-              ]}
+              dataSource={Object.entries(selected)
+                .filter(([k]) => k !== "id" && k !== "node")
+                .map(([k, v]) => ({ k, v: typeof v === "object" ? JSON.stringify(v) : String(v ?? "-") }))}
               columns={[
-                { title: "关系", dataIndex: "r", width: 90 },
-                { title: "含义", dataIndex: "d" },
+                { title: "属性", dataIndex: "k", width: 120 },
+                { title: "值", dataIndex: "v", ellipsis: true },
               ]}
             />
-          </Card>
-        </Col>
-      </Row>
-      <Drawer title={selected ? `${selected.category} · ${selected.name}` : ""} open={!!selected} onClose={() => setSelected(null)} width="60%">
-        {selected && (
-          <Table
-            rowKey="k"
-            size="small"
-            pagination={false}
-            dataSource={Object.entries(selected)
-              .filter(([k]) => k !== "id")
-              .map(([k, v]) => ({ k, v: typeof v === "object" ? JSON.stringify(v) : String(v ?? "-") }))}
-            columns={[
-              { title: "属性", dataIndex: "k", width: 140 },
-              { title: "值", dataIndex: "v", ellipsis: true },
-            ]}
-          />
+            {selected.category === "函数" && (
+              <Button
+                block
+                style={{ marginTop: 12 }}
+                danger={blastOn}
+                type={blastOn ? "primary" : "default"}
+                icon={<AimOutlined />}
+                loading={blast.isFetching}
+                onClick={() => setBlastOn((v) => !v)}
+              >
+                {blastOn ? "关闭影响半径" : "影响半径（受该函数变更影响的调用方）"}
+              </Button>
+            )}
+          </>
         )}
       </Drawer>
     </div>
