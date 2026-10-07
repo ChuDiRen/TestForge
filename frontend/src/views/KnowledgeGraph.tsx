@@ -558,7 +558,7 @@ export function KnowledgeGraph() {
 
   return (
     <div>
-      <PageHeader title="知识图谱" subtitle="接入仓库的代码知识图谱（Sigma.js WebGL 力导）：仓库 · 模块 · 函数调用；点图例叠加需求 / 用例 / 缺陷溯源" />
+      <PageHeader title="知识图谱" subtitle="接入仓库的代码调用图（Sigma.js WebGL 力导）：默认函数调用层，点图例叠加模块 / 需求 / 用例 / 缺陷溯源" />
       <Card size="small" style={{ marginBottom: 12 }}>
         <Space wrap style={{ display: "flex", justifyContent: "space-between" }}>
           <Space wrap>

@@ -181,7 +181,7 @@ def impact(contract_id: int, to_v: str, trace_id: str = "") -> list[dict]:
         for page in sess.query(WikiPages).filter(WikiPages.level == "module").all():
             if any(cons in f"{page.module} {page.title}" for cons in consumers) or hit(page.module) or hit(page.title):
                 page.stale = True
-                events.append({"asset_type": "wiki_page", "asset_id": str(page.id), "reason": f"契约 {c.name} 变更 → 模块页 {page.module} stale", "stale_wiki": True, "case_tagged": False})
+                events.append({"asset_type": "wiki_page", "asset_id": f"#{page.id} {page.title}", "reason": f"契约 {c.name} 变更 → 模块页 {page.module} stale", "stale_wiki": True, "case_tagged": False})
         # 2) 关联用例打标：精确命中目标函数优先，域词兜底
         tagged = False
         for case in sess.query(Cases).filter(Cases.status == "已入库").limit(500).all():
