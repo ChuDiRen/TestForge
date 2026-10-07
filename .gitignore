@@ -14,3 +14,10 @@ data/
 /backend/fixtures/api-repo/.git/
 .env
 .venv-wsl/
+
+# 准确率测试的运行输出（每次跑都重写，不入库）
+/backend/accuracy_report.json
+/backend/layered_accuracy.json
+
+# TS 增量构建产物
+frontend/tsconfig.tsbuildinfo
