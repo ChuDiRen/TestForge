@@ -268,6 +268,7 @@ def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_re
                         title=c["title"],
                         layer=layer,
                         category=c["category"],
+                        repo_id=int(repo_id or 0),
                     )
             except Exception as exc:  # noqa: BLE001
                 log.warning("rag index failed: %s", exc)

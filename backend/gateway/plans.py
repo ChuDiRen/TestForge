@@ -14,7 +14,7 @@ from gateway.main import (
     grpc_call,
     ok,
 )
-from services.shared.models import Cases, Defects, Iterations, Runs
+from services.shared.models import Cases, Defects, Iterations, Repos, Runs
 from services.shared.trace import emit
 
 log = logging.getLogger("gateway.loop")
@@ -149,8 +149,11 @@ def regression_defect(defect_id: int):
 
 @app.post("/api/defects/{defect_id}/status")
 async def update_defect_status(defect_id: int, request: Request):
-    """生命周期流转：已确认/修复中/待回归/已关闭。"""
+    """生命周期流转：已确认/修复中/待回归/已关闭。
 
+    关闭时沉淀缺陷教训（LightRAG 增量学习思路）：失败详情 + 已验证的修复建议写入
+    rag_documents(kind='lesson')，生成同函数用例时自动召回，同一个坑不踩第二遍。
+    """
     body = await request.json()
     status = body.get("status") or ""
     if status not in ("新建", "已确认", "修复中", "待回归", "已关闭"):
@@ -161,9 +164,66 @@ async def update_defect_status(defect_id: int, request: Request):
             raise ApiError(404, "缺陷不存在", 404)
         d.status = status
         code, req = d.code, d.req_code
+        title, detail, suggestion, case_codes, severity = d.title, d.detail, d.suggestion, d.case_codes, d.severity
         sess.commit()
     emit("缺陷", body.get("actor") or "qa", f"缺陷 {code} → {status}", req_code=req)
-    return ok({"code": code, "status": status})
+    lesson_note = ""
+    if status == "已关闭":
+        repo_id = 0
+        try:
+            from services.shared.models import Requirements
+
+            with get_session() as sess:
+                if req:
+                    row = sess.query(Requirements.repo_id).filter(Requirements.code == req).first()
+                    repo_id = int(row[0] or 0) if row and row[0] else 0
+                if not repo_id:
+                    # 历史需求/缺陷普遍缺 repo 关联：单仓库部署直接归属唯一仓库，
+                    # 多仓库且无法判定时才放弃沉淀（lesson 检索按 repo 精确过滤）
+                    repo_ids = [r[0] for r in sess.query(Repos.id).all()]
+                    if len(repo_ids) == 1:
+                        repo_id = int(repo_ids[0])
+        except Exception:  # noqa: BLE001
+            repo_id = 0
+        if repo_id:
+            try:
+                from services.shared.rag import ensure_rag_documents_table, index_document
+
+                content = (
+                    f"# 缺陷 {code}：{title}\n\n严重度：{severity}\n关联需求：{req or '-'}\n关联用例：{case_codes or '-'}\n\n"
+                    f"## 失败详情\n{detail[:1500]}\n\n## 修复建议（回归通过后关闭，已验证）\n{suggestion[:1500]}\n\n"
+                    f"生成该模块测试用例时应覆盖本缺陷对应的异常分支，避免回归。"
+                )
+                ensure_rag_documents_table()
+                index_document(
+                    f"lesson:defect:{code}",
+                    "lesson",
+                    f"缺陷教训 {code} {title}",
+                    content,
+                    repo_id=repo_id,
+                    meta={"source": "defect-closed", "defect_code": code, "req_code": req},
+                )
+                lesson_note = f"教训已沉淀（repo {repo_id}，生成时自动召回）"
+                emit("知识", "lesson", f"缺陷 {code} 关闭 → 教训入检索库", req_code=req)
+            except Exception as exc:  # noqa: BLE001
+                lesson_note = f"教训沉淀失败: {exc}"
+        # 缺陷本体索引同步刷新（状态/修复建议进语料）
+        if repo_id:
+            try:
+                from services.shared.rag import ensure_rag_documents_table, index_document
+
+                ensure_rag_documents_table()
+                index_document(
+                    f"defect:{code}",
+                    "defect",
+                    f"缺陷 {code} {title}",
+                    f"缺陷 {code}（{severity}，状态：{status}）\n关联需求：{req or '-'}\n关联用例：{case_codes or '-'}\n失败详情：{detail[:1000]}\n修复建议：{suggestion[:1200]}",
+                    repo_id=repo_id,
+                    meta={"source": "defect-status", "defect_code": code, "status": status, "severity": severity},
+                )
+            except Exception:  # noqa: BLE001
+                pass
+    return ok({"code": code, "status": status, "lesson": lesson_note})
 
 
 # ---------------- 迭代计划（FR-10） ----------------
@@ -187,6 +247,36 @@ async def create_plan(request: Request):
         {"code": code, "version": version, "req_codes": req_codes},
         timeout=30,
     )
+    # 测试计划入检索库（kind='plan'）：测试资料五类之一；仓库归属从关联需求反查
+    try:
+        from services.shared.rag import ensure_rag_documents_table, index_document
+
+        ensure_rag_documents_table()
+        plan_repo = 0
+        with get_session() as sess:
+            if req_codes:
+                row = (
+                    sess.query(Requirements.repo_id)
+                    .filter(Requirements.code.in_(req_codes), Requirements.repo_id.isnot(None))
+                    .first()
+                )
+                plan_repo = int(row[0] or 0) if row else 0
+        if not plan_repo:
+            with get_session() as sess:
+                ids = [r[0] for r in sess.query(Repos.id).all()]
+                plan_repo = int(ids[0]) if len(ids) == 1 else 0
+        index_document(
+            f"plan:{code}",
+            "plan",
+            f"测试计划 {code} {version}",
+            f"测试计划 {code}\n版本：{version}\n关联需求：{', '.join(req_codes) or '-'}\n"
+            f"准入：{'通过' if check.get('entry_ok') else '未通过'} · 准出：{'通过' if check.get('exit_ok') else '未通过'}\n"
+            f"检查项：{json.dumps(check.get('checks') or [], ensure_ascii=False)[:1200]}",
+            repo_id=plan_repo,
+            meta={"source": "plan-created", "plan_code": code, "version": version},
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return ok({"code": code, "version": version, "req_codes": req_codes, **check})
 
 

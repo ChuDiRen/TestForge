@@ -293,7 +293,7 @@ def _tool_generate_case(repo_id: int, role: str) -> Callable[[dict], dict]:
                 raise ValueError("尚未接入任何仓库，无法确定生成范围；请先在「仓库接入」接入仓库")
             res = new_generation({"function": f"web-{layer}", "repo_id": repo.id, "layer": layer})
             return {
-                "generation_code": res.get("gen_code") or res.get("code"),
+                "generation_code": res.get("generation_id"),
                 "job_code": res.get("job_code"),
                 "repo_id": repo.id,
                 "note": f"{layer} 生成任务已入队：实时抓取运行中网关 OpenAPI 契约后生成，完成后用例进入用例库 {layer} 层",
@@ -319,11 +319,44 @@ def _tool_generate_case(repo_id: int, role: str) -> Callable[[dict], dict]:
             raise ValueError(f"索引中找不到函数 {fn}，请确认仓库名（可先用 search 工具检索）")
         res = new_generation({"function": fn, "repo_id": eff_repo, "layer": layer})
         return {
-            "generation_code": res.get("gen_code") or res.get("code"),
+            "generation_code": res.get("generation_id"),
             "job_code": res.get("job_code"),
             "repo_id": eff_repo,
-            "note": "生成任务已入队：工作台 → 任务队列可看进度；完成后用例自动进入用例库",
+            "note": "生成任务已入队：对话内的实时进度卡正在跟踪五阶段，完成后用例自动进入用例库",
         }
+
+    return run
+
+
+def _tool_generation_status(repo_id: int, role: str) -> Callable[[dict], dict]:
+    """查询生成任务进度与结果：AI 在对话里汇报「生成到哪一步/结果如何」的读侧工具。"""
+
+    def run(args: dict) -> dict:
+        from services.shared.models import Cases, Generations
+
+        gen_code = str(args.get("gen_code") or "").strip()
+        with get_session() as sess:
+            g = sess.query(Generations).filter(Generations.code == gen_code).first() if gen_code else (
+                sess.query(Generations).order_by(Generations.id.desc()).first()
+            )
+            if g is None:
+                raise ValueError("找不到生成任务——generate_case 入队后会把 generation_code 告诉你")
+            cases = sess.query(Cases).filter(Cases.gen_id == g.code).all()
+            runs_ok = [c for c in cases if c.last_run_ok is True]
+            return {
+                "generation_code": g.code,
+                "function": g.target_function,
+                "layer": g.layer,
+                "status": g.status,
+                "cases_total": len(cases),
+                "cases_pass": len(runs_ok),
+                "case_codes": [c.code for c in cases][:10],
+                "note": (
+                    "生成完成：用例已入库（可在用例库按该层筛选查看）"
+                    if g.status == "done"
+                    else f"生成{g.status}——进度详情看「任务队列」或对话里的进度卡"
+                ),
+            }
 
     return run
 
@@ -514,6 +547,19 @@ TOOL_SPECS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "generation_status",
+            "description": "查询生成任务的进度与结果（用例数/沙箱通过数/状态）。用户问「生成完了吗/结果怎么样」或生成入队后需要回查结果时调用。不传 gen_code 返回最近一个任务。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "gen_code": {"type": "string", "description": "生成任务号（GEN-xxx），缺省查最近一个"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_requirement",
             "description": "【写操作·仅管理员】录入需求并触发四步解析管线（可测性评分/规则冲突检测）。用户明确要求录入需求时才调用。",
             "parameters": {
@@ -556,6 +602,7 @@ def _tools_for(repo_id: int, role: str = "admin") -> tuple[dict[str, Callable[[d
         "overview": _tool_overview(repo_id),
         "cases": _tool_cases(repo_id),
         "generate_case": _tool_generate_case(repo_id, role),
+        "generation_status": _tool_generation_status(repo_id, role),
         "create_requirement": _tool_create_requirement(repo_id, role),
         "upload_knowledge": _tool_upload_knowledge(repo_id, role),
     }
@@ -573,6 +620,16 @@ SYSTEM_PROMPT = """你是 TestForge 平台的主操作智能体：平台用四�
 - 没有证据就明说「未检索到相关证据」，禁止编造。
 - 引用必须是工具结果里真实出现过的路径/行号/函数名。
 
+## 流程可视化
+解释调用链、执行流、业务流程时，用 mermaid flowchart 展示（对话界面会渲染成图）：
+
+```mermaid
+flowchart LR
+    A[入口函数] --> B[传递函数] --> C[(出口: DB/HTTP)]
+```
+
+节点名用真实函数名，方向 LR，不要虚构链路——只画工具结果里出现过的调用关系。
+
 ## 调查循环
 你是调查者，不是一次性问答机：
 1. 规划——先说一句要查什么、为什么。
@@ -587,7 +644,8 @@ SYSTEM_PROMPT = """你是 TestForge 平台的主操作智能体：平台用四�
 用户要求生成用例时：
 1. 明确层别（ut/fn/api/e2e）——用户没说就问一句，并用一句话解释该层的适用场景。
 2. ut/fn 需要目标函数：不确定函数名时先 search/cases 确认，避免对不存在的函数入队。
-3. 调 generate_case 入队后，报告任务号，并提示完成后用例入库的位置（用例库对应层）。
+3. 调 generate_case 入队后，报告任务号。**对话界面会自动出现实时进度卡**（PLAN→守卫→生成→沙箱→回填五阶段），
+   你只需说明「进度卡在下方实时更新，完成后我会汇报结果」；用户追问结果时用 generation_status 查询并汇报用例数与沙箱通过数。
 4. api/e2e 无需函数名，直接入队即可。
 
 ## 高质量用例的数据收集（主动做）
@@ -779,8 +837,18 @@ async def _agent_stream(thread: ChatThread, content: str, role: str = "admin") -
                             if not ok_flag:
                                 summary = f"工具执行失败: {summary}"
                             ms = int((time.time() - info["t0"]) * 1000)
-                            tool_events.append({"name": info["name"], "args": info["args"], "summary": summary, "ms": ms})
-                            yield _sse("tool_end", {"name": info["name"], "summary": summary, "ms": ms})
+                            # 结构化结果随事件下发（前端生成进度卡等消费）；解析失败置 None 不影响对话
+                            parsed = None
+                            if ok_flag:
+                                try:
+                                    if isinstance(raw, str) and raw.strip().startswith("{"):
+                                        parsed = json.loads(raw)
+                                    elif isinstance(raw, dict):
+                                        parsed = raw
+                                except Exception:  # noqa: BLE001
+                                    parsed = None
+                            tool_events.append({"name": info["name"], "args": info["args"], "summary": summary, "ms": ms, "result": parsed})
+                            yield _sse("tool_end", {"name": info["name"], "summary": summary, "ms": ms, "result": parsed})
 
         if not final_text:
             final_text = "（模型未产出回答，请重试或换个问法。）"

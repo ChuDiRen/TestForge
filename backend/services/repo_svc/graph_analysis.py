@@ -128,3 +128,33 @@ def entry_chains(repo_id: int, max_chains: int = 10, max_len: int = 14) -> dict:
         "entry_points": len(entries),
         "chains": chains[:max_chains],
     }
+
+
+# 执行流出口启发式：函数名/模块路径触达 DB/缓存/HTTP/外部调用的关键词
+_EXIT_HINTS = ("db", "database", "query", "execute", "session", "insert", "update_", "delete_", "commit",
+               "http", "request", "client", "fetch", "send", "redis", "cache", "socket", "grpc", "emit", "write")
+
+
+def processes(repo_id: int, max_processes: int = 8, max_len: int = 14) -> dict:
+    """执行流识别（GitNexus Processes 对齐）：入口 → 传递 → 出口 的业务执行流。
+
+    出口 = 链上触达 DB/缓存/HTTP/外部调用的函数（名称启发式）。
+    供集成测试/E2E 设计参考业务旅程，MCP list_processes 与图谱页共用。
+    """
+    data = entry_chains(repo_id, max_chains=max_processes, max_len=max_len)
+    processes = []
+    for ch in data.get("chains") or []:
+        names = ch.get("path") or []
+        if not names:
+            continue
+        modules = sorted({n.rsplit(".", 1)[0] for n in names if "." in n})
+        exits = [n for n in names if any(h in n.lower() for h in _EXIT_HINTS)]
+        processes.append({
+            "entry": names[0],
+            "chain": names,
+            "modules": modules,
+            "exits": exits,
+            "depth": len(names),
+        })
+    processes.sort(key=lambda p: -p["depth"])
+    return {"repo_id": repo_id, "processes": processes, "total": len(processes)}

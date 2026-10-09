@@ -320,9 +320,12 @@ def _pgvector_available(sess) -> bool:  # type: ignore[no-untyped-def]
         return False
 
 
-def index_case(case_code: str, content: str, title: str = "", layer: str = "", category: str = "") -> None:
-    """用例入库时建立索引：rag_documents（混合检索）+ cases_embedding（兼容保留）。"""
-    index_document(f"case:{case_code}", "case", title or case_code, content, meta={"layer": layer, "category": category})
+def index_case(case_code: str, content: str, title: str = "", layer: str = "", category: str = "", repo_id: int = 0) -> None:
+    """用例入库时建立索引：rag_documents（混合检索）+ cases_embedding（兼容保留）。
+
+    repo_id 必须传真实仓库：检索按 repo 精确过滤，落 0 会导致用例在带仓库的检索里永远不可见。
+    """
+    index_document(f"case:{case_code}", "case", title or case_code, content, repo_id=repo_id, meta={"layer": layer, "category": category})
     vec = embed(content)
     with get_session() as sess:
         if _pgvector_available(sess):

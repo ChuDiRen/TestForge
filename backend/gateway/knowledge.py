@@ -101,6 +101,16 @@ def repo_chains(repo_id: int, max_chains: int = 10, max_len: int = 14):
     return ok(entry_chains(repo_id, max_chains, max_len))
 
 
+@app.get("/api/repos/{repo_id}/processes")
+def repo_processes(repo_id: int, max_processes: int = 8, max_len: int = 14):
+    """执行流识别（GitNexus Processes 移植）：入度 0 的入口函数出发的最长调用链组织成
+    「入口 → 传递 → 出口」的业务执行流。出口 = 链上触达 DB/缓存/HTTP/外部调用的函数
+    （按函数名与模块路径启发式识别）。供集成测试生成参考业务旅程。"""
+    from services.repo_svc.graph_analysis import processes
+
+    return ok(processes(repo_id, max_processes=max_processes, max_len=max_len))
+
+
 @app.get("/api/repos/{repo_id}/changes")
 def repo_changes(repo_id: int, scope: str = "unstaged", base_ref: str = ""):
     """变更影响检测（GitNexus detect_changes 移植）：git diff → 受影响函数 → 调用方/风险。"""
@@ -134,7 +144,11 @@ def function_trace(src: str, dst: str, repo_id: int = 0, max_depth: int = 10):
 
 @app.get("/api/functions/{function_name}/impact")
 def function_impact(function_name: str, repo_id: int = 0, depth: int = 0):
-    """变更影响面：受该函数变更影响的调用方集合（深度+置信度）。repo_id 缺省自动解析。"""
+    """变更影响面：受该函数变更影响的调用方集合（深度+置信度）。repo_id 缺省自动解析。
+
+    certainty 语义（对齐 GitNexus epistemic honesty）：调用图来自 tree-sitter 静态分析，
+    影响集合是静态图上的精确闭包；动态分发/反射调用不可见——对运行时真实影响而言是下界。
+    """
     from services.repo_svc.impact import impact_of
 
     rid = repo_id
@@ -144,7 +158,13 @@ def function_impact(function_name: str, repo_id: int = 0, depth: int = 0):
             rid = row.repo_id if row else 0
     if not rid:
         raise ApiError(404, "函数未索引", 404)
-    return ok({"function": function_name, "repo_id": rid, "affected": impact_of(rid, function_name, depth)})
+    return ok({
+        "function": function_name,
+        "repo_id": rid,
+        "affected": impact_of(rid, function_name, depth),
+        "certainty": "lower-bound",
+        "basis": "静态调用图（tree-sitter）上的精确闭包；动态分发/反射调用不可见，运行时真实影响可能更大",
+    })
 
 
 @app.get("/api/knowledge/status")

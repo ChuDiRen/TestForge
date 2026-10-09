@@ -56,6 +56,21 @@ def ingest_one(title: str, text: str, repo_id: int = 0, source: str = "paste") -
         req.quality_profile = json.dumps(profile, ensure_ascii=False)
         sess.commit()
     emit("需求", "qa-录入" if score >= 80 else "req-svc", f"需求 {code} 解析完成：{status}（可测性 {score:.0f}）", req_code=code)
+    # 需求文档入检索库（kind='req'）：全局搜索与生成上下文的语料源（测试资料五类之一）
+    try:
+        from services.shared.rag import ensure_rag_documents_table, index_document
+
+        ensure_rag_documents_table()
+        index_document(
+            f"req:{code}",
+            "req",
+            f"需求 {code} {title}",
+            f"需求 {code}（状态：{status}，可测性 {score:.0f}）\n来源：{source}\n\n{text[:5000]}",
+            repo_id=repo_id or 0,
+            meta={"source": source, "req_code": code, "status": status, "testability": score},
+        )
+    except Exception:  # noqa: BLE001
+        pass  # 索引失败不阻塞录入
     return {"id": rid, "code": code, "status": status, "testability": score, "report": json.loads(req.parse_report)}
 
 

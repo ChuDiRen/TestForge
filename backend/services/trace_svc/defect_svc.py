@@ -46,7 +46,35 @@ def create_from_run(run_id: str, case_codes: list[str], req_code: str, trace_id:
         sess.add(defect)
         sess.commit()
         emit("缺陷", "runner-svc", f"失败自动建缺陷 {defect.code}（{severity}，指派 {defect.assignee}）关联 run={run_id} 用例={len(case_codes)}", req_code=req_code, trace_id=trace_id)
+        # 缺陷入检索库（kind='defect'）：生成上下文 bugs 检索路与全局搜索的语料源
+        try:
+            from services.shared.rag import ensure_rag_documents_table, index_document
+
+            ensure_rag_documents_table()
+            index_document(
+                f"defect:{defect.code}",
+                "defect",
+                f"缺陷 {defect.code} {defect.title}",
+                f"缺陷 {defect.code}（{severity}，状态：新建）\n关联 run：{run_id}\n关联用例：{', '.join(case_codes) or '-'}\n关联需求：{req_code or '-'}\n失败原因：{reason}\n详情：{defect.detail[:1200]}",
+                repo_id=_infer_repo_id(req_code),
+                meta={"source": "defect-created", "defect_code": defect.code, "status": defect.status, "severity": severity},
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("缺陷 %s 检索索引失败（不阻塞建单）", defect.code, exc_info=True)
         return {"id": defect.id, "code": defect.code, "severity": severity, "assignee": defect.assignee, "status": defect.status}
+
+
+def _infer_repo_id(req_code: str) -> int:
+    """缺陷没有直接 repo 关联：经需求反查；单仓库部署兜底取唯一仓库（与 lesson 沉淀同规则）。"""
+    from services.shared.models import Requirements, Repos
+
+    with get_session() as sess:
+        if req_code:
+            row = sess.query(Requirements.repo_id).filter(Requirements.code == req_code).first()
+            if row and row[0]:
+                return int(row[0])
+        ids = [r[0] for r in sess.query(Repos.id).all()]
+        return int(ids[0]) if len(ids) == 1 else 0
 
 
 def trigger_regression(defect_id: int, trace_id: str) -> dict:

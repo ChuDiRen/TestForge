@@ -9,6 +9,7 @@ import EdgeCurveProgram from "@sigma/edge-curve";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
 import noverlap from "graphology-layout-noverlap";
 import { get, repoName } from "../api";
+import { useThemeMode } from "../hooks";
 
 interface GraphNode {
   id: string;
@@ -34,15 +35,32 @@ interface GraphEdge {
 
 interface GraphData {
   repo: { id: number; url: string };
+  meta?: { head_rev?: string; last_pull?: string | null; indexed_functions?: number };
   nodes: GraphNode[];
   edges: GraphEdge[];
   modules: string[];
   stats: Record<string, number>;
 }
 
+/** 索引新鲜度（GitNexus staleness 思路的轻量版）：HEAD 短 rev + 拉取相对时间 */
+function relTime(iso: string | null | undefined): string {
+  if (!iso) return "未知";
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
+
 const CATEGORIES = ["仓库", "模块", "函数", "需求", "用例", "缺陷"];
 // 节点色板对齐品牌系统：仓库墨色 / 模块杉青 / 函数深杉青 / 需求青 / 用例绿 / 缺陷红
 const COLORS = ["#24272b", "#0d7d72", "#0b655c", "#0891b2", "#15803d", "#c93a2e"];
+// 函数层按模块着色（GitNexus COMMUNITY_COLORS 同款 12 色轮换）：top 模块各占一色、
+// 其余灰——打破 600 函数一坨深绿的视觉混沌，模块聚类直接可见
+const MODULE_COLORS = ["#0891b2", "#0d7d72", "#15803d", "#b45309", "#7c3aed", "#be185d", "#4f46e5", "#a16207", "#0e7490", "#6d28d9", "#c2410c", "#334155"];
+const FUNC_FALLBACK_COLOR = "#9aa0a8";
 // 自闭环默认视图：接入仓库的代码结构；需求/用例/缺陷为下游溯源资产，点图例叠加
 // GitNexus 同款：力导默认只看代码调用图（函数层），层级/溯源资产点图例叠加
 const DEFAULT_HIDDEN = ["仓库", "模块", "需求", "用例", "缺陷"];
@@ -51,29 +69,16 @@ const DEFAULT_HIDDEN = ["仓库", "模块", "需求", "用例", "缺陷"];
 const cssVar = (name: string, fallback: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
-/** 跟随 App 根组件写入 html[data-theme] 的亮暗模式（MutationObserver，切换即时生效） */
-function useThemeMode() {
-  const [mode, setMode] = useState<"light" | "dark">(() =>
-    document.documentElement.dataset.theme === "dark" ? "dark" : "light"
-  );
-  useEffect(() => {
-    const ob = new MutationObserver(() =>
-      setMode(document.documentElement.dataset.theme === "dark" ? "dark" : "light")
-    );
-    ob.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => ob.disconnect();
-  }, []);
-  return mode;
-}
-
-// FA2 参数按节点规模分档（对齐 GitNexus getFA2Settings）
+// FA2 参数按节点规模分档（对齐 GitNexus getFA2Settings）：
+// 大图降 gravity / 提 scalingRatio 让连通分量充分展开，避免 600 函数挤成一坨
 function fa2Settings(n: number) {
   if (n < 100) return { gravity: 0.8, scalingRatio: 15, slowDown: 1, barnesHutOptimize: false, theta: 0.6 };
-  if (n < 300) return { gravity: 0.25, scalingRatio: 80, slowDown: 2, barnesHutOptimize: true, theta: 0.8 };
-  if (n < 1000) return { gravity: 0.12, scalingRatio: 150, slowDown: 3, barnesHutOptimize: true, theta: 0.8 };
-  return { gravity: 0.08, scalingRatio: 220, slowDown: 5, barnesHutOptimize: true, theta: 0.8 };
+  if (n < 300) return { gravity: 0.18, scalingRatio: 120, slowDown: 2, barnesHutOptimize: true, theta: 0.8 };
+  if (n < 1000) return { gravity: 0.06, scalingRatio: 300, slowDown: 4, barnesHutOptimize: true, theta: 0.8 };
+  return { gravity: 0.04, scalingRatio: 420, slowDown: 6, barnesHutOptimize: true, theta: 0.8 };
 }
-const FA2_DURATION = (n: number) => (n < 150 ? 8000 : n < 350 ? 18000 : 26000);
+// LightRAG 同款时间预算思路：布局是给用户看的，不是跑精确模拟——短收敛 + noverlap 收尾
+const FA2_DURATION = (n: number) => (n < 150 ? 6000 : n < 350 ? 10000 : 14000);
 
 interface SigmaRefs {
   graph: Graph;
@@ -84,6 +89,7 @@ interface SigmaRefs {
   blast: Set<string> | null;
   cycles: Set<string> | null;
   changes: Set<string> | null;
+  processChain: Set<string> | null;
   colors: { ink: string; ink2: string; panel: string; line: string; dim: string };
 }
 
@@ -117,7 +123,7 @@ export function KnowledgeGraph() {
   // 影响半径（blast radius）：受选中函数变更影响的调用方集合
   const blast = useQuery({
     queryKey: ["impact", selected?.name],
-    queryFn: () => get<{ function: string; affected: { name: string; depth: number; confidence: number }[] }>(
+    queryFn: () => get<{ function: string; affected: { name: string; depth: number; confidence: number }[]; certainty?: string; basis?: string }>(
       `/api/functions/${encodeURIComponent(selected!.name)}/impact`
     ),
     enabled: blastOn && !!selected && selected.category === "函数",
@@ -139,6 +145,26 @@ export function KnowledgeGraph() {
       ),
     enabled: false,
   });
+
+  // 执行流（GitNexus Processes 移植）：入口→传递→出口的业务旅程，链上节点紫色高亮
+  const [processOpen, setProcessOpen] = useState(false);
+  const [processOn, setProcessOn] = useState(false);
+  const [activeProcess, setActiveProcess] = useState<{ entry: string; chain: string[]; exits: string[] } | null>(null);
+  const processesQ = useQuery({
+    queryKey: ["processes", repoId],
+    queryFn: () => get<{ processes: { entry: string; chain: string[]; modules: string[]; exits: string[]; depth: number }[]; total: number }>(
+      `/api/repos/${repoId}/processes?max_processes=10`
+    ),
+    enabled: repoId !== undefined && processOpen,
+  });
+  const highlightProcess = (chain: string[] | null) => {
+    const r = R.current;
+    if (!r) return;
+    setProcessOn(!!chain);
+    setActiveProcess(chain ? { entry: chain[0], chain, exits: (processesQ.data?.processes.find((p) => p.chain === chain))?.exits ?? [] } : null);
+    r.processChain = chain ? new Set(chain) : null;
+    r.sigma.refresh();
+  };
 
   // ── 净化后的图数据（重复 id/name 会让渲染层崩，先过滤）──
   const clean = useMemo(() => {
@@ -164,7 +190,18 @@ export function KnowledgeGraph() {
     }
     const isolates = new Set(nodes.filter((n) => n.category === "函数" && !linked.has(n.id)).map((n) => n.name));
     const allEdges = d.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
-    return { nodes, edges, allEdges, isolates };
+    // 函数层按模块着色：调用频次 top12 模块各占一色（GitNexus 社区着色语义），其余灰
+    const moduleFreq = new Map<string, number>();
+    for (const n of nodes) {
+      if (n.category === "函数" && n.module) moduleFreq.set(n.module, (moduleFreq.get(n.module) ?? 0) + 1);
+    }
+    const moduleColor = new Map<string, string>(
+      [...moduleFreq.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, MODULE_COLORS.length)
+        .map(([m, _c], i) => [m, MODULE_COLORS[i]])
+    );
+    return { nodes, edges, allEdges, isolates, moduleColor };
   }, [graph.data]);
 
   const nodeById = useMemo(() => new Map((clean?.nodes ?? []).map((n) => [n.id, n])), [clean]);
@@ -210,26 +247,30 @@ export function KnowledgeGraph() {
   };
 
   const nodeSize = (n: GraphNode) =>
-    n.category === "仓库" ? 16
-    : n.category === "模块" ? 9
+    n.category === "仓库" ? 14
+    : n.category === "模块" ? 8
     : n.category === "需求" ? 7
     : n.category === "缺陷" ? 6
     : n.category === "用例" ? 5
-    : Math.min(9, 3 + (n.度数 ?? 0));
+    : Math.min(7, 2.5 + (n.度数 ?? 0) * 0.6); // 函数层压小：密集区减少重叠，度数做视觉层级
 
-  const buildGraph = useCallback((data: { nodes: GraphNode[]; edges: GraphEdge[] }) => {
+  const buildGraph = useCallback((data: { nodes: GraphNode[]; edges: GraphEdge[]; moduleColor: Map<string, string> }) => {
     const g = new Graph({ multi: false, type: "directed" });
     const N = data.nodes.length;
     data.nodes.forEach((n, i) => {
       // 均匀随机播种：同心环播种会被 FA2 原样保留成"鬼圆环"（低度节点挪不动）
       const angle = (i * 2 * Math.PI * 0.618) % (2 * Math.PI);
       const radius = 40 + ((i * 97) % 400);
+      const color =
+        n.category === "函数"
+        ? (n.module && data.moduleColor.get(n.module)) || FUNC_FALLBACK_COLOR
+        : COLORS[CATEGORIES.indexOf(n.category)] ?? COLORS[0];
       g.addNode(n.id, {
         label: n.name,
         x: radius * Math.cos(angle) + ((i % 7) - 3) * 8,
         y: radius * Math.sin(angle) + ((i % 5) - 2) * 8,
         size: nodeSize(n),
-        color: COLORS[CATEGORIES.indexOf(n.category)] ?? COLORS[0],
+        color,
         hidden: false,
         highlighted: false,
         node: n,
@@ -266,7 +307,8 @@ export function KnowledgeGraph() {
       labelDensity: 0.16,
       labelGridCellSize: 80,
       defaultNodeColor: COLORS[0],
-      defaultEdgeColor: colors.line,
+      // 8 位 hex 带 50% 透明：1798 条调用边默认退后，hover 邻接边才提亮
+      defaultEdgeColor: colors.line + "80",
       defaultEdgeType: "curved",
       edgeProgramClasses: { curved: EdgeCurveProgram },
       minCameraRatio: 0.02,
@@ -281,6 +323,18 @@ export function KnowledgeGraph() {
         const n = data.node as GraphNode | undefined;
         if (n && hiddenRef.current[n.category]) attrs.hidden = true;
         if (!showIsolatesRef.current && isolatesRef.current.has(String(data.label))) attrs.hidden = true;
+        // 执行流：链上节点紫色（GitNexus processes 图层）
+        if (r.processChain) {
+          if (r.processChain.has(String(data.label))) {
+            attrs.color = "#7c3aed";
+            attrs.size = (data.size as number) * 1.4;
+            attrs.highlighted = true;
+            attrs.zIndex = 5;
+          } else {
+            attrs.color = dimColor(String(data.color), 0.85, r.colors.dim);
+          }
+          return attrs;
+        }
         if (r.blast) {
           if (r.blast.has(String(data.label))) {
             attrs.color = "#e5645a";
@@ -340,6 +394,20 @@ export function KnowledgeGraph() {
         const r = R.current;
         if (!r) return data;
         const attrs: Record<string, unknown> = { ...data };
+        // 执行流：链上相邻边紫色加粗
+        if (r.processChain) {
+          const [s, t] = r.graph.extremities(edge);
+          const sn = r.graph.getNodeAttribute(s, "label");
+          const tn = r.graph.getNodeAttribute(t, "label");
+          const onChain = r.processChain.has(String(sn)) && r.processChain.has(String(tn));
+          attrs.hidden = !onChain;
+          if (onChain) {
+            attrs.color = "#7c3aed";
+            attrs.size = (data.size as number) * 2.5;
+            attrs.zIndex = 3;
+          }
+          return attrs;
+        }
         const focus = r.hover || r.selected;
         if (r.blast) {
           const [s, t] = r.graph.extremities(edge);
@@ -352,6 +420,7 @@ export function KnowledgeGraph() {
           const [s, t] = r.graph.extremities(edge);
           if (s === focus || t === focus) {
             attrs.size = (data.size as number) * 2.2;
+            attrs.color = r.colors.ink2;
             attrs.zIndex = 2;
           } else {
             attrs.hidden = true;
@@ -361,7 +430,7 @@ export function KnowledgeGraph() {
       },
     });
 
-    R.current = { graph: g, sigma, layout: null, selected: null, hover: null, blast: null, cycles: null, changes: null, colors };
+    R.current = { graph: g, sigma, layout: null, selected: null, hover: null, blast: null, cycles: null, changes: null, processChain: null, colors };
     // 调试钩子：布局诊断用（读节点坐标判断 FA2 是否真的在动）
     (window as unknown as Record<string, unknown>).__kg = { sigma, getGraph: () => R.current?.graph ?? null, getLayout: () => R.current?.layout ?? null };
 
@@ -432,6 +501,7 @@ export function KnowledgeGraph() {
     r.blast = null;
     r.cycles = null;
     r.changes = null;
+    r.processChain = null;
     r.graph.clear();
     const g = buildGraph(clean);
     r.graph.import(g.export());
@@ -537,7 +607,7 @@ export function KnowledgeGraph() {
     if (!r) return;
     r.colors = themeColors();
     r.sigma.setSetting("labelColor", { color: r.colors.ink });
-    r.sigma.setSetting("defaultEdgeColor", r.colors.line);
+    r.sigma.setSetting("defaultEdgeColor", r.colors.line + "80");
     r.sigma.refresh();
   }, [themeMode, themeColors]);
 
@@ -599,6 +669,18 @@ export function KnowledgeGraph() {
                   </Tag>
                 </Tooltip>
               )}
+              <Tooltip title="执行流（GitNexus Processes）：入口→传递→出口的业务旅程，点击查看列表并在图上高亮">
+                <Tag
+                  color={processOn ? "purple" : "default"}
+                  style={{ cursor: "pointer", marginInlineEnd: 0 }}
+                  onClick={() => {
+                    setProcessOpen(true);
+                    if (!processOn) highlightProcess(null);
+                  }}
+                >
+                  执行流
+                </Tag>
+              </Tooltip>
               <Tooltip title="变更检测（GitNexus detect_changes）：git 工作区改动 → 受影响函数，点击橙色高亮">
                 <Tag
                   color={changesOn ? "orange" : "default"}
@@ -618,9 +700,10 @@ export function KnowledgeGraph() {
                 </Tag>
               </Tooltip>
               <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>
+                {graph.data.meta?.head_rev && `HEAD ${graph.data.meta.head_rev} · `}索引更新 {relTime(graph.data.meta?.last_pull)}
                 {Object.entries(graph.data.stats)
-                  .map(([k, v]) => `${k} ${v}`)
-                  .join(" · ")}
+                  .map(([k, v]) => ` · ${k} ${v}`)
+                  .join("")}
               </span>
             </Space>
           )}
@@ -807,6 +890,61 @@ export function KnowledgeGraph() {
         )}
       </Card>
       <Drawer
+        title="执行流（入口 → 传递 → 出口）"
+        open={processOpen}
+        onClose={() => setProcessOpen(false)}
+        width={520}
+        extra={
+          processOn && (
+            <Button size="small" onClick={() => highlightProcess(null)}>
+              清除高亮
+            </Button>
+          )
+        }
+      >
+        {processesQ.isLoading && <span style={{ fontSize: 13, color: "var(--tf-ink-3)" }}>分析调用图中…</span>}
+        {processesQ.data && processesQ.data.total === 0 && (
+          <Empty description="未识别到执行流——需要至少 3 跳的入口调用链" style={{ margin: "32px 0" }} />
+        )}
+        {processesQ.data && processesQ.data.total > 0 && (
+          <div style={{ display: "grid", gap: 12 }}>
+            {processesQ.data.processes.map((p, i) => {
+              const active = activeProcess?.chain === p.chain;
+              return (
+                <Card
+                  key={i}
+                  size="small"
+                  style={{ borderColor: active ? "#7c3aed" : undefined }}
+                  title={
+                    <span style={{ fontSize: 13 }}>
+                      <span style={{ color: "#7c3aed", fontFamily: "Consolas, monospace", marginInlineEnd: 6 }}>{p.depth} 跳</span>
+                      {p.entry}
+                    </span>
+                  }
+                  extra={
+                    <Button size="small" type={active ? "primary" : "default"} ghost={active} onClick={() => highlightProcess(active ? null : p.chain)}>
+                      {active ? "取消高亮" : "图上高亮"}
+                    </Button>
+                  }
+                >
+                  <div style={{ fontSize: 12.5, fontFamily: "Consolas, monospace", lineHeight: 1.8, wordBreak: "break-all" }}>
+                    {p.chain.map((n, j) => (
+                      <span key={j}>
+                        {j > 0 && <span style={{ color: "#7c3aed", marginInline: 4 }}>→</span>}
+                        <span style={{ color: p.exits.includes(n) ? "#b45309" : undefined }}>{n}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ marginBlockStart: 6, fontSize: 12, color: "var(--tf-ink-3)" }}>
+                    出口：{p.exits.length ? p.exits.join("、") : "未识别（纯内存链路）"}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </Drawer>
+      <Drawer
         title={selected ? `${selected.category} · ${selected.name}` : ""}
         open={!!selected}
         onClose={() => setSelected(null)}
@@ -863,17 +1001,27 @@ export function KnowledgeGraph() {
               ]}
             />
             {selected.category === "函数" && (
-              <Button
-                block
-                style={{ marginTop: 12 }}
-                danger={blastOn}
-                type={blastOn ? "primary" : "default"}
-                icon={<AimOutlined />}
-                loading={blast.isFetching}
-                onClick={() => setBlastOn((v) => !v)}
-              >
-                {blastOn ? "关闭影响半径" : "影响半径（受该函数变更影响的调用方）"}
-              </Button>
+              <>
+                <Button
+                  block
+                  style={{ marginTop: 12 }}
+                  danger={blastOn}
+                  type={blastOn ? "primary" : "default"}
+                  icon={<AimOutlined />}
+                  loading={blast.isFetching}
+                  onClick={() => setBlastOn((v) => !v)}
+                >
+                  {blastOn ? "关闭影响半径" : "影响半径（受该函数变更影响的调用方）"}
+                </Button>
+                {blast.data?.certainty && (
+                  <Tooltip title={blast.data.basis}>
+                    <div style={{ marginBlockStart: 8, fontSize: 12, color: "var(--tf-ink-3)", cursor: "help" }}>
+                      <Tag color="orange" style={{ marginInlineEnd: 4 }}>静态下界</Tag>
+                      基于静态调用图；动态分发/反射调用不可见，运行时真实影响可能更大
+                    </div>
+                  </Tooltip>
+                )}
+              </>
             )}
           </>
         )}

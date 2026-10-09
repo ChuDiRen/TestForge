@@ -336,6 +336,169 @@ def wiki_lint(repo_id: int):
     return ok(lint_repo(pages, modules, related))
 
 
+@app.get("/api/wiki/graph")
+def wiki_graph(repo_id: int = 0):
+    """Wiki 互链图谱数据（OpenWiki WikiGraphView 移植的配套接口）：
+    页面为节点，TF-IDF 余弦相似（related_map，阈值 0.05 / 每页 top-6）为边。
+    必须注册在 /api/wiki/{page_id} 之前，否则 "graph" 会被路径参数吞掉。"""
+    from services.shared.models import WikiPages
+    from services.wiki_builder.analytics import related_map
+
+    with get_session() as sess:
+        q = sess.query(WikiPages)
+        if repo_id:
+            q = q.filter(WikiPages.repo_id == repo_id)
+        rows = q.order_by(WikiPages.level, WikiPages.id).all()
+    nodes = [
+        {
+            "id": str(w.id),
+            "title": w.title,
+            "level": w.level,
+            "module": w.module or "",
+            "stale": bool(w.stale),
+        }
+        for w in rows
+    ]
+    related = related_map(
+        [{"id": w.id, "title": w.title, "text": f"{w.title}\n{(w.content_md or '')[:2000]}"} for w in rows]
+    )
+    seen: set[tuple[int, int]] = set()
+    edges = []
+    for pid, neighbors in related.items():
+        for n in neighbors:
+            key = (min(pid, n["id"]), max(pid, n["id"]))
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append({"source": str(pid), "target": str(n["id"]), "weight": n["score"]})
+    return ok({"nodes": nodes, "edges": edges})
+
+
+# ---------------- 知识文档（用户注入知识 → RAG 双索引 → 生成上下文） ----------------
+# 闭环：Wiki 页上传 → rag_documents(kind='user_doc') → testgen context 检索 kinds 含 'user_doc'
+# → 生成引用。不混 kind='wiki'（wiki 重建 replace_scope 会整批清掉）。
+
+
+@app.get("/api/knowledge/documents")
+def list_knowledge_documents(repo_id: int = 0):
+    from sqlalchemy import text
+
+    from services.shared.rag import ensure_rag_documents_table
+
+    ensure_rag_documents_table()
+    with get_session() as sess:
+        sql = "SELECT doc_key, repo_id, title, LENGTH(content) AS chars, meta, updated_at FROM rag_documents WHERE kind = 'user_doc'"
+        params: dict = {}
+        if repo_id:
+            sql += " AND repo_id = :rid"
+            params["rid"] = repo_id
+        sql += " ORDER BY updated_at DESC LIMIT 200"
+        rows = sess.execute(text(sql), params).all()
+        return ok(
+            [
+                {
+                    "doc_key": r[0],
+                    "repo_id": r[1],
+                    "title": r[2],
+                    "chars": int(r[3] or 0),
+                    "updated_at": r[5].isoformat() if r[5] else None,
+                }
+                for r in rows
+            ]
+        )
+
+
+class KnowledgeDocBody(BaseModel):
+    title: str
+    content: str
+    repo_id: int = 0
+
+
+@app.post("/api/knowledge/documents")
+def create_knowledge_document(body: KnowledgeDocBody):
+    """用户知识文档入库（Wiki 页上传卡片）：upsert 进 rag_documents（向量+全文双索引），
+    AI 生成用例的六路上下文会自动检索引用。doc_key=repo+标题哈希，同标题重复上传是更新。"""
+    import hashlib
+
+    from services.shared.docstatus import mark
+    from services.shared.rag import ensure_rag_documents_table, index_document
+
+    title = body.title.strip()
+    content = body.content.strip()
+    if not title or not content:
+        raise ApiError(400, "title 与 content 必填", 400)
+    ensure_rag_documents_table()
+    doc_key = "userdoc:" + hashlib.sha1(f"{body.repo_id}:{title}".encode()).hexdigest()[:16]
+    index_document(doc_key, "user_doc", title, content, repo_id=body.repo_id, meta={"source": "wiki-page-upload"})
+    mark(body.repo_id, "user_doc", doc_key)
+    return ok({"doc_key": doc_key, "indexed": True})
+
+
+@app.delete("/api/knowledge/documents")
+def delete_knowledge_document(doc_key: str):
+    from services.shared.rag import remove_document
+
+    remove_document(doc_key)
+    return ok({"deleted": doc_key})
+
+
+@app.post("/api/wiki/lint/fix-duplicates")
+def wiki_fix_duplicates(repo_id: int):
+    """处置重复标题（OpenWiki lint 处置动作移植）：同标题仅保留最早一页，其余删除
+    （连同其 rag_documents 检索行），消除检索稀释。返回删除清单。"""
+    from sqlalchemy import text
+
+    from services.shared.models import WikiPages
+    from services.shared.rag import remove_document
+
+    with get_session() as sess:
+        rows = sess.query(WikiPages).filter(WikiPages.repo_id == repo_id).order_by(WikiPages.id).all()
+        seen: dict[str, int] = {}
+        removed: list[int] = []
+        for w in rows:
+            key = w.title.strip()
+            if key in seen:
+                removed.append(w.id)
+                sess.delete(w)
+            else:
+                seen[key] = w.id
+        if removed:
+            sess.commit()
+    for pid in removed:
+        remove_document(f"wiki:{pid}")
+    return ok({"removed": removed, "kept": len(seen)})
+
+
+@app.get("/api/knowledge/search")
+def knowledge_search(q: str, repo_id: int = 0, limit: int = 8):
+    """检索测试台：测试资料全类目透明预演——需求文档(req)/技术文档(wiki+user_doc)/
+    测试计划(plan)/测试用例(case)/功能缺陷(defect)+缺陷教训(lesson) 七路混合检索。"""
+    from services.shared.rag import hybrid_search
+
+    q = q.strip()
+    if not q:
+        raise ApiError(400, "q 必填", 400)
+    hits = hybrid_search(
+        q,
+        kinds=("req", "plan", "case", "defect", "user_doc", "lesson", "wiki"),
+        limit=max(1, min(limit, 20)),
+        repo_id=repo_id or 0,
+    )
+    return ok(
+        [
+            {
+                "doc_key": h["doc_key"],
+                "kind": h["kind"],
+                "title": h["title"],
+                "excerpt": h["content"][:180],
+                "score": round(h.get("score", 0.0), 4),
+                "repo_id": h.get("repo_id", 0),
+            }
+            for h in hits
+        ]
+    )
+
+
 @app.get("/api/wiki/{page_id}/related")
 def wiki_related(page_id: int, limit: int = 6):
     """相关页面（OpenWiki TF-IDF 互链移植）：同仓库页面按余弦相似度 top-K 推荐。"""
@@ -474,7 +637,11 @@ async def create_repo(request: Request):
 
 @app.post("/api/repos/{repo_id}/pull")
 def pull_repo(repo_id: int):
-    """拉取 + 增量索引 + 变更驱动回归（源码变更的函数 → 关联用例标 stale → 自动回归）。"""
+    """拉取 + 增量索引 + 变更驱动回归 + 自动重建 Wiki（GitNexus staleness 闭环）。
+
+    源码变更的函数 → 关联用例标 stale → 自动回归；同时后台重建受影响的 Wiki 页，
+    知识层自动追平代码，不再依赖人工点「重建」。
+    """
     from gateway.regression import regress_changed
 
     res = grpc_call(
@@ -486,7 +653,38 @@ def pull_repo(repo_id: int):
         timeout=300,
     )
     summary = regress_changed(repo_id, res.get("changed_functions") or [])
-    return ok({**res, "regression": summary})
+    if res.get("changed_functions"):
+        _spawn_wiki_rebuild(repo_id, "pull")
+    return ok({**res, "regression": summary, "wiki_rebuild": "triggered" if res.get("changed_functions") else "skipped"})
+
+
+def _spawn_wiki_rebuild(repo_id: int, source: str) -> None:
+    """后台重建受影响 Wiki 页（仅 stale 页），失败不阻塞调用方。"""
+    from services.shared.trace import emit
+
+    tid = new_trace_id()
+    set_trace_id(tid)
+
+    def _run() -> None:
+        try:
+            with get_session() as sess:
+                repo = sess.get(Repos, repo_id)
+                head = str(repo.head_rev or "") if repo else ""
+            r = grpc_call(
+                "wiki-builder",
+                GRPC_PORTS["wiki-builder"],
+                "WikiBuilder",
+                "Rebuild",
+                {"repo_id": repo_id, "from_rev": head, "to_rev": head, "changed_files": ["__stale__"]},
+                timeout=180,
+            )
+            emit("wiki", source, f"{source} 触发 Wiki 增量重建 repo={repo_id}: {r}", trace_id=tid)
+        except Exception as exc:  # noqa: BLE001
+            emit("wiki", source, f"{source} 触发 Wiki 重建失败 repo={repo_id}: {exc}", trace_id=tid)
+        finally:
+            set_trace_id("-")
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 @app.post("/api/repos/{repo_id}/webhook")
@@ -520,6 +718,8 @@ async def repo_webhook(repo_id: int, request: Request):
                 f"webhook 拉取完成 repo={repo_id} rev={str(res.get('head_rev') or '')[:8]} 变更函数={len(res.get('changed_functions') or [])} 回归={summary}",
                 trace_id=tid,
             )
+            if res.get("changed_functions"):
+                _spawn_wiki_rebuild(repo_id, "webhook")
         except Exception as exc:  # noqa: BLE001
             emit("仓库", "webhook", f"webhook 拉取失败 repo={repo_id}: {exc}", trace_id=tid)
         finally:

@@ -4,6 +4,7 @@ import zhCN from "antd/locale/zh_CN";
 import {
   AimOutlined,
   ApartmentOutlined,
+  ApiOutlined,
   BookOutlined,
   BugOutlined,
   CheckCircleOutlined,
@@ -20,6 +21,7 @@ import {
   NodeIndexOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
+  SearchOutlined,
   SettingOutlined,
   TeamOutlined,
   ThunderboltOutlined,
@@ -47,25 +49,35 @@ import { Users } from "./views/Users";
 import { Login } from "./views/Login";
 import { Jobs } from "./views/Jobs";
 import { Assistant } from "./views/Assistant";
+import { RagEval } from "./views/RagEval";
+import { OpenAccess } from "./views/OpenAccess";
+import { KnowledgeDocs } from "./views/KnowledgeDocs";
 
 const { Sider, Header, Content } = Layout;
 
 export const VIEWS = [
   { key: "dashboard", label: "仪表盘", icon: <DashboardOutlined /> },
   { key: "assistant", label: "AI 助手", icon: <RobotOutlined /> },
-  { key: "graph", label: "知识图谱", icon: <ApartmentOutlined /> },
-  { key: "wiki", label: "代码库 / Wiki", icon: <BookOutlined /> },
-  { key: "map", label: "服务地图 / 契约", icon: <DeploymentUnitOutlined /> },
-  { key: "repo-add", label: "仓库接入", icon: <CloudDownloadOutlined /> },
+  // 测试主线六步（按工程旅程顺序）
   { key: "requirements", label: "需求录入", icon: <FileTextOutlined /> },
   { key: "plans", label: "测试计划", icon: <AimOutlined /> },
   { key: "workbench", label: "生成工作台", icon: <ThunderboltOutlined /> },
-  { key: "jobs", label: "任务队列", icon: <SettingOutlined /> },
   { key: "cases", label: "用例库", icon: <DatabaseOutlined /> },
   { key: "runs", label: "执行记录", icon: <ExperimentOutlined /> },
   { key: "defects", label: "缺陷管理", icon: <BugOutlined /> },
-  { key: "logs", label: "日志 / 追溯", icon: <FileSearchOutlined /> },
+  // 知识资产（接入 → 编译 → 文档 → 图谱 → 检索质量）
+  { key: "repo-add", label: "仓库接入", icon: <CloudDownloadOutlined /> },
+  { key: "wiki", label: "代码库 / Wiki", icon: <BookOutlined /> },
+  { key: "knowledge-docs", label: "知识文档", icon: <FileTextOutlined /> },
+  { key: "graph", label: "知识图谱", icon: <ApartmentOutlined /> },
+  { key: "rageval", label: "检索质量", icon: <SearchOutlined /> },
+  // 质量运营（横切视角）
   { key: "quality", label: "需求质量流水线", icon: <SafetyCertificateOutlined /> },
+  { key: "map", label: "服务地图 / 契约", icon: <DeploymentUnitOutlined /> },
+  { key: "jobs", label: "任务队列", icon: <SettingOutlined /> },
+  { key: "logs", label: "日志 / 追溯", icon: <FileSearchOutlined /> },
+  // 系统
+  { key: "openaccess", label: "开放接入", icon: <ApiOutlined /> },
   { key: "users", label: "用户管理", icon: <TeamOutlined />, adminOnly: true },
 ] as const;
 
@@ -81,14 +93,17 @@ interface MenuGroup {
 }
 
 const MENU_GROUPS: MenuGroup[] = [
-  // 智能体驱动：AI 助手是平台主入口，排菜单第一位（单视图组自动平铺为顶级项）
+  // 总览与智能入口平铺为顶级项
+  { key: "g-overview", label: "仪表盘", icon: <DashboardOutlined />, views: ["dashboard"] },
   { key: "g-ai", label: "AI 助手", icon: <RobotOutlined />, views: ["assistant"] },
-  { key: "g-overview", label: "总览", icon: <DashboardOutlined />, views: ["dashboard"] },
-  // 组内按新人操作动线排序：先接入仓库，再看知识
-  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["repo-add", "wiki", "graph", "map"] },
-  { key: "g-flow", label: "测试流程", icon: <FileDoneOutlined />, views: ["requirements", "plans", "workbench", "jobs"] },
-  { key: "g-quality", label: "质量运营", icon: <CheckCircleOutlined />, views: ["cases", "runs", "defects", "quality", "logs"] },
-  { key: "g-system", label: "系统管理", icon: <TeamOutlined />, views: ["users"], adminOnly: true },
+  // 测试主线：需求 → 计划 → 生成 → 用例 → 执行 → 缺陷，一条旅程走完
+  { key: "g-flow", label: "测试流程", icon: <FileDoneOutlined />, views: ["requirements", "plans", "workbench", "cases", "runs", "defects"] },
+  // 知识资产：接入 → 编译 → 图谱 → 检索质量，知识生产链
+  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["repo-add", "wiki", "knowledge-docs", "graph", "rageval"] },
+  // 质量运营：横切视角（需求质量关 / 系统契约 / 作业 / 追溯）
+  { key: "g-quality", label: "质量运营", icon: <CheckCircleOutlined />, views: ["quality", "map", "jobs", "logs"] },
+  // 系统：开放接入对所有人可见，用户管理仅管理员（view 级 adminOnly 过滤）
+  { key: "g-system", label: "系统", icon: <SettingOutlined />, views: ["openaccess", "users"] },
 ];
 
 function currentView(): ViewKey {
@@ -112,6 +127,9 @@ const VIEW_COMPONENTS: Record<ViewKey, () => JSX.Element> = {
   defects: Defects,
   logs: Logs,
   quality: Quality,
+  rageval: RagEval,
+  openaccess: OpenAccess,
+  "knowledge-docs": KnowledgeDocs,
   users: Users,
 };
 

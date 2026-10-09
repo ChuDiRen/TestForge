@@ -9,9 +9,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Empty, Input, Spin, Tag, Timeline, Tooltip, Typography } from "antd";
-import { LoadingOutlined, RobotOutlined, SendOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
-import { del, get, getToken, post } from "../api";
+import { App, Button, Empty, Input, Spin, Steps, Tag, Timeline, Tooltip, Typography } from "antd";
+import { LoadingOutlined, RobotOutlined, SendOutlined, ThunderboltOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
+import { del, get, getToken, post, sseUrl } from "../api";
 
 export interface Thread {
   id: number;
@@ -29,6 +29,8 @@ export interface ToolEvent {
   summary: string;
   ms?: number;
   running?: boolean;
+  /** 工具结构化结果（后端随 tool_end 下发）——generate_case 的进度卡靠它拿 generation_code */
+  result?: Record<string, unknown> | null;
 }
 export interface Citation {
   ref: string;
@@ -51,6 +53,7 @@ const TOOL_LABEL: Record<string, string> = {
   overview: "仓库概览",
   cases: "查询用例",
   generate_case: "生成用例",
+  generation_status: "生成进度查询",
   create_requirement: "录入需求",
   grep: "源码搜索",
   glob: "文件查找",
@@ -89,14 +92,61 @@ function CitationCode({ children }: { children?: ReactNode }) {
   );
 }
 
-/** AI 专用 Markdown：引用可点击跳转，其余排版同全站 */
+/** Mermaid 流程图渲染（GitNexus 聊天 MermaidDiagram 对齐）：```mermaid 代码块动态渲染，
+ *  失败降级为原文本。动态 import 不进首屏 bundle。 */
+function MermaidBlock({ code }: { code: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mer = (await import("mermaid")).default;
+        mer.initialize({
+          startOnLoad: false,
+          theme: document.documentElement.dataset.theme === "dark" ? "dark" : "neutral",
+          securityLevel: "strict",
+        });
+        const { svg } = await mer.render(`mmd-${Math.random().toString(36).slice(2)}`, code);
+        if (!cancelled && ref.current) ref.current.innerHTML = svg;
+      } catch (e) {
+        if (!cancelled) setErr(String(e).slice(0, 150));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+  if (err)
+    return (
+      <pre style={{ fontSize: 12, color: "var(--tf-ink-3)", background: "var(--tf-bg)", borderRadius: 8, padding: 10, overflowX: "auto" }}>
+        {`流程图渲染失败：${err}\n${code}`}
+      </pre>
+    );
+  return (
+    <div
+      ref={ref}
+      style={{ background: "var(--tf-panel, #fff)", border: "1px solid var(--tf-line)", borderRadius: 8, padding: 10, overflowX: "auto", marginBlock: 8 }}
+    />
+  );
+}
+
+/** AI 专用 Markdown：引用可点击跳转、mermaid 代码块渲染流程图，其余排版同全站 */
 function AiMarkdown({ content }: { content: string }) {
   return (
     <div className="md-body">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
-        components={{ code: (props) => <CitationCode>{props.children}</CitationCode> }}
+        components={{
+          code: (props: any) => {
+            const cls = String(props.className || "");
+            if (cls.includes("language-mermaid")) {
+              return <MermaidBlock code={String(props.children ?? "").replace(/\n$/, "")} />;
+            }
+            return <CitationCode>{props.children}</CitationCode>;
+          },
+        }}
       >
         {prepareCitations(content)}
       </ReactMarkdown>
@@ -120,7 +170,104 @@ export function UserMsg({ m }: { m: ChatMsg }) {
   );
 }
 
+const STAGES = ["PLAN 清单", "覆盖守卫", "代码生成", "沙箱执行", "覆盖率回填"];
+
+/** 生成进度卡：generate_case 入队后内嵌在对话消息里，SSE 实时跟踪
+ *  PLAN→守卫→生成→沙箱→回填 五阶段，完成后展示结果并可跳用例库。
+ *  这就是「工作台流程融入智能体」的载体——用户不用离开对话。 */
+function GenerationProgressCard({ genId }: { genId: string }) {
+  const [stage, setStage] = useState(-1);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [failed, setFailed] = useState(false);
+  const esRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    const es = new EventSource(sseUrl(`/api/generations/${genId}/events`));
+    esRef.current = es;
+    es.addEventListener("stage", (ev) => {
+      const d = JSON.parse((ev as MessageEvent).data);
+      setLogs((l) => [...l, `[${d.stage}] ${d.message}`]);
+      const idx = STAGES.indexOf(d.stage);
+      if (idx >= 0) setStage(idx + 1);
+    });
+    es.addEventListener("result", (ev) => {
+      const d = JSON.parse((ev as MessageEvent).data);
+      try {
+        setResult(JSON.parse(d.payload_json || "{}"));
+      } catch {
+        setResult({});
+      }
+      if (d.stage === "failed" || String(d.message || "").includes("失败")) setFailed(true);
+      setStage(STAGES.length);
+      es.close();
+    });
+    es.onerror = () => {
+      es.close();
+    };
+    return () => es.close();
+  }, [genId]);
+
+  const done = stage >= STAGES.length;
+  return (
+    <div
+      style={{
+        border: "1px solid var(--tf-line-strong)",
+        borderRadius: 10,
+        padding: "10px 12px",
+        marginBlockEnd: 10,
+        background: "var(--tf-panel, #fff)",
+        maxWidth: 560,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBlockEnd: 8 }}>
+        <ThunderboltOutlined style={{ color: "var(--tf-primary)" }} />
+        <span style={{ fontSize: 13, fontWeight: 600 }}>用例生成 {genId}</span>
+        <span style={{ flex: 1 }} />
+        {done ? (
+          <Tag color={failed ? "red" : "green"}>{failed ? "生成失败" : "完成"}</Tag>
+        ) : (
+          <Tag color="processing">生成中…</Tag>
+        )}
+      </div>
+      <Steps
+        size="small"
+        current={stage}
+        status={failed ? "error" : done ? "finish" : "process"}
+        items={STAGES.map((s) => ({ title: s }))}
+      />
+      {logs.length > 0 && (
+        <div style={{ marginBlockStart: 8, maxHeight: 88, overflowY: "auto", fontSize: 12, color: "var(--tf-ink-2)", fontFamily: "Consolas, monospace" }}>
+          {logs.slice(-6).map((l, i) => (
+            <div key={i} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {l}
+            </div>
+          ))}
+        </div>
+      )}
+      {done && !failed && (
+        <div style={{ marginBlockStart: 8, display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 12.5, color: "var(--tf-ink-2)" }}>
+            {result?.total !== undefined ? `生成 ${result.total} 条 · 沙箱通过 ${result.passed ?? "?"} 条` : "用例已入库"}
+          </span>
+          <span style={{ flex: 1 }} />
+          <Button
+            size="small"
+            type="primary"
+            ghost
+            onClick={() => window.dispatchEvent(new CustomEvent("tf-navigate", { detail: "cases" }))}
+          >
+            去用例库查看
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AssistantMsg({ m }: { m: ChatMsg }) {
+  const genEvent = m.tool_events.find((t) => t.name === "generate_case" && (t.result as any)?.generation_code);
+  const genId = genEvent ? String((genEvent.result as any).generation_code) : null;
   return (
     <div style={{ marginBlock: 14 }}>
       {m.tool_events.length > 0 && (
@@ -147,12 +294,15 @@ export function AssistantMsg({ m }: { m: ChatMsg }) {
       <div style={{ display: "flex", gap: 8 }}>
         <RobotOutlined style={{ color: "var(--tf-primary)", fontSize: 16, marginBlockStart: 3 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
+          {genId && <GenerationProgressCard genId={genId} />}
           {m.content ? (
             <AiMarkdown content={m.content} />
           ) : (
-            <Spin indicator={<LoadingOutlined />} spinning>
-              <span style={{ color: "var(--tf-ink-2)", fontSize: 13 }}>思考中…</span>
-            </Spin>
+            !genId && (
+              <Spin indicator={<LoadingOutlined />} spinning>
+                <span style={{ color: "var(--tf-ink-2)", fontSize: 13 }}>思考中…</span>
+              </Spin>
+            )
           )}
           {m.citations.length > 0 && (
             <div style={{ marginBlockStart: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -265,7 +415,14 @@ export function useChat() {
                 if (!m.pending) return m;
                 const events = [...m.tool_events];
                 const last = events.findIndex((t) => t.running);
-                if (last >= 0) events[last] = { ...events[last], summary: (data.summary as string) ?? "", running: false, ms: (data.ms as number) ?? 0 };
+                if (last >= 0)
+                  events[last] = {
+                    ...events[last],
+                    summary: (data.summary as string) ?? "",
+                    running: false,
+                    ms: (data.ms as number) ?? 0,
+                    result: (data.result as Record<string, unknown> | null) ?? null,
+                  };
                 return { ...m, tool_events: events };
               }),
             );

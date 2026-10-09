@@ -168,15 +168,23 @@ def build_context(repo_id: int, function: str, module: str = "") -> ContextBundl
             log.debug("contract ctx skip: %s", exc)
 
         # 3. wiki：混合检索（向量+全文 RRF），旧全表扫描仅兜底
+        # kinds 含 user_doc（用户上传知识）与 lesson（已关闭缺陷沉淀的教训）——
+        # 生成同模块用例时自动召回历史教训，同一个坑不踩第二遍
         try:
             from services.shared.rag import hybrid_search
 
-            hits = hybrid_search(f"{function} {fn_module}", kinds=("wiki",), limit=3, repo_id=repo_id or 0)
+            hits = hybrid_search(f"{function} {fn_module}", kinds=("wiki", "user_doc", "lesson"), limit=3, repo_id=repo_id or 0)
             fresh = [h for h in hits if not (h.get("meta") or {}).get("stale")]
             if fresh:
                 ctx.wiki = "\n\n".join(h["content"][:1500] for h in fresh)
                 for h in fresh:
-                    ctx.citations.append(Citation("wiki", h["doc_key"], f"wiki 页 {h['title']}"))
+                    dk = h["doc_key"]
+                    label = (
+                        f"缺陷教训 {h['title']}" if dk.startswith("lesson:")
+                        else f"知识文档 {h['title']}" if dk.startswith("userdoc:")
+                        else f"wiki 页 {h['title']}"
+                    )
+                    ctx.citations.append(Citation("wiki", dk, label))
         except Exception as exc:  # noqa: BLE001
             log.debug("wiki ctx skip: %s", exc)
         if not ctx.wiki:

@@ -150,6 +150,11 @@ def knowledge_graph(request: Request):
 
         return ok({
             "repo": {"id": repo.id, "url": repo.url},
+            "meta": {
+                "head_rev": (repo.head_rev or "")[:8],
+                "last_pull": repo.last_pull.isoformat() if repo.last_pull else None,
+                "indexed_functions": len(fns),
+            },
             "nodes": nodes,
             "edges": edges,
             "modules": modules,

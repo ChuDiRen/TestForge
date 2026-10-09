@@ -110,6 +110,17 @@ def _tool_defs() -> list[dict]:
             },
         },
         {
+            "name": "list_processes",
+            "description": "执行流识别：入口→传递→出口（DB/缓存/HTTP）的业务执行流列表，供集成测试/E2E 设计业务旅程参考",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_id": {"type": "integer"},
+                    "max_processes": {"type": "integer"},
+                },
+            },
+        },
+        {
             "name": "wiki_ask",
             "description": "Wiki 知识库问答：检索该仓库 Wiki 页后由 LLM 依据资料作答，带来源页；资料不足会明说",
             "inputSchema": {
@@ -258,6 +269,14 @@ def _call_tool(name: str, args: dict) -> str:
 
         return json.dumps(
             entry_chains(int(args.get("repo_id") or 0), int(args.get("max_chains") or 10), int(args.get("max_len") or 14)),
+            ensure_ascii=False,
+        )
+
+    if name == "list_processes":
+        from services.repo_svc.graph_analysis import processes
+
+        return json.dumps(
+            processes(int(args.get("repo_id") or 0), max_processes=int(args.get("max_processes") or 8)),
             ensure_ascii=False,
         )
 
