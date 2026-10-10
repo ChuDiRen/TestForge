@@ -4,13 +4,13 @@ import uuid
 
 
 def _cleanup(dk_prefix: str) -> None:
-    from services.shared.rag import remove_documents_by_prefix
+    from app.services.knowledge.rag import remove_documents_by_prefix
 
     remove_documents_by_prefix(dk_prefix)
 
 
 def test_tokenize_latin_and_cjk_bigram():
-    from services.shared.rag import tokenize
+    from app.services.knowledge.rag import tokenize
 
     toks = tokenize("create_order 订单创建").split()
     assert "create_order" in toks
@@ -18,7 +18,7 @@ def test_tokenize_latin_and_cjk_bigram():
 
 
 def test_hybrid_search_rrf_fusion_and_filters():
-    from services.shared.rag import hybrid_search, index_document
+    from app.services.knowledge.rag import hybrid_search, index_document
 
     rid = 990001
     _cleanup("hr:test:")
@@ -49,7 +49,7 @@ def test_hybrid_search_rrf_fusion_and_filters():
 
 
 def test_bulk_index_atomic_replace_scope():
-    from services.shared.rag import hybrid_search, index_document, index_documents_bulk
+    from app.services.knowledge.rag import hybrid_search, index_document, index_documents_bulk
 
     rid = 990002
     _cleanup("hr:bulk:")
@@ -71,14 +71,14 @@ def test_bulk_index_atomic_replace_scope():
 
 def test_similar_cases_metadata_enriched():
     """新混合路径 + 元数据回填；与旧 embedding 路径结果兼容。"""
-    from services.shared.db import get_session
-    from services.shared.models import Cases
-    from services.shared.rag import index_case, similar_cases
+    from app.db.session import get_session
+    from app.models import Cases
+    from app.services.knowledge.rag import index_case, similar_cases
 
     code = f"CASE-HRB-{uuid.uuid4().hex[:6].upper()}-TC-001"
     init_done = False
     try:
-        from services.shared.db import init_db
+        from app.db.session import init_db
 
         init_db()
         init_done = True
@@ -97,6 +97,6 @@ def test_similar_cases_metadata_enriched():
                 if row is not None:
                     sess.delete(row)
                     sess.commit()
-            from services.shared.rag import remove_document
+            from app.services.knowledge.rag import remove_document
 
             remove_document(f"case:{code}")

@@ -8,7 +8,7 @@ import uuid
 
 
 def test_contract_tokens_extracts_ops():
-    from services.contract_registry.service import _contract_tokens
+    from app.services.contract.service import _contract_tokens
 
     spec = json.dumps({"paths": {"/api/payments/refund": {"post": {}}}, "rpcs": ["SubmitPayment"], "fields": {"amount": {}}})
     toks = _contract_tokens("payment-contract", spec)
@@ -20,9 +20,9 @@ def test_contract_tokens_extracts_ops():
 
 def test_detect_consumers_cross_repo():
     """消费方源码引用契约词 → 该仓自动登记为消费方（跨仓）。"""
-    from services.contract_registry.service import _detect_consumers
-    from services.shared.db import get_session, init_db
-    from services.shared.models import Functions, Repos
+    from app.db.session import get_session, init_db
+    from app.models import Functions, Repos
+    from app.services.contract.service import _detect_consumers
 
     init_db()
     rid = 992001
@@ -48,10 +48,10 @@ def test_detect_consumers_cross_repo():
 
 
 def test_rag_eval_metrics_bounded():
-    from services.shared.db import get_session, init_db
-    from services.shared.models import Cases
-    from services.shared.rag import index_case, remove_document
-    from services.shared.rag_eval import evaluate, golden_set
+    from app.db.session import get_session, init_db
+    from app.models import Cases
+    from app.services.knowledge.rag import index_case, remove_document
+    from app.services.knowledge.rag_eval import evaluate, golden_set
 
     init_db()
     code = f"CASE-EVL-{uuid.uuid4().hex[:6].upper()}-TC-001"
@@ -80,7 +80,7 @@ def test_rag_eval_metrics_bounded():
 
 
 def _run_mcp(requests: list[dict], monkeypatch, capsys) -> list[dict]:
-    from services import mcp_server
+    from app import mcp_server
 
     stdin_lines = "\n".join(json.dumps(r, ensure_ascii=False) for r in requests) + "\n"
     monkeypatch.setattr("sys.stdin", io.StringIO(stdin_lines))
@@ -109,7 +109,7 @@ def test_mcp_initialize_and_tools_list(monkeypatch, capsys):
 
 
 def test_mcp_tool_call_roundtrip(monkeypatch, capsys):
-    from services.shared.db import init_db
+    from app.db.session import init_db
 
     init_db()
     replies = _run_mcp(
@@ -134,8 +134,8 @@ def test_fix_duplicates_cleans_wiki_deps():
     否则触发 wiki_deps_depends_on_page_id_fkey FK violation（线上已炸过）。"""
     import uuid
 
-    from services.shared.db import get_session
-    from services.shared.models import Repos, WikiDeps, WikiPages
+    from app.db.session import get_session
+    from app.models import Repos, WikiDeps, WikiPages
 
     marker = uuid.uuid4().hex[:8]
     with get_session() as sess:
@@ -155,7 +155,7 @@ def test_fix_duplicates_cleans_wiki_deps():
         ids = {"keep": keep_dup.id, "drop": drop_dup.id, "other": other.id}
 
     try:
-        from gateway.main import wiki_fix_duplicates
+        from app.main import wiki_fix_duplicates
 
         res = wiki_fix_duplicates(rid)
         data = res["data"]
@@ -171,7 +171,7 @@ def test_fix_duplicates_cleans_wiki_deps():
     finally:
         from sqlalchemy import text
 
-        from services.shared.rag import remove_document
+        from app.services.knowledge.rag import remove_document
 
         with get_session() as sess:
             sess.execute(

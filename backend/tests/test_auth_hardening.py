@@ -2,8 +2,8 @@
 
 import pytest
 
-from services.shared import auth as auth_mod
-from services.shared.auth import (
+from app.core import auth as auth_mod
+from app.core.auth import (
     hash_password,
     is_default_password,
     issue_token,
@@ -80,16 +80,16 @@ def test_renewed_token_threshold():
 def client():
     from fastapi.testclient import TestClient
 
-    from gateway.main import app
+    from app.main import app
 
     return TestClient(app)
 
 
 def _clear_admin_must_change() -> None:
     """业务接口测试假定 admin 可正常操作：清除强制改密标记（阻断有专项测试覆盖）。"""
-    from gateway.main import _USER_STATUS_CACHE
-    from services.shared.db import get_session
-    from services.shared.models import Users
+    from app.db.session import get_session
+    from app.main import _USER_STATUS_CACHE
+    from app.models import Users
 
     with get_session() as sess:
         sess.query(Users).filter(Users.username == "admin").update({"must_change": False})
@@ -99,7 +99,7 @@ def _clear_admin_must_change() -> None:
 
 @pytest.fixture()
 def admin_token(client):
-    from services.shared.db import init_db
+    from app.db.session import init_db
 
     init_db()
     _clear_admin_must_change()
@@ -113,9 +113,9 @@ def admin_token(client):
 
 
 def _cleanup_user(username: str) -> None:
-    from gateway.main import _USER_DISABLED_CACHE
-    from services.shared.db import get_session
-    from services.shared.models import Users
+    from app.db.session import get_session
+    from app.main import _USER_DISABLED_CACHE
+    from app.models import Users
 
     with get_session() as sess:
         u = sess.query(Users).filter(Users.username == username).first()
@@ -135,8 +135,8 @@ def test_admin_default_password_does_not_force_change(client):
 
 
 def test_login_disabled_account_rejected(client, admin_token):
-    from services.shared.db import get_session
-    from services.shared.models import Users
+    from app.db.session import get_session
+    from app.models import Users
 
     c = client
     c.post("/api/auth/users", headers={"Authorization": f"Bearer {admin_token}"},
@@ -147,7 +147,7 @@ def test_login_disabled_account_rejected(client, admin_token):
         with get_session() as sess:
             sess.query(Users).filter(Users.username == "tf_disabled_test").update({"disabled": True})
             sess.commit()
-        from gateway.main import _USER_DISABLED_CACHE
+        from app.main import _USER_DISABLED_CACHE
 
         _USER_DISABLED_CACHE.pop("tf_disabled_test", None)
         resp2 = c.post("/api/auth/login", json={"username": "tf_disabled_test", "password": "passw0rd1"})
@@ -181,9 +181,9 @@ def test_change_password_flow(client, admin_token):
         bad_login = c.post("/api/auth/login", json={"username": "admin", "password": "testforge-admin"})
         assert bad_login.status_code == 401
     finally:
-        from services.shared.auth import hash_password as _hp
-        from services.shared.db import get_session
-        from services.shared.models import Users
+        from app.core.auth import hash_password as _hp
+        from app.db.session import get_session
+        from app.models import Users
 
         with get_session() as sess:
             sess.query(Users).filter(Users.username == "admin").update({"password_hash": _hp("testforge-admin")})
@@ -236,8 +236,8 @@ def test_renewed_token_header(client):
     """临近过期的 token 请求一次后应拿到 X-Renewed-Token。"""
     from fastapi.testclient import TestClient
 
-    from gateway.main import app
-    from services.shared.db import init_db
+    from app.db.session import init_db
+    from app.main import app
 
     init_db()
     c = TestClient(app)
@@ -256,10 +256,10 @@ def test_password_hash_still_safe():
 
 def test_must_change_blocks_business_api(client):
     """must_change=True 的账号：业务接口 403，改密接口放行，改完即解。"""
-    from gateway.main import _USER_STATUS_CACHE
-    from services.shared.auth import hash_password as _hp
-    from services.shared.db import get_session, init_db
-    from services.shared.models import Users
+    from app.core.auth import hash_password as _hp
+    from app.db.session import get_session, init_db
+    from app.main import _USER_STATUS_CACHE
+    from app.models import Users
 
     init_db()
     username = "tf_must_change_test"
@@ -291,8 +291,8 @@ def test_must_change_blocks_business_api(client):
 
 def test_bootstrap_does_not_force_admin_password_change(client):
     """管理员默认口令保留；普通账号 must_change 仍由重置流程单独设置。"""
-    from services.shared.db import get_session, init_db
-    from services.shared.models import Users
+    from app.db.session import get_session, init_db
+    from app.models import Users
 
     init_db()
     with get_session() as sess:

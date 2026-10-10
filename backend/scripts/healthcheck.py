@@ -1,4 +1,4 @@
-"""健康检查：gateway /api/system/services 必须全绿。"""
+"""健康检查：后端 /api/system/services 必须全绿。"""
 
 import sys
 
@@ -13,7 +13,7 @@ def main() -> int:
         r = httpx.get(f"{base}/api/system/services", timeout=30, headers=auth_headers())
         r.raise_for_status()
     except Exception as exc:  # noqa: BLE001
-        print(f"[healthcheck] gateway 不可达: {exc}")
+        print(f"[healthcheck] 后端不可达: {exc}")
         return 1
     data = r.json()["data"]
     for s in data["services"]:

@@ -1,2 +1,3 @@
+# pnpm 构建脚本白名单：esbuild 的 postinstall 需要放行
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true

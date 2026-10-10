@@ -13,7 +13,7 @@ def _sample_spec() -> dict:
 
 
 def test_build_api_cases_from_spec():
-    from services.testgen_svc.webplan import build_api_cases
+    from app.services.testgen.webplan import build_api_cases
 
     cases = build_api_cases(_sample_spec(), "http://127.0.0.1:8000")
     assert len(cases) >= 5
@@ -26,7 +26,7 @@ def test_build_api_cases_from_spec():
 
 
 def test_build_api_cases_requires_get_endpoints():
-    from services.testgen_svc.webplan import build_api_cases
+    from app.services.testgen.webplan import build_api_cases
 
     try:
         build_api_cases({"paths": {}}, "http://x")
@@ -36,9 +36,9 @@ def test_build_api_cases_requires_get_endpoints():
 
 
 def test_render_web_file_compiles_and_runs():
-    from services.testgen_svc.schemas import CasePlan, PlannedCase
-    from services.testgen_svc.webcodegen import render_web_file
-    from services.testgen_svc.webplan import build_api_cases, build_e2e_cases
+    from app.schemas.testgen import CasePlan, PlannedCase
+    from app.services.testgen.webcodegen import render_web_file
+    from app.services.testgen.webplan import build_api_cases, build_e2e_cases
 
     designs = build_api_cases(_sample_spec(), "http://127.0.0.1:8000")
     cases = [PlannedCase(id=f"TC-{i:03d}", **d) for i, d in enumerate(designs, 1)]
@@ -57,9 +57,9 @@ def test_render_web_file_compiles_and_runs():
 
 
 def test_render_base_url_embedded():
-    from services.testgen_svc.schemas import CasePlan, PlannedCase
-    from services.testgen_svc.webcodegen import render_web_file
-    from services.testgen_svc.webplan import build_e2e_cases
+    from app.schemas.testgen import CasePlan, PlannedCase
+    from app.services.testgen.webcodegen import render_web_file
+    from app.services.testgen.webplan import build_e2e_cases
 
     designs = build_e2e_cases("http://127.0.0.1:9999")
     cases = [PlannedCase(id=f"TC-{i:03d}", **d) for i, d in enumerate(designs, 1)]

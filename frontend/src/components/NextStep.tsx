@@ -1,8 +1,8 @@
-import { Alert, Button, Space } from "antd";
+import { Alert, Button, Space } from 'antd'
 
 export interface NextStepAction {
-  label: string;
-  view: string;
+  label: string
+  view: string
 }
 
 /**
@@ -24,7 +24,7 @@ export function NextStep({ title, actions }: { title: string; actions: NextStepA
               size="small"
               type="primary"
               ghost
-              onClick={() => window.dispatchEvent(new CustomEvent("tf-navigate", { detail: a.view }))}
+              onClick={() => window.dispatchEvent(new CustomEvent('tf-navigate', { detail: a.view }))}
             >
               {a.label}
             </Button>
@@ -32,5 +32,5 @@ export function NextStep({ title, actions }: { title: string; actions: NextStepA
         </Space>
       }
     />
-  );
+  )
 }

@@ -5,7 +5,7 @@
   ② 真实函数生成×4：sanitize_text（精选）+ embed / extract_rules / diff_specs
     （探针式特征化：期望值来自对真实代码的实际执行，双跑一致性校验）
   ③ 真实需求×2（日志脱敏 / 规则抽取）→ 确认生效 → 自动编排 → 真实执行
-  ④ 注册真实契约（proto 解析 + 运行时 openapi.json）→ 迭代计划 → 测试报告
+  ④ 注册真实契约（运行时 openapi.json）→ 迭代计划 → 测试报告
 
 前提：gateway 已在 127.0.0.1:8000（make dev）；SANDBOX_MODE=local。
 """
@@ -153,27 +153,16 @@ def main() -> int:
     generate_web_layer("接口用例", "api", rid)
     generate_web_layer("E2E用例", "e2e", rid)
 
-    # ④ 真实契约注册（proto 解析 + 运行时 openapi）→ 迭代计划 → 测试报告
-    proto = (_ROOT / "proto" / "testforge.proto").read_text(encoding="utf-8")
-    version = re.search(r'VERSION = "([^"]+)"', (_ROOT / "services" / "shared" / "config.py").read_text(encoding="utf-8")).group(1)
-    grpc_spec = {
-        "file": "testforge.proto",
-        "services": sorted(set(re.findall(r"service\s+(\w+)\s*\{", proto))),
-        "rpcs": sorted(set(re.findall(r"rpc\s+(\w+)\s*\(", proto))),
-        "messages": sorted(set(re.findall(r"message\s+(\w+)\s*\{", proto))),
-    }
-    c1 = api("POST", "/api/contracts", {
-        "name": "testforge-grpc", "type": "grpc", "provider_repo": "testforge",
-        "version": version, "spec": grpc_spec, "consumers": ["gateway"],
-    })
+    # ④ 真实契约注册（运行时 openapi.json；单体化后已无自持 proto）→ 迭代计划 → 测试报告
+    version = re.search(r'VERSION = "([^"]+)"', (_ROOT / "app" / "core" / "config.py").read_text(encoding="utf-8")).group(1)
     openapi = httpx.get(f"{GATEWAY}/openapi.json", timeout=30).json()
     rest_spec = {"paths": {p: {} for p in openapi.get("paths", {})}}
     c2 = api("POST", "/api/contracts", {
         "name": "testforge-rest-api", "type": "rest", "provider_repo": "testforge",
         "version": version, "spec": rest_spec, "consumers": ["frontend"],
     })
-    check("④ 真实契约注册（proto + openapi）", bool(c1.get("contract_id")) and bool(c2.get("contract_id")) and len(grpc_spec["rpcs"]) >= 15,
-          f"grpc rpcs={len(grpc_spec['rpcs'])} rest paths={len(rest_spec['paths'])}")
+    check("④ 真实契约注册（运行时 openapi）", bool(c2.get("contract_id")) and len(rest_spec["paths"]) >= 30,
+          f"rest paths={len(rest_spec['paths'])}")
 
     plan = api("POST", "/api/plans", {"version": "real-1", "req_codes": req_codes})
     plans = {p["code"]: p for p in api("GET", "/api/plans")}

@@ -14,7 +14,7 @@ import httpx
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from services.shared.config import get_settings  # noqa: E402
+from app.core.config import get_settings  # noqa: E402
 
 
 def main() -> int:

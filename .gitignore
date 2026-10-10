@@ -21,3 +21,4 @@ data/
 
 # TS 增量构建产物
 frontend/tsconfig.tsbuildinfo
+.postman_export/

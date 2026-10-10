@@ -1,17 +1,33 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { fileURLToPath, URL } from 'node:url'
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
+// 脚手架架构（参照 juejin React 基础架构篇）：@ 别名指向 src，构建期 terser 去日志，dev 代理后端
 export default defineConfig({
   plugins: [react()],
+  base: './',
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   build: {
+    target: 'modules',
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
     rollupOptions: {
       output: {
         // 按依赖分块：主包变小、vendor 利用浏览器缓存
         manualChunks: {
-          react: ["react", "react-dom"],
-          antd: ["antd"],
-          query: ["@tanstack/react-query"],
-          echarts: ["echarts"],
+          react: ['react', 'react-dom'],
+          antd: ['antd'],
+          query: ['@tanstack/react-query'],
+          echarts: ['echarts'],
         },
       },
     },
@@ -20,10 +36,11 @@ export default defineConfig({
     // 监听 0.0.0.0：手机/局域网设备可通过本机 IP 直接访问
     host: true,
     proxy: {
-      "/api": {
-        target: "http://127.0.0.1:8000",
+      '/api': {
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+        secure: false,
       },
     },
   },
-});
+})

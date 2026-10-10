@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text  # noqa: E402
 
-from services.shared.db import get_session, init_db  # noqa: E402
-from services.shared.rag import ensure_rag_documents_table, tokenize  # noqa: E402
+from app.db.session import get_session, init_db  # noqa: E402
+from app.services.knowledge.rag import ensure_rag_documents_table, tokenize  # noqa: E402
 
 
 def main() -> None:
@@ -24,7 +24,7 @@ def main() -> None:
 
     init_db()
     ensure_rag_documents_table()
-    from services.shared.embedding import embed_batch
+    from app.services.knowledge.embedding import embed_batch
 
     done = 0
     with get_session() as sess:

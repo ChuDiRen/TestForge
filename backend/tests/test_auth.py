@@ -3,7 +3,7 @@
 import time
 from unittest import mock
 
-from services.shared.auth import hash_password, issue_token, parse_token, verify_password
+from app.core.auth import hash_password, issue_token, parse_token, verify_password
 
 
 def test_password_hash_roundtrip():
@@ -38,13 +38,13 @@ def test_token_tamper_proof():
 
 
 def test_token_rejects_unknown_role():
-    with mock.patch("services.shared.auth._sign", return_value="sig"):
+    with mock.patch("app.core.auth._sign", return_value="sig"):
         assert parse_token(f"u:{int(time.time()) + 60}:superuser:sig") is None
 
 
 def test_regression_short_code_mapping():
     """runner junit 名回映射口径：全码 → 短码；跨文件分组回归依赖此对齐。"""
-    from gateway.regression import short_code
+    from app.api.regression import short_code
 
     assert short_code("CASE-ABC123-TC-007") == "TC-007"
     assert short_code("CASE-XYZ999-TC-012") == "TC-012"

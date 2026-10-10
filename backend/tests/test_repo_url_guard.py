@@ -2,7 +2,7 @@
 
 import pytest
 
-from services.repo_svc.gitops import GitError, validate_remote_url
+from app.services.repo.gitops import GitError, validate_remote_url
 
 
 @pytest.mark.parametrize("url", [

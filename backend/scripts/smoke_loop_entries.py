@@ -3,7 +3,6 @@
 import csv
 import io
 import json
-import shutil
 import tempfile
 import time
 import urllib.request
@@ -96,7 +95,6 @@ def main() -> None:
     print(f"6 闭环总览 ok: kinds={body['data']['kinds']} defects_open={body['data']['defects_open']}")
 
     # 清理（冒烟数据不入正式库）
-    import urllib.request as _u
 
     for c in codes:
         # 缺陷行删库走 SQL（无删除端点）——冒烟脚本直连测试库同级 dev 库不可取，改用检索删除端点清 rag 行

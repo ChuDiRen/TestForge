@@ -13,8 +13,8 @@ WS = "ws-test-lr"
 def _cleanup_workspace() -> None:
     from sqlalchemy import text
 
-    from services.shared.db import get_session
-    from services.shared.models import KgEntity, KgExtraction, KgRelation
+    from app.db.session import get_session
+    from app.models import KgEntity, KgExtraction, KgRelation
 
     with get_session() as sess:
         sess.execute(text("DELETE FROM rag_documents WHERE workspace = :ws"), {"ws": WS})
@@ -28,7 +28,7 @@ def _cleanup_workspace() -> None:
 
 
 def test_chunking_four_strategies():
-    from services.shared.chunking import chunk_text
+    from app.services.knowledge.chunking import chunk_text
 
     long_text = "\n\n".join(f"## 第{i}节\n\n{'这是一段测试文本。' * 40}" for i in range(6))
 
@@ -49,7 +49,7 @@ def test_chunking_four_strategies():
 
 
 def test_chunking_drop_references():
-    from services.shared.chunking import chunk_text
+    from app.services.knowledge.chunking import chunk_text
 
     text = "# 正文\n\n这是正文内容，讲支付链路。\n\n## 参考文献\n\n[1] Smith 2020 blah blah\n[2] Doe 2021 blah\n"
     kept = chunk_text(text, strategy="paragraph", chunk_size=1200, drop_references=True)
@@ -63,7 +63,7 @@ def test_chunking_drop_references():
 
 
 def test_parsers_text_md_csv():
-    from services.shared.parsers import parse_file
+    from app.services.knowledge.parsers import parse_file
 
     md = parse_file("notes.md", "# 我的标题\n\n正文内容".encode())
     assert md.title == "我的标题" and "正文内容" in md.text
@@ -76,7 +76,7 @@ def test_parsers_text_md_csv():
 
 
 def test_parsers_docx_headings_tables():
-    from services.shared.parsers import parse_file
+    from app.services.knowledge.parsers import parse_file
 
     docx = __import__("docx")
     d = docx.Document()
@@ -98,7 +98,7 @@ def test_parsers_docx_headings_tables():
 
 
 def test_parsers_registry_unknown():
-    from services.shared.parsers import parse_file
+    from app.services.knowledge.parsers import parse_file
 
     try:
         parse_file("x.pdf", b"%PDF-fake", parser="mineru-not-registered")
@@ -111,7 +111,7 @@ def test_parsers_registry_unknown():
 
 
 def test_embedding_local_deterministic():
-    from services.shared.embedding import embed
+    from app.services.knowledge.embedding import embed
 
     v1, v2 = embed("支付回调幂等"), embed("支付回调幂等")
     assert v1 == v2 and len(v1) == 256
@@ -120,14 +120,14 @@ def test_embedding_local_deterministic():
 
 
 def test_rerank_disabled_identity():
-    from services.shared import rerank
+    from app.services.knowledge import rerank
 
     ranked = rerank.rerank("query", ["a", "b", "c"], top_n=2)
     assert ranked == [(0, -0.0), (1, -1.0), (2, -2.0)], "未配置时恒等保序"
 
 
 def test_websearch_import_guard():
-    from services.shared import websearch
+    from app.core import websearch
 
     if websearch.available():
         pass  # ddgs 已装；不真正联网测
@@ -140,7 +140,7 @@ def test_websearch_import_guard():
 
 def _seed_workspace_graph() -> dict:
     """种一个迷你图谱：实体 3 + 关系 2 + chunk 2（全部确定性、零 LLM）。"""
-    from services.shared.kg_merge import apply_extraction
+    from app.services.knowledge.kg_merge import apply_extraction
 
     _cleanup_workspace()
     apply_extraction(
@@ -155,14 +155,14 @@ def _seed_workspace_graph() -> dict:
         content_hash="h1", reindex=True,
     )
     # 直接写 chunk 行（绕过管线，测查询）
-    from services.shared.rag import index_document
+    from app.services.knowledge.rag import index_document
 
     index_document(f"kgc:{WS}t1:0", "kg_chunk", "0/1", "支付回调必须保证幂等性，使用 idempotency token。", repo_id=0, workspace=WS, meta={"parent": "kgdoc-t1", "index": 0, "workspace": WS})
     return {}
 
 
 def test_kg_query_modes():
-    from services.shared.kg_query import kg_search
+    from app.services.knowledge.kg_query import kg_search
 
     _seed_workspace_graph()
     # naive：只命 chunk
@@ -190,14 +190,14 @@ def test_kg_query_modes():
 
 
 def test_kg_query_websearch_fallback_empty():
-    from services.shared.kg_query import kg_search
+    from app.services.knowledge.kg_query import kg_search
 
     res = kg_search("zzz-绝无命中-qqq", mode="mix", workspace="ws-empty-x", websearch=False)
     assert res["web_results"] == [] and isinstance(res["contexts"], dict)
 
 
 def test_kg_graph_and_chunks_listing():
-    from services.shared.kg_query import entity_exists, kg_graph, list_chunks
+    from app.services.knowledge.kg_query import entity_exists, kg_graph, list_chunks
 
     _seed_workspace_graph()
     g = kg_graph(workspace=WS)
@@ -216,11 +216,11 @@ def test_kg_graph_and_chunks_listing():
 
 
 def test_communities_build_and_report_concat_fallback():
-    from services.shared.kg_communities import build_communities, list_communities
+    from app.services.knowledge.kg_communities import build_communities, list_communities
 
     _seed_workspace_graph()
     # 补几条关系让图有结构
-    from services.shared.kg_merge import apply_extraction
+    from app.services.knowledge.kg_merge import apply_extraction
 
     apply_extraction(0, WS, "kgdoc:t2", "订单文档", {
         "entities": [{"name": "订单服务", "type": "module", "description": "订单核心"}, {"name": "库存服务", "type": "module", "description": "库存扣减"}],
@@ -236,7 +236,7 @@ def test_communities_build_and_report_concat_fallback():
     assert comms and all(c["summary_source"] == "concat" for c in comms), "无 Key 报告应确定性拼接"
     assert any("支付服务" in c["members"] for c in comms)
     # global 查询可消费社区报告
-    from services.shared.kg_query import kg_search
+    from app.services.knowledge.kg_query import kg_search
 
     res = kg_search("订单 支付", mode="global", workspace=WS)
     assert isinstance(res["communities"], list)
@@ -246,15 +246,15 @@ def test_communities_build_and_report_concat_fallback():
 
 
 def test_merge_edit_rename_delete_cascade():
-    from services.shared.db import get_session
-    from services.shared.kg_merge import (
+    from app.db.session import get_session
+    from app.models import KgEntity, KgRelation
+    from app.services.knowledge.kg_merge import (
         apply_extraction,
         delete_entity,
         edit_entity,
         merge_entities,
         rename_entity,
     )
-    from services.shared.models import KgEntity, KgRelation
 
     _seed_workspace_graph()
     apply_extraction(0, WS, "kgdoc:t3", "别名文档", {
@@ -295,7 +295,7 @@ def test_merge_edit_rename_delete_cascade():
 
 
 def test_export_all_formats():
-    from services.shared.kg_export import export
+    from app.services.knowledge.kg_export import export
 
     _seed_workspace_graph()
     for what in ("entities", "relations", "chunks", "graph"):
@@ -321,8 +321,8 @@ def test_export_all_formats():
 
 
 def test_doc_pipeline_state_machine(monkeypatch):
-    from services.shared import doc_pipeline
-    from services.shared.doc_pipeline import delete_document, submit_document, track
+    from app.services.knowledge import doc_pipeline
+    from app.services.knowledge.doc_pipeline import delete_document, submit_document, track
 
     def fake_extract(chunks, title, gleaning=0, max_tokens=0):
         return {
@@ -332,7 +332,7 @@ def test_doc_pipeline_state_machine(monkeypatch):
             "gleaning_rounds": 0,
         }
 
-    monkeypatch.setattr("services.shared.kg_extract.extract_document", fake_extract)
+    monkeypatch.setattr("app.services.knowledge.kg_extract.extract_document", fake_extract)
     # 禁掉后台 worker（测试手动同步 _process，避免 worker 与测试线程竞态双写）
     monkeypatch.setattr(doc_pipeline, "ensure_started", lambda: None)
     ws = "ws-pipeline-test"
@@ -347,7 +347,7 @@ def test_doc_pipeline_state_machine(monkeypatch):
         assert t["chunks"] >= 1
 
         # 实体/关系/chunk 都应可检索
-        from services.shared.kg_query import kg_search
+        from app.services.knowledge.kg_query import kg_search
 
         search = kg_search("管线实体", mode="mix", workspace=ws)
         assert search["entities"], "管线产物应可检索"
@@ -367,8 +367,8 @@ def test_doc_pipeline_state_machine(monkeypatch):
     finally:
         from sqlalchemy import text
 
-        from services.shared.db import get_session
-        from services.shared.models import DocStatus, KgEntity, KgExtraction, KgRelation
+        from app.db.session import get_session
+        from app.models import DocStatus, KgEntity, KgExtraction, KgRelation
 
         with get_session() as sess:
             sess.query(DocStatus).filter(DocStatus.workspace.in_([ws, WS])).delete(synchronize_session=False)
@@ -380,15 +380,15 @@ def test_doc_pipeline_state_machine(monkeypatch):
 
 
 def test_doc_pipeline_settings_roundtrip(monkeypatch):
-    from services.shared.doc_pipeline import settings_all, settings_get, settings_set
+    from app.services.knowledge.doc_pipeline import settings_all, settings_get, settings_set
 
     key = f"test_key_{uuid.uuid4().hex[:6]}"
     settings_set(key, "42")
     assert settings_get(key, "0") == "42"
     merged = settings_all()
     assert "chunk_strategy" in merged and "gleaning_rounds" in merged
-    with __import__("services.shared.db", fromlist=["get_session"]).get_session() as sess:
-        from services.shared.models import KgSetting
+    with __import__("app.db.session", fromlist=["get_session"]).get_session() as sess:
+        from app.models import KgSetting
 
         sess.query(KgSetting).filter(KgSetting.key == key).delete(synchronize_session=False)
         sess.commit()
@@ -426,7 +426,7 @@ def test_ollama_version_and_tags_auth():
 
     from fastapi.testclient import TestClient
 
-    from gateway.main import app
+    from app.main import app
 
     client = TestClient(app)
     r = client.get("/ollama/api/version")
@@ -436,7 +436,7 @@ def test_ollama_version_and_tags_auth():
 
 
 def test_export_b64_roundtrip():
-    from services.shared.kg_export import export
+    from app.services.knowledge.kg_export import export
 
     fname, content, _ = export(what="entities", fmt="json", workspace="ws-nonexistent-zz")
     assert json.loads(content) == []

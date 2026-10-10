@@ -1,0 +1,7 @@
+# commitlint 配置在 frontend/ 下：把消息文件转成绝对路径再交给 pnpm --dir 执行
+root="$(git rev-parse --show-toplevel)"
+case "$1" in
+  /*) f="$1" ;;
+  *) f="$root/$1" ;;
+esac
+pnpm --dir frontend exec commitlint --edit "$f"

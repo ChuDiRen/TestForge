@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import text  # noqa: E402
 
-from services.shared.db import get_session, init_db  # noqa: E402
+from app.db.session import get_session, init_db  # noqa: E402
 
 TABLES = [
     "generation_events",

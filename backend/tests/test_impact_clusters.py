@@ -6,8 +6,8 @@ import pytest
 @pytest.fixture()
 def chain_repo():
     """a -> b -> c 调用链 + 孤立函数 d，返回 repo_id 与函数 id 映射。"""
-    from services.shared.db import get_session, init_db
-    from services.shared.models import CallEdges, Functions, Repos
+    from app.db.session import get_session, init_db
+    from app.models import CallEdges, Functions, Repos
 
     init_db()
     with get_session() as sess:
@@ -26,7 +26,7 @@ def chain_repo():
         sess.commit()
     yield rid, ids
     with get_session() as sess:
-        from services.shared.models import FnCluster, FnImpact
+        from app.models import FnCluster, FnImpact
 
         sess.query(CallEdges).filter(CallEdges.caller_id.in_(list(ids.values()))).delete(synchronize_session=False)
         sess.query(FnImpact).filter(FnImpact.repo_id == rid).delete(synchronize_session=False)
@@ -37,7 +37,7 @@ def chain_repo():
 
 
 def test_impact_precompute_and_blast_radius(chain_repo):
-    from services.repo_svc.impact import impact_of, recompute, top_impact
+    from app.services.repo.impact import impact_of, recompute, top_impact
 
     rid, _ = chain_repo
     assert recompute(rid) == 4
@@ -53,7 +53,7 @@ def test_impact_precompute_and_blast_radius(chain_repo):
 
 
 def test_impact_depth_limit(chain_repo):
-    from services.repo_svc.impact import impact_of
+    from app.services.repo.impact import impact_of
 
     rid, _ = chain_repo
     aff = impact_of(rid, "fc", depth=1)
@@ -61,7 +61,7 @@ def test_impact_depth_limit(chain_repo):
 
 
 def test_louvain_clusters_and_labels(chain_repo):
-    from services.repo_svc.clusters import cluster_of, list_clusters, recompute
+    from app.services.repo.clusters import cluster_of, list_clusters, recompute
 
     rid, _ = chain_repo
     res = recompute(rid)

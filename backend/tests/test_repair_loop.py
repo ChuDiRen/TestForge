@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from services.runner_svc import sandbox, service
+from app.services.runner import sandbox, service
+from app.services.testgen import api as testgen_api
 
 
 class _FakeRes:
@@ -38,16 +39,16 @@ def test_repair_loop_writes_regen_source(tmp_path: Path, monkeypatch):
         calls["exec"] += 1
         return _FakeRes("failed" if calls["exec"] == 1 else "success")
 
-    def fake_grpc_call(*args, **kwargs):
+    def fake_regen(*args, **kwargs):
         calls["regen"] += 1
         return {"code_file": "NEW-GENERATED-SRC", "cases_total": 2}
 
     monkeypatch.setattr(sandbox, "prepare_workspace", fake_prepare)
     monkeypatch.setattr(sandbox, "write_test_file", fake_write)
     monkeypatch.setattr(sandbox, "execute", fake_execute)
-    monkeypatch.setattr(service, "grpc_call", fake_grpc_call)
+    monkeypatch.setattr(testgen_api, "regenerate_affected", fake_regen)
 
-    cases = [{"code": "TC-001", "title": "t", "target_function": "sanitize_text", "module": "services.shared.sanitize"}]
+    cases = [{"code": "TC-001", "title": "t", "target_function": "sanitize_text", "module": "app.core.sanitize"}]
     res = service.execute_suite("RUN-REPAIR-TEST", cases, "OLD-SRC", repo_id=0, trace_id="tr_x", req_code="")
 
     assert calls["regen"] == 1
@@ -77,7 +78,7 @@ def test_repair_loop_survives_regen_failure(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(sandbox, "prepare_workspace", fake_prepare)
     monkeypatch.setattr(sandbox, "write_test_file", fake_write)
     monkeypatch.setattr(sandbox, "execute", fake_execute)
-    monkeypatch.setattr(service, "grpc_call", boom)
+    monkeypatch.setattr(testgen_api, "regenerate_affected", boom)
 
     cases = [{"code": "TC-001", "title": "t", "target_function": "f", "module": "m"}]
     res = service.execute_suite("RUN-REPAIR-FALLBACK", cases, "SRC", repo_id=0, trace_id="", req_code="")

@@ -6,9 +6,9 @@ import json
 
 
 def test_guard_adds_missing_permission_category():
-    from services.testgen_svc.fninfo import parse_signature
-    from services.testgen_svc.guard import guard
-    from services.testgen_svc.schemas import CasePlan, PlannedCase
+    from app.schemas.testgen import CasePlan, PlannedCase
+    from app.services.testgen.fninfo import parse_signature
+    from app.services.testgen.guard import guard
 
     src = "def pay(user: dict, sku: str, quantity: int):\n    '''下单，权限校验'''\n"
     fn = parse_signature(src, "pay")
@@ -20,9 +20,9 @@ def test_guard_adds_missing_permission_category():
 
 
 def test_guard_skips_optional_params():
-    from services.testgen_svc.fninfo import parse_signature
-    from services.testgen_svc.guard import guard
-    from services.testgen_svc.schemas import CasePlan, PlannedCase
+    from app.schemas.testgen import CasePlan, PlannedCase
+    from app.services.testgen.fninfo import parse_signature
+    from app.services.testgen.guard import guard
 
     src = "def order(user: dict, sku: str, coupon: str = None):\n    pass\n"
     fn = parse_signature(src, "order")
@@ -39,9 +39,9 @@ def test_guard_skips_optional_params():
 def test_codegen_renders_valid_python():
     import ast
 
-    from services.testgen_svc.codegen import codegen
-    from services.testgen_svc.planner import _curated_create_order
-    from services.testgen_svc.schemas import CasePlan
+    from app.schemas.testgen import CasePlan
+    from app.services.testgen.codegen import codegen
+    from app.services.testgen.planner import _curated_create_order
 
     plan = CasePlan(target="create_order", module="app.orders.service", cases=_curated_create_order())
     src = codegen(plan, "GEN-TEST")
@@ -55,7 +55,7 @@ def test_codegen_renders_valid_python():
 
 
 def test_parse_junit_report(tmp_path):
-    from services.runner_svc.sandbox import _parse_junit
+    from app.services.runner.sandbox import _parse_junit
 
     report = tmp_path / "report.xml"
     report.write_text(
@@ -76,7 +76,7 @@ def test_parse_junit_report(tmp_path):
 
 
 def test_contract_diff_breaking_rules():
-    from services.contract_registry.service import diff_specs
+    from app.services.contract.service import diff_specs
 
     v1 = json.dumps({"paths": {"/api/pay": {"post": {"__fields__": {"payUrl": {}, "amount": {"required": True}}}}}, "error_codes": ["PAY_101", "PAY_402"]})
     v2 = json.dumps({"paths": {"/api/pay": {"post": {"__fields__": {"redirectUrl": {"required": True}, "amount": {"required": True}}}}}, "error_codes": ["PAY_402"]})
@@ -88,7 +88,7 @@ def test_contract_diff_breaking_rules():
 
 
 def test_contract_diff_non_breaking_addition():
-    from services.contract_registry.service import diff_specs
+    from app.services.contract.service import diff_specs
 
     v1 = json.dumps({"paths": {"/api/pay": {"post": {"__fields__": {"amount": {"required": True}}}}}, "error_codes": []})
     v2 = json.dumps({"paths": {"/api/pay": {"post": {"__fields__": {"amount": {"required": True}, "memo": {}}}}}, "error_codes": []})
@@ -100,7 +100,7 @@ def test_contract_diff_non_breaking_addition():
 
 
 def test_rag_embed_deterministic_and_similar():
-    from services.shared.rag import embed
+    from app.services.knowledge.rag import embed
 
     a1 = embed("create_order 下单数量边界")
     a2 = embed("create_order 下单数量边界")
@@ -114,7 +114,7 @@ def test_rag_embed_deterministic_and_similar():
 
 
 def test_testability_unmeasurable_req_rejected():
-    from services.req_svc.parser import extract_rules, testability_score
+    from app.services.req.parser import extract_rules, testability_score
 
     bad = "希望系统整体更好用，提升用户体验，尽快优化一下。"
     score = testability_score(bad, extract_rules(bad))

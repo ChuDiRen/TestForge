@@ -1,0 +1,6 @@
+"""fn_clusters 表 CRUD（CRUDBase 标准封装，领域特有查询在此追加）。"""
+
+from app.crud.base import CRUDBase
+from app.models.fn_clusters import FnCluster
+
+crud_fn_clusters: CRUDBase[FnCluster, dict, dict] = CRUDBase(FnCluster)

@@ -1,8 +1,8 @@
 # TestForge 接口设计（As-Built · 2026-10-10）
 
 > 配套：[PRD v4.0](./TestForge-PRD-v4.0.md) · [架构设计](./TestForge-架构设计.md) · [数据库设计](./TestForge-数据库设计.md)。
-> 数据来源：`backend/gateway/` 全部路由模块实测扫描，共 **127 个 HTTP 接口** + 5 个 Ollama 兼容端点 + 13 个 MCP 工具。
-> 2026-10-10 复核：前端信息架构收敛（知识图谱 Hub / 检索中心 / 知识资产 Hub）纯前端变更，接口面零变化，本文内容仍然有效。
+> 数据来源：`backend/app/api/` 全部路由模块实测扫描，共 **127 个 HTTP 接口** + 5 个 Ollama 兼容端点 + 13 个 MCP 工具。
+> 2026-10-10 复核：前端信息架构收敛与脚手架分层重构纯前端变更；后端单体化后 `app/api/` 为唯一路由面，接口面零变化，本文内容仍然有效。
 
 ---
 
@@ -12,7 +12,7 @@
 
 | 项 | 值 |
 |---|---|
-| Base URL | `http://<host>:8000`（网关唯一入口；前端 dev 经 vite :5173 反代） |
+| Base URL | `http://<host>:8000`（后端唯一入口；前端 dev 经 vite :5173 反代） |
 | 协议 | REST + SSE（4 个流式端点）+ NDJSON（Ollama chat 流式） |
 | 认证 | `Authorization: Bearer <token>`；SSE/EventSource 允许 `?token=<token>` 兜底 |
 | Token | 无状态 HMAC：`username:expiry_ts:role:hmac_sig`（HMAC-SHA256），TTL 12h；剩余 <6h 时响应头 `X-Renewed-Token` 自动续签 |
@@ -62,7 +62,7 @@
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | GET | `/api/health` | 健康检查 `{status, version}` | ⚪ |
-| GET | `/api/system/services` | 网关→7 微服务链路探测 `{services[], all_green, mode}` | 🟢 |
+| GET | `/api/system/services` | 领域模块链路探测 `{services[], all_green}` | 🟢 |
 
 ### 2.2 认证 / 用户（8）
 
@@ -155,7 +155,7 @@
 |---|---|---|---|
 | POST | `/api/contracts` | 注册契约 `{name*, type?=rest, provider_repo?, version?, spec?, consumers[]?}` | 🔴 |
 | GET | `/api/contracts` | 契约列表（≤200） | 🟢 |
-| POST | `/api/contracts/{contract_id}/impact` | 影响分析（gRPC 流式聚合，`{to_v?}`） | 🔴 |
+| POST | `/api/contracts/{contract_id}/impact` | 影响分析（进程内聚合，`{to_v?}`） | 🔴 |
 | POST | `/api/contracts/{contract_id}/regenerate` | 契约变更闭环：影响分析→受影响用例重生成入队 | 🔴 |
 | GET | `/api/contracts/{contract_id}/diffs` | diff 历史（from_v/to_v/breaking/changes） | 🟢 |
 | POST | `/api/regenerate` | 定向重生成 `{repo_id*, target_function*, case_ids[]?, reason?}` | 🔴 |

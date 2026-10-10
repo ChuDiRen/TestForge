@@ -9,14 +9,13 @@
 → 沙箱执行验证 → 分层用例库 → 缺陷闭环 → 准出报告 → 全链路追溯
 ```
 
-## 5 条命令从零跑通 demo
+## 4 条命令从零跑通 demo
 
 ```bash
 make install        # ① 装依赖（uv sync + pnpm install）
-make proto          # ② 生成 gRPC stub（proto/ 唯一事实源）
-make dev            # ③ 一键拉起 7 服务 + gateway + 前端（等全绿）
-make demo-m1        # ④ M1 验收：接仓库→生成→执行→入库（确定性规划 + 真实沙箱执行）
-make test           # ⑤ 单测（23 passed，含 gateway TestClient 接口测试）
+make dev            # ② 一键拉起后端（FastAPI 单体）+ 前端（等全绿）
+make demo-m1        # ③ M1 验收：接仓库→生成→执行→入库（确定性规划 + 真实沙箱执行）
+make test           # ④ pytest 单测（含 FastAPI TestClient 接口测试）
 ```
 
 更多验收：`make demo-m0`（骨架全绿） / `demo-m2`（Wiki 增量+stale） / `demo-m3`（需求+RAG+G0~G5） / `demo-m4`（契约 breaking 影响分析） / `demo-m5`（缺陷闭环+计划报告+12 视图）。
@@ -28,11 +27,11 @@ make reset-data      # 清空演示/历史数据，只留真实产生
 make seed-real       # 以 TestForge 本仓库为示例：接入→索引 425 个真实函数→Wiki 编译→
                      # 4 个真实函数套件生成并 local 沙箱真跑 pytest（sanitize_text 精选 +
                      # embed/extract_rules/diff_specs 探针式特征化：期望值来自对真实代码
-                     # 的实际执行）→ 真实需求×2 → 自动编排 → 真实契约（proto+openapi）→
+                     # 的实际执行）→ 真实需求×2 → 自动编排 → 真实契约（运行时 openapi.json）→
                      # 迭代计划 → 测试报告
 ```
 
-前端：打开 http://127.0.0.1:5173 —— 12 个视图全部来自真实接口（需求录入→工作台 SSE 管线动画→用例库→执行记录→缺陷回归→测试计划报告→日志追溯→质量流水线）。
+前端：打开 http://127.0.0.1:5173 —— 全部视图来自真实接口（需求录入→工作台 SSE 管线动画→用例库→执行记录→缺陷回归→测试计划报告→日志追溯→质量流水线）。
 
 ### 手机访问（同一 Wi-Fi）
 
@@ -47,33 +46,39 @@ netsh advfirewall firewall add rule name="TestForge Vite 5173" dir=in action=all
 ## 技术栈（锁定）
 
 - **仓库形态**：前后端分离 monorepo——`frontend/`（React）+ `backend/`（Python 3.12，uv 工程根，.env/data/.run 均在其下）；根 Makefile 总入口；
-- **前端**：React 18 + TypeScript + Ant Design 5 + React Query + Zustand + ECharts；
-- **后端**（backend/）：一个 FastAPI 进程 = REST/SSE 网关 + 全部 9 个服务（repo/wiki/契约/需求/生成/执行/trace/缺陷/计划），服务间经进程内直调（`MONO_MODE=1` 默认）；模块边界与 proto 契约保持不变，`MONO_MODE=0` 可退回微服务拓扑（各 `services/*/main.py` 仍可独立起 gRPC 进程）；
-- **proto**：`backend/proto/testforge.proto` 为消息与服务契约唯一事实源，`make proto` 生成 stub；
+- **前端**（frontend/）：React 18 + TypeScript + Vite + Ant Design 5 + React Query + Zustand + ECharts；src 按脚手架八目录分层（assets/components/hooks/pages/routes/service/store/utils），`@` 别名指向 src；工程链 ESLint + Prettier + Husky（pre-commit=lint-staged）+ commitlint（.cjs 配置），构建期 terser 去 console/debugger；
+- **后端**（backend/）：FastAPI 单体——唯一入口 `uvicorn app.main:app`，`app/` 分层（api 路由按资源域 / core / models 一表一文件 / schemas 全接口强校验 / crud / db / services 领域层：repo/wiki/契约/需求/生成/执行/trace(含缺陷+计划)/knowledge）；模块间进程内平铺函数直调，仅暴露 :8000 一个端口（proto/gRPC/MONO_MODE 双拓扑传输层已删除，设计依据见 `docs/后端单体化重构设计.md`）；
+- **契约中心**：对内无网络调用；对外契约注册/diff/breaking/影响分析支持 OpenAPI/gRPC/topic 契约登记；
 - **存储**：PostgreSQL 16 + pgvector（相似用例 RAG）。本机开发库跑在 WSL docker（`testforge-pg`，host 网络，镜像网络经局域网 IP 直达）；`make dev` 启动时自动做 PG 握手健康检查，不通则依次回退 wsl 控制台隧道（`scripts/pg_tunnel.py`）与直连候选；
 - **LLM**：DeepSeek（OpenAI 兼容：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-chat`），全管线无 mock 实现——填入 `LLM_API_KEY` → `make llm-check` 验证后即启用；
 - **规划智能体**：[deepagents](https://github.com/langchain-ai/deepagents) 框架 + DeepSeek 大模型——智能体带领域工具（读源码/模块清单/调用图）自主探索被测函数上下文，只设计输入与打桩，期望值由探针对真实代码执行捕获（现实即规格）；精选/探针靶标保持确定性策略；
 - **知识图谱**：`GET /api/graph` 由真实业务关系（仓库→模块→函数调用→需求→用例→缺陷）构建图数据，前端 ECharts 力导图交互（点节点看属性、按模块过滤、按调用度数取前 N）；
-- **沙箱**：`SANDBOX_MODE=local`（默认，本机子进程**真实执行 pytest**，junit/coverage 真解析）/ `docker`（--network none / 512m / 1cpu）/ `fake`（确定性模拟，仅演示）；
+- **沙箱**：`SANDBOX_MODE=local`（默认，本机子进程**真实执行 pytest**，junit/coverage 真解析）/ `docker`（--network none / 512m / 1cpu）；fake 执行器已删除，只有真实执行；
 - **部署**：`deploy/docker-compose.yml` 一键起 postgres + redis + backend(单体) + frontend；`make stack-up`。
 
 ## 目录结构
 
 ```
 TestForge/                       # 前后端分离 monorepo：frontend/ + backend/
-├── frontend/                    # React 前端（14 视图，数据全部来自真实接口）
+├── frontend/                    # React 前端（20+ 视图，数据全部来自真实接口）
+│   └── src/
+│       ├── assets/css/          # 全局样式（设计 token CSS 变量整站换肤）
+│       ├── components/          # 全局通用组件（PageHeader/AIChat/Markdown/Sigma 图谱…）
+│       ├── hooks/               # 自定义 Hook（useIsMobile/useThemeMode，一 hook 一文件）
+│       ├── pages/               # 页面视图（Hub 收敛式 IA，同域一页多 Tab）
+│       ├── routes/              # 视图注册表 + 侧栏菜单分组 + ?view= 解析（tf-navigate 跨页直达）
+│       ├── service/             # 接口层（request 封套/token 续签 + upload/stream/generations）
+│       ├── store/               # 全局状态（zustand 全局信号 + i18n + 主题 token）
+│       └── utils/               # 纯函数工具（repoName 等）
 ├── backend/                     # Python 后端工程根（uv；.env/data/.run 也在其下）
-│   ├── proto/testforge.proto    # 全部 .proto，唯一事实源（PRD 3.3 全部 9 服务）
-│   ├── gateway/                 # FastAPI 网关：REST + SSE + 统一封套 + trace 中间件
-│   ├── services/
-│   │   ├── repo_svc/            # Git 接入/拉取 + 多语言 tree-sitter 索引（函数卡片/调用图；15 语言）
-│   │   ├── wiki_builder/        # 分层 Wiki 编译 + git diff 增量重建 + stale 传播
-│   │   ├── contract_registry/   # 契约注册/diff/breaking/影响分析
-│   │   ├── req_svc/             # 需求四步解析管线 + 可测性评分（G0）
-│   │   ├── testgen_svc/         # 六路上下文 + 两阶段生成 + 覆盖守卫
-│   │   ├── runner_svc/          # 沙箱执行 + 修复循环≤3轮 + junit/coverage 解析
-│   │   ├── trace_svc/           # traceID 账本（+缺陷闭环 + 迭代计划/报告）
-│   │   └── shared/              # 配置/JSON 日志/DB 模型/LLM 角色路由/RAG/知识图谱/脱敏
+│   ├── app/                     # FastAPI 单体（唯一入口 uvicorn app.main:app）
+│   │   ├── api/                 # REST/SSE 路由（按资源域一域一文件 + 统一封套 + deps 注入）
+│   │   ├── core/                # 配置 / 认证 / trace 中间件 / 健康探测 / LLM 角色路由
+│   │   ├── models/              # SQLAlchemy 模型（一表一文件）
+│   │   ├── schemas/             # Pydantic 请求/响应契约（全接口强校验）
+│   │   ├── crud/  db/           # 数据访问层（一模型一文件）+ 引擎会话
+│   │   ├── mcp_server.py        # stdio MCP server（只读工具面）
+│   │   └── services/            # 领域服务：repo/wiki/contract/req/testgen/runner/trace/knowledge
 │   ├── fixtures/sample-repo/    # M1 被测仓库（create_order 及依赖，含存量测试）
 │   ├── fixtures/api-repo/       # M4 多仓第二仓库（submit_payment）
 │   ├── scripts/                 # dev 编排 + demo-m0~m5 验收脚本 + 知识增强 CLI
@@ -86,15 +91,15 @@ TestForge/                       # 前后端分离 monorepo：frontend/ + backen
 ## 关键设计（平台灵魂）
 
 1. **上下文优先级写死**：`code > contract > wiki > trace > similar > bugs`，冲突以源码/契约为准；
-0. **多语言索引**：按扩展名映射语言（15 种，`services/repo_svc/indexer.py` 配置表），新语言加一行即可；
+0. **多语言索引**：按扩展名映射语言（15 种，`app/services/repo/indexer.py` 配置表），新语言加一行即可；
 2. **两阶段生成**：阶段 A 用例清单 JSON（pydantic 校验）→ 覆盖守卫静态检查表（NULL/空/极值/类型错/越权，缺类自动补）→ 阶段 B 按清单渲染 pytest；
 3. **沙箱闭环**：执行 → 失败真回填修复 ≤3 轮（RegenerateAffected 探针重捕获期望值，重生成的测试文件写回工作区，非原样重试）→ 覆盖率回填 → 缺口补齐；失败超轮次自动建缺陷；
-4. **traceID 全链路**：网关 `tr_` 前缀，gRPC metadata 透传，全部写操作进 `trace_events`（入库前过脱敏钩子）；
+4. **traceID 全链路**：API 层 `tr_` 前缀（响应头 `X-Trace-Id`），全部写操作进 `trace_events`（入库前过脱敏钩子）；
 5. **增量索引**：`git diff` → 仅重建受影响页，调用方页跨模块置 stale；
 6. **质量关卡 G0~G5**：可测性<80 自动打回 / 知识就绪 / 覆盖达标 / 执行通过 / 缺陷清零 / 准出，`GET /api/quality/requirements` 返回六关卡+质量分+人工介入次数；
 7. **真实数据**：沙箱只有真实执行（local/docker），用例期望值来自真实行为与真实执行捕获；通用函数规划走 DeepSeek。
 8. **变更驱动回归**：pull 检出函数源码 diff → 关联用例标 stale → 自动回归（按 code_file 分组执行真实沙箱）→ 通过清 stale / 失败自动建缺陷并保持待回归（自愈闭环）；`POST /api/repos/{id}/webhook` 可远程触发；
-9. **任务队列**：生成/回归全部持久化入 jobs 表，gateway 内 worker 池消费（并发 `JOB_WORKERS`），进程崩溃重启自动重排队，`GET /api/jobs` 全程可观测；
+9. **任务队列**：生成/回归全部持久化入 jobs 表，应用内 worker 池消费（并发 `JOB_WORKERS`），进程崩溃重启自动重排队，`GET /api/jobs` 全程可观测；
 10. **认证**：除 health/login 外全部端点需 Bearer token（HMAC 签名 12h，剩余 <6h 自动续签 `X-Renewed-Token`），admin 全权 / viewer 只读；登录限速（同 IP 60s×5 / 同账号 15min×10 锁定）、密码策略（≥8 位含字母数字）、自助改密、默认口令强制修改、账号停用、用户管理（列表/创建/改角色/重置密码/删除，保底一个可用 admin）、登录/停用/删除全量审计（trace_events type=认证）；SSE 走 `?token=` 查询参数。
     认证端点：`POST /api/auth/login`、`POST /api/auth/change-password`、`GET|POST /api/auth/users`、`PUT|DELETE /api/auth/users/{username}`、`POST /api/auth/users/{username}/reset-password`。
     **已知限制**（内网工具可接受）：无状态 token 无法单个吊销（改 `SECRET_KEY` 全员下线）；SSE token 走 URL 查询参数可能进代理日志；`SECRET_KEY`/`ADMIN_PASSWORD` 生产部署必须改默认值。
@@ -139,7 +144,7 @@ TestForge/                       # 前后端分离 monorepo：frontend/ + backen
 
 ### 3. 沙箱容器化
 `SANDBOX_MODE=docker`：生成代码在真实容器执行（`--network none` / 512m / 1cpu），
-镜像 `testforge-sandbox:py312`（见 runner_svc）。AI 助手的 execute 工具走独立
+镜像 `testforge-sandbox:py312`（见 `app/services/runner`）。AI 助手的 execute 工具走独立
 thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传）。
 
 ### 4. 推广前路线
@@ -161,8 +166,7 @@ thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传
 
 > 注：Python 解释器选择影响 Windows asyncio——本机曾因 uv 的 CPython 3.12.10 构建（python-build-standalone）被三方软件干扰导致 asyncio 挂死，切换 `.python-version` 到 3.13 并重装依赖后恢复正常。若主机出现 `asyncio.run` 挂起，换 3.13/3.11 解释器重装依赖即可；`scripts/dev_up_win.py`（WSL 后端备选）与 `needs_asyncio` 自动跳过标记仍保留作兜底。
 
-- demo 验收脚本在两端通用：仓库 URL 按平台自动推导（Windows `file:///E:/...`，Linux `file:///mnt/e/...`），`TF_SAMPLE_REPO_URL` 可覆盖；
-- `MONO_MODE=0` 可切回微服务拓扑（各服务 `main.py` 保留独立 gRPC 入口）。
+- demo 验收脚本在两端通用：仓库 URL 按平台自动推导（Windows `file:///E:/...`，Linux `file:///mnt/e/...`），`TF_SAMPLE_REPO_URL` 可覆盖。
 
 依赖 PyPI 源慢时可 `UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple make install`。
 
@@ -174,7 +178,7 @@ thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传
 
 | 里程碑 | 范围 | 验收 | tag |
 | --- | --- | --- | --- |
-| M0 骨架 | compose 全服务 + gateway→gRPC | demo-m0 11/11 | `m0` |
+| M0 骨架 | compose 全栈 + 应用全绿（当时为 gRPC 微服务形态，已单体化） | demo-m0 11/11 | `m0` |
 | M1 单仓闭环 | 接仓库→tree-sitter→生成→沙箱→入库 | demo-m1 12/12（17 用例三类全过带 traceID + 真实 pytest 复核） | `m1` |
 | M2 Wiki 层 | 分层摘要 + 增量重建 + stale | demo-m2 10/10 | `m2` |
 | M3 需求+RAG | 四步管线 + G0 打回 + pgvector | demo-m3 16/16 | `m3` |
@@ -185,7 +189,7 @@ thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传
 
 ## 文档
 
-- `docs/TestForge-PRD-v3.0.md` —— **当前需求基准（As-Built，智能体驱动 + 四层生成达标）**；
-- `docs/TestForge-PRD-v2.0.md` / `docs/TestForge-PRD-v1.2.md` —— 历史版本（设计稿/交付回写）；
+- `docs/TestForge-PRD-v4.0.md` —— **当前需求基准（As-Built：智能体驱动 + 四层生成 + 知识层九轮演进）**；
+- `docs/TestForge-PRD-v3.0.md` / `docs/TestForge-PRD-v2.0.md` / `docs/TestForge-PRD-v1.2.md` —— 历史版本存档；
 - `prototype/testforge-prototype.html` —— UI 视觉基准（浏览器直接打开）；
 - `docs/验收清单.md` —— 里程碑验收项逐条勾选。

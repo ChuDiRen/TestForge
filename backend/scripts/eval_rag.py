@@ -11,8 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from services.shared.db import init_db  # noqa: E402
-from services.shared.rag_eval import evaluate  # noqa: E402
+from app.db.session import init_db  # noqa: E402
+from app.services.knowledge.rag_eval import evaluate  # noqa: E402
 
 
 def main() -> int:

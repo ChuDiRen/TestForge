@@ -45,7 +45,7 @@
 
 ## 3. 系统组成总览
 
-- **形态**：单体优先（`MONO_MODE=1` 默认，9 个业务 Servicer 进程内直调，仅暴露网关 8000 端口）；保留微服务拓扑（`MONO_MODE=0`，gRPC 50051~50057）。
+- **形态**：纯单体（2026-10-10 重构后无 proto/gRPC 传输层，9 个业务模块进程内函数直调，仅一个进程一个端口 8000；目录为 FastAPI 分层骨架 app/main + core/api/models/db/services）。
 - **后端**：Python ≥3.12 + FastAPI 网关 + 9 个 gRPC 业务 Servicer（DefectSvc / PlanSvc 与 TraceLog 同进程托管）。
 - **前端**：React 18 + TS + Vite + AntD 5 + React Query + Sigma.js / ECharts（20 视图 · Hub 收敛式信息架构）。
 - **存储**：PostgreSQL 16 + pgvector（33 张表，向量 + tsvector 双索引混合检索）。

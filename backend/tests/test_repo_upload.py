@@ -9,7 +9,7 @@ import zipfile
 
 import pytest
 
-from gateway.repo_upload import (
+from app.api.repo_upload import (
     EXCLUDED_DIRS,
     _member_rel_path,
     _strip_single_root,
@@ -114,7 +114,7 @@ def _cleanup_repo(sess, repo_id: int) -> None:  # type: ignore[no-untyped-def]
 def _make_client():
     from fastapi.testclient import TestClient
 
-    from gateway.main import app
+    from app.main import app
 
     return TestClient(app)
 
@@ -129,7 +129,7 @@ def _zip_bytes() -> bytes:
 def _cleanup_upload_dir() -> None:
     import shutil
 
-    from services.shared.config import get_settings
+    from app.core.config import get_settings
 
     shutil.rmtree(f"{get_settings().repo_root}/upload-{SLUG}", ignore_errors=True)
 
@@ -156,9 +156,9 @@ def test_upload_zip_registers_and_indexes():
             assert data["functions"] >= 2, "样例仓库两个函数都应被索引"
 
             # 函数与调用边真实入库（闭环：图谱页/影响面/Wiki 消费的就是这些行）
-            from services.shared.models import CallEdges, Functions
+            from app.models import CallEdges, Functions
 
-            with __import__("services.shared.db", fromlist=["get_session"]).get_session() as sess:
+            with __import__("app.db.session", fromlist=["get_session"]).get_session() as sess:
                 fns = sess.query(Functions).filter(Functions.repo_id == repo_id, Functions.name.in_(["add", "calc"])).all()
                 assert len(fns) == 2
                 edges = sess.query(CallEdges).filter(CallEdges.caller_id == fns[1].id, CallEdges.callee_id == fns[0].id).count()
@@ -174,7 +174,7 @@ def test_upload_zip_registers_and_indexes():
             assert r2.status_code == 200
             assert int(r2.json()["data"]["id"]) == repo_id, "同名重传应复用仓库行（更新语义）"
         finally:
-            from services.shared.db import get_session
+            from app.db.session import get_session
 
             with get_session() as sess:
                 _cleanup_repo(sess, repo_id)

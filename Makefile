@@ -6,11 +6,10 @@ UV := uv
 FRONTEND_PORT ?= 5173
 GATEWAY_PORT ?= 8000
 
-.PHONY: help install proto dev up down restart test lint fmt demo-m0 demo-m1 demo-m2 demo-m3 demo-m4 demo-m5 seed clean stack-up stack-down mcp analyze rag-eval kg-build kg-rebuild-vdb kg-clean-cache kg-repair kg-communities
+.PHONY: help install dev up down restart test lint fmt demo-m0 demo-m1 demo-m2 demo-m3 demo-m4 demo-m5 seed clean stack-up stack-down mcp analyze rag-eval kg-build kg-rebuild-vdb kg-clean-cache kg-repair kg-communities
 
 help:
 	@echo "make install   安装依赖（backend: uv sync + frontend: pnpm install）"
-	@echo "make proto     生成 gRPC stub（backend/proto → backend/services/shared/gen）"
 	@echo "make dev       本地一键拉起后端+前端（无 Docker）"
 	@echo "make up        同 dev：优先 Docker，缺失时本地模式全绿"
 	@echo "make down      停止本地全部服务"
@@ -25,10 +24,6 @@ install:
 	cd backend && $(UV) sync
 	pnpm --dir frontend install
 
-proto:
-	cd backend && $(UV) run python -m grpc_tools.protoc -Iproto --python_out=services/shared/gen --grpc_python_out=services/shared/gen proto/testforge.proto
-	cd backend && $(UV) run python scripts/fix_proto_imports.py
-	@echo "proto stubs generated -> backend/services/shared/gen/"
 
 dev:
 	cd backend && $(UV) run python scripts/dev_up.py
@@ -68,7 +63,7 @@ llm-check:
 # ---- 知识增强（GitNexus/LightRAG 借鉴改造）----
 
 mcp:
-	cd backend && $(UV) run python -m services.mcp_server
+	cd backend && $(UV) run python -m app.mcp_server
 
 analyze:
 	cd backend && $(UV) run python scripts/repo_analyze.py
@@ -89,7 +84,7 @@ kg-repair:
 	cd backend && $(UV) run python scripts/kg_repair.py
 
 kg-communities:
-	cd backend && $(UV) run python -c "from services.shared.db import init_db; init_db(); from services.shared.kg_communities import build_communities; print(build_communities())"
+	cd backend && $(UV) run python -c "from app.db.session import init_db; init_db(); from app.services.knowledge.kg_communities import build_communities; print(build_communities())"
 
 demo-m0:
 	cd backend && $(UV) run python scripts/demo_m0.py

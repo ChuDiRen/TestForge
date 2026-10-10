@@ -21,7 +21,7 @@ ASSET_TEXT = (
 
 
 def _llm_key_present() -> bool:
-    from services.shared.config import get_settings
+    from app.core.config import get_settings
 
     return bool(get_settings().llm_api_key)
 
@@ -29,7 +29,7 @@ def _llm_key_present() -> bool:
 def _make_client():
     from fastapi.testclient import TestClient
 
-    from gateway.main import app
+    from app.main import app
 
     return TestClient(app)
 
@@ -41,8 +41,8 @@ def _auth(client) -> dict:
 
 
 def _first_repo_id() -> int:
-    from services.shared.db import get_session
-    from services.shared.models import Repos
+    from app.db.session import get_session
+    from app.models import Repos
 
     with get_session() as sess:
         row = sess.query(Repos.id).order_by(Repos.id.desc()).first()
@@ -68,7 +68,7 @@ def test_tech_doc_upload_dual_write():
         try:
             from sqlalchemy import text
 
-            from services.shared.db import get_session
+            from app.db.session import get_session
 
             with get_session() as sess:
                 row = sess.execute(
@@ -83,7 +83,7 @@ def test_tech_doc_upload_dual_write():
         finally:
             from sqlalchemy import text
 
-            from services.shared.db import get_session
+            from app.db.session import get_session
 
             with get_session() as sess:
                 for k in (data["doc_key"], data["kg_doc_key"]):
@@ -128,19 +128,19 @@ def test_defect_csv_import():
         assert r.status_code == 200, r.text
         data = r.json()["data"]
         codes = data["defect_codes"]
-        from services.shared.models import Defects
-        from services.shared.rag import remove_document
+        from app.models import Defects
+        from app.services.knowledge.rag import remove_document
 
         try:
             assert data["imported"] == 2, "空标题行跳过"
             assert len(codes) == 2 and all(c.startswith("BUG-") for c in codes)
-            with __import__("services.shared.db", fromlist=["get_session"]).get_session() as sess:
+            with __import__("app.db.session", fromlist=["get_session"]).get_session() as sess:
                 rows = sess.query(Defects).filter(Defects.code.in_(codes)).all()
                 by_code = {d.code: (d.severity, d.status) for d in rows}
                 assert by_code[codes[0]] == ("严重", "已修复"), "P1 → 严重；状态透传"
                 assert by_code[codes[1]] == ("严重", "新建")
         finally:
-            from services.shared.db import get_session
+            from app.db.session import get_session
 
             with get_session() as sess:
                 sess.query(Defects).filter(Defects.code.in_(codes)).delete(synchronize_session=False)

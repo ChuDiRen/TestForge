@@ -1,6 +1,6 @@
 """符号上下文包（T7）：token 预算裁剪顺序 / citations 去重 / 渲染优先级。"""
 
-from services.testgen_svc.context import Citation, ContextBundle, estimate_tokens
+from app.services.testgen.context import Citation, ContextBundle, estimate_tokens
 
 
 def _bundle(big: str = "word " * 400) -> ContextBundle:

@@ -10,7 +10,7 @@ def _git(cwd: Path, *args: str) -> str:
 
 def test_changed_lines_parses_hunks(tmp_path):
     """git diff -U0 → {file: [(start,end)]}：新增区间与纯删除 hunk 都要解析。"""
-    from services.repo_svc.gitops import changed_lines
+    from app.services.repo.gitops import changed_lines
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -36,7 +36,7 @@ def test_changed_lines_parses_hunks(tmp_path):
 
 
 def test_changed_lines_noop():
-    from services.repo_svc.gitops import changed_lines
+    from app.services.repo.gitops import changed_lines
 
     assert changed_lines(Path("."), "", "abc") == {}
     assert changed_lines(Path("."), "abc", "abc") == {}
@@ -44,7 +44,7 @@ def test_changed_lines_noop():
 
 def test_fn_card_spans_and_end_line(tmp_path):
     """tree-sitter 卡片 end_line 覆盖函数体，spans 判定行区间归属。"""
-    from services.repo_svc.indexer import parse_file
+    from app.services.repo.indexer import parse_file
 
     src = tmp_path / "svc.py"
     src.write_text(
@@ -62,7 +62,7 @@ def test_fn_card_spans_and_end_line(tmp_path):
 
 def test_precise_attribution_ignores_line_shift():
     """只有行号平移（其他函数上方加行）时，未变更的函数不得被行级归因误标。"""
-    from services.repo_svc.indexer import parse_file
+    from app.services.repo.indexer import parse_file
 
     src = tmp_path_py()
     cards = {c.name: c for c in parse_file(src, src.parent)}

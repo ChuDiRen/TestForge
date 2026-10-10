@@ -12,11 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from services.shared.config import get_settings  # noqa: E402
-from services.shared.db import get_session, init_db  # noqa: E402
-from services.shared.docgraph import build_from_repo, kg_stats  # noqa: E402
-from services.shared.docstatus import summary  # noqa: E402
-from services.shared.models import Repos  # noqa: E402
+from app.core.config import get_settings  # noqa: E402
+from app.db.session import get_session, init_db  # noqa: E402
+from app.models import Repos  # noqa: E402
+from app.services.knowledge.docgraph import build_from_repo, kg_stats  # noqa: E402
+from app.services.knowledge.docstatus import summary  # noqa: E402
 
 
 def main() -> int:

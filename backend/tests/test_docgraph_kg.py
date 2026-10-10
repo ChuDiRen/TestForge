@@ -5,7 +5,7 @@ import uuid
 
 
 def test_parse_json_tolerates_fences_and_noise():
-    from services.shared.docgraph import _parse_json
+    from app.services.knowledge.docgraph import _parse_json
 
     assert _parse_json('```json\n{"entities": []}\n```') == {"entities": []}
     assert _parse_json('前置说明 {"entities": [{"name": "x"}]} 后缀') == {"entities": [{"name": "x"}]}
@@ -14,7 +14,7 @@ def test_parse_json_tolerates_fences_and_noise():
 
 
 def test_doc_hash_stable():
-    from services.shared.docgraph import _doc_hash
+    from app.services.knowledge.docgraph import _doc_hash
 
     assert _doc_hash("t", "c") == _doc_hash("t", "c")
     assert _doc_hash("t", "c") != _doc_hash("t", "c2")
@@ -22,9 +22,9 @@ def test_doc_hash_stable():
 
 def test_apply_extraction_merge_votes_weights_and_selective_delete():
     """v2 合并（LightRAG 三阶段）：type 投票、关系 weight 证据计数、选择性删除。"""
-    from services.shared.db import get_session, init_db
-    from services.shared.kg_merge import apply_extraction, remove_source
-    from services.shared.models import KgEntity, KgExtraction, KgRelation
+    from app.db.session import get_session, init_db
+    from app.models import KgEntity, KgExtraction, KgRelation
+    from app.services.knowledge.kg_merge import apply_extraction, remove_source
 
     init_db()
     rid = 991001
@@ -90,23 +90,23 @@ def test_apply_extraction_merge_votes_weights_and_selective_delete():
             sess.query(KgEntity).filter(KgEntity.name == "共享名").delete(synchronize_session=False)
             sess.query(KgExtraction).filter(KgExtraction.source_ref.in_(["kgdoc:a1", "kgdoc:b1"])).delete(synchronize_session=False)
             sess.commit()
-        from services.shared.rag import remove_documents_by_prefix
+        from app.services.knowledge.rag import remove_documents_by_prefix
 
         remove_documents_by_prefix(f"kg_entity:{rid}:")
         remove_documents_by_prefix(f"kg_relation:{rid}:")
 
 
 def test_kg_query_empty_graph_safe():
-    from services.shared.docgraph import kg_query
+    from app.services.knowledge.docgraph import kg_query
 
     res = kg_query(991999, "完全不存在的主题", mode="mix")
     assert res["mode"] == "mix" and res["entities"] == [] and isinstance(res["rendered"], str)
 
 
 def test_docstatus_mark_and_summary():
-    from services.shared.db import get_session, init_db
-    from services.shared.docstatus import mark, summary
-    from services.shared.models import DocStatus
+    from app.db.session import get_session, init_db
+    from app.models import DocStatus
+    from app.services.knowledge.docstatus import mark, summary
 
     init_db()
     rid = 991002

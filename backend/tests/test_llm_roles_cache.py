@@ -2,8 +2,8 @@
 
 
 def test_model_for_role_fallback_and_override(monkeypatch):
-    from services.shared import config as cfg
-    from services.shared.llm import LLMError, model_for
+    from app.core import config as cfg
+    from app.services.knowledge.llm import LLMError, model_for
 
     class S:
         llm_model = "deepseek-chat"
@@ -24,9 +24,9 @@ def test_model_for_role_fallback_and_override(monkeypatch):
 
 def test_chat_cached_hit_skips_llm(monkeypatch):
     """同一 (role, system, prompt) 第二次调用不得再触发 LLM（增量重建零成本）。"""
-    from services.shared import llm as llm_mod
-    from services.shared.db import init_db
-    from services.shared.llm_cache import cache_key, cache_stats, chat_cached, clear_cache
+    from app.db.session import init_db
+    from app.services.knowledge import llm as llm_mod
+    from app.services.knowledge.llm_cache import cache_key, cache_stats, chat_cached, clear_cache
 
     init_db()
     calls = {"n": 0}
@@ -48,16 +48,16 @@ def test_chat_cached_hit_skips_llm(monkeypatch):
         assert chat_cached("hello cache", role="query") == "resp-2"
         assert calls["n"] == 2
     finally:
-        with __import__("services.shared.db", fromlist=["get_session"]).get_session() as sess:
-            from services.shared.models import LlmCache
+        with __import__("app.db.session", fromlist=["get_session"]).get_session() as sess:
+            from app.models import LlmCache
 
             sess.query(LlmCache).filter(LlmCache.cache_key.in_([key, cache_key("query", "", "hello cache")])).delete(synchronize_session=False)
             sess.commit()
 
 
 def test_chat_once_raises_without_key(monkeypatch):
-    from services.shared import config as cfg
-    from services.shared.llm import LLMError, chat_once
+    from app.core import config as cfg
+    from app.services.knowledge.llm import LLMError, chat_once
 
     class S:
         llm_api_key = ""

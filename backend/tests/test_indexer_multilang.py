@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from services.repo_svc.indexer import index_repo, is_supported_file, lang_of
+from app.services.repo.indexer import index_repo, is_supported_file, lang_of
 
 SAMPLES = {
     "calc.go": '''package calc

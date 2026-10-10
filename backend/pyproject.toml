@@ -8,9 +8,6 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
-    "grpcio>=1.62",
-    "grpcio-tools>=1.62",
-    "protobuf>=4.25",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.1",
     "aiosqlite>=0.20",
@@ -58,7 +55,7 @@ markers = [
 [tool.ruff]
 line-length = 110
 target-version = "py312"
-exclude = ["services/shared/gen", "frontend", "prototype"]
+exclude = ["frontend", "prototype"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
@@ -67,12 +64,12 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true
-exclude = ["services/shared/gen", "frontend", "prototype", "scripts"]
+exclude = ["frontend", "prototype", "scripts"]
 check_untyped_defs = true
 explicit_package_bases = true
 mypy_path = "."
 
 [[tool.mypy.overrides]]
-module = ["services.shared.gen.*"]
+module = ["app.services.knowledge.gen.*"]
 follow_imports = "skip"
 ignore_errors = true

@@ -47,7 +47,7 @@ needs_asyncio = pytest.mark.skipif(
 def _client():
     from fastapi.testclient import TestClient
 
-    from gateway.main import app
+    from app.main import app
 
     return TestClient(app)
 
@@ -153,7 +153,7 @@ def test_generation_export_404_for_unknown():
 
 
 def test_create_from_run_triage_and_assignee():
-    from services.trace_svc.defect_svc import create_from_run
+    from app.services.trace.defect_svc import create_from_run
 
     res = create_from_run(
         run_id="RUN-TEST-TRIAGE",
@@ -167,8 +167,8 @@ def test_create_from_run_triage_and_assignee():
     assert res["assignee"]  # 自动指派（含“待指派”兜底）
     assert res["status"] == "新建"
 
-    from services.shared.db import get_session
-    from services.shared.models import Defects
+    from app.db.session import get_session
+    from app.models import Defects
 
     with get_session() as sess:
         d = sess.query(Defects).filter(Defects.code == res["code"]).first()
@@ -182,14 +182,14 @@ def test_create_from_run_triage_and_assignee():
 
 
 def test_triage_severity_escalates_with_failure_count():
-    from services.trace_svc.defect_svc import create_from_run
+    from app.services.trace.defect_svc import create_from_run
 
     many = create_from_run("RUN-TRIAGE-BIG", [f"C{i}" for i in range(8)], "REQ-T2", "tr_t2", "批量失败")
     few = create_from_run("RUN-TRIAGE-SMALL", ["C1"], "REQ-T2", "tr_t2", "单条失败")
     assert many["severity"] == "致命" and few["severity"] == "严重"
 
-    from services.shared.db import get_session
-    from services.shared.models import Defects
+    from app.db.session import get_session
+    from app.models import Defects
 
     with get_session() as sess:
         for code in (many["code"], few["code"]):

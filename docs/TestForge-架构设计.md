@@ -1,13 +1,13 @@
 # TestForge 架构设计（As-Built · 2026-10-10）
 
 > 配套：[PRD v4.0](./TestForge-PRD-v4.0.md) · [数据库设计](./TestForge-数据库设计.md) · [接口设计](./TestForge-接口设计.md)。
-> 本文与当前仓库代码一致（含未提交的知识层演进：LightRAG 全量移植 + 知识资产两入口闭环）；2026-10-10 复核：前端信息架构收敛（Hub 化）已同步 §9，后端无变化。
+> 本文与当前仓库代码一致（含未提交的知识层演进：LightRAG 全量移植 + 知识资产两入口闭环）；2026-10-10 复核：前端信息架构收敛（Hub 化）与脚手架分层重构（八目录 + `@` 别名 + lint 工程链）已同步 §9；后端章节（§1/§2/§3/§8/§10）按单体化重构后现实全文校订（proto/gRPC/MONO_MODE 表述清除）。
 
 ---
 
 ## 1. 架构总览
 
-**Contract-first 单体优先**：`backend/proto/testforge.proto` 是服务边界的唯一事实源（9 个业务 Servicer）；`MONO_MODE=1`（默认）时全部进程内直调、仅暴露网关一个端口，`MONO_MODE=0` 时同一套代码切换为 gRPC 网络调用（50051~50057）——切拓扑不改业务代码。
+**单体优先**：唯一入口 `uvicorn app.main:app`（仅暴露 :8000 一个端口），`app/` 分层（api 路由 / core / models 一表一文件 / schemas 全接口强校验 / crud / db / services 领域层）。服务边界即模块边界——`app/services/` 领域模块以平铺函数直调，进程内无网络调用。历史 proto/gRPC/MONO_MODE 双拓扑传输层已于 2026-10-10 整体删除（见 §3 与[后端单体化重构设计](./后端单体化重构设计.md)）。
 
 ```mermaid
 flowchart TB
@@ -18,13 +18,13 @@ flowchart TB
         GH["git webhook"]
     end
 
-    subgraph gw["网关层 gateway (FastAPI :8000)"]
+    subgraph gw["应用层 app (FastAPI :8000 · 唯一入口)"]
         MW["中间件链<br/>认证(HMAC token) · trace_id · CORS"]
-        RT["路由模块<br/>main/auth/requirements/contracts/plans<br/>assistant/knowledge/lightrag_api<br/>knowledge_assets/repo_upload/wiki_extra/graph"]
-        PIPE["网关内管线<br/>jobs 队列 worker ×2<br/>生成编排 · 变更回归 · 文档管线"]
+        RT["路由模块（按资源域拆分）<br/>auth/requirements/generations/contracts/plans<br/>knowledge/kg/graph/codegraph/assistant<br/>integrations/regression/repo_upload/jobs"]
+        PIPE["应用内管线<br/>jobs 队列 worker 池<br/>生成编排 · 变更回归 · 文档管线"]
     end
 
-    subgraph svc["服务层 services/ (mono 进程内直调 | gRPC 50051~50057)"]
+    subgraph svc["服务层 app/services/（进程内平铺函数直调）"]
         REPO["RepoSvc<br/>clone/pull/索引/影响面/聚类"]
         WIKI["WikiBuilder<br/>三层编译/互链/问答"]
         CR["ContractRegistry<br/>版本 diff/breaking/影响"]
@@ -34,7 +34,7 @@ flowchart TB
         TR["TraceLog + DefectSvc + PlanSvc<br/>(同进程托管)"]
     end
 
-    subgraph shared["shared 公共层"]
+    subgraph shared["公共层 core/ + services/knowledge/"]
         LLM["llm.py 角色路由<br/>extract/query/keyword/vlm<br/>+ llm_cache 持久缓存"]
         RAG["rag.py 混合检索<br/>pgvector + tsvector → RRF"]
         KG["KG 引擎<br/>chunking/kg_extract/kg_merge<br/>kg_communities/kg_query"]
@@ -55,7 +55,7 @@ flowchart TB
     OL -->|"/ollama/api/* 模块内自校验"| RT
     GH -->|"X-Webhook-Secret"| RT
     MW --> RT --> PIPE
-    PIPE -->|"grpc_call/mono.dispatch"| svc
+    PIPE -->|"进程内函数直调"| svc
     svc --> shared
     shared --> PG
     LLM --> LLMX
@@ -69,7 +69,7 @@ flowchart TB
 | 层 | 选型 | 理由 |
 |---|---|---|
 | 后端框架 | FastAPI + uvicorn，Python ≥3.12 | SSE/流式一等支持，pydantic 校验 |
-| 服务契约 | gRPC + protobuf（testforge.v1） | 服务边界即契约，mono 模式复用同一 stub 接口 |
+| 服务边界 | api 路由模块 + `services/*/api.py` 平铺函数 | 单体进程内直调，模块边界即调用契约（传输层已删） |
 | ORM/存储 | SQLAlchemy 2 + PostgreSQL 16 + pgvector | 向量 + tsvector 双索引混合检索 |
 | LLM | langchain-deepseek（OpenAI 兼容协议） | `LLM_BASE_URL` 一处配置即可切换内部网关/vLLM |
 | 智能体 | deepagents 0.7（langgraph 流式） | 领域工具 + 内置文件/执行工具 + 记忆 + 摘要中间件 |
@@ -78,21 +78,21 @@ flowchart TB
 | 任务队列 | jobs 表 + 进程内 worker（`FOR UPDATE SKIP LOCKED`） | 零新增组件，持久化 + 崩溃重排队 |
 | 沙箱 | local 子进程 / docker `testforge-sandbox:py312` | `--network none` 网络隔离 |
 
-## 3. 服务拆分与 gRPC 契约
+## 3. 服务拆分与调用契约
 
-9 个 Servicer、7 个 gRPC 端口（DefectSvc / PlanSvc 与 TraceLog 同进程托管于 trace-svc）：
+**2026-10-10 单体化重构后**：proto/gRPC/mono 传输层已整体删除，9 个业务模块以平铺函数直调（`app/services/*/api.py` 即原 RPC 契约），进程内无网络调用。7 个模块的健康探测经 `app/core/health.py` 汇总到 `/api/system/services`。
 
-| 端口 | 服务 | RPC | 职责 |
-|---|---|---|---|
-| 50051 | RepoSvc | Ping / Register / RegisterUpload / Pull / ListFunctions(stream) | 仓库接入、zip 建仓、增量拉取、函数索引流 |
-| 50052 | WikiBuilder | Ping / Rebuild / GetModulePage | Wiki 分层编译、增量重建（stale 传播、rev 递增） |
-| 50053 | ContractRegistry | Ping / Register / Impact(stream) | 契约版本化、breaking 影响流式分析 |
-| 50054 | ReqIngest | Ping / Parse | 需求四步解析（story/rules/conflict/testability） |
-| 50055 | TestGen | Ping / Generate(stream) / RegenerateAffected | 五步生成流（plan/guard/probe/codegen/sandbox/coverage） |
-| 50056 | TestRunner | Ping / Execute | 沙箱执行（RunReport: pass/coverage/repair_rounds/cost_s） |
-| 50057 | TraceLog / DefectSvc / PlanSvc | Ping / Append / Query(stream)；CreateFromRun / TriggerRegression；EvaluateExitPlan | 追溯事件、缺陷闭环、迭代准入准出 |
+| 模块（app/services/） | 平铺 API（原 RPC） | 职责 |
+|---|---|---|
+| repo | register / register_upload / pull / list_functions | 仓库接入、zip 建仓、增量拉取、函数索引 |
+| wiki | rebuild / get_module_page | Wiki 分层编译、增量重建（stale 传播、rev 递增） |
+| contract | register / impact | 契约版本化、breaking 影响分析 |
+| req | parse | 需求四步解析（story/rules/conflict/testability） |
+| testgen | generate(生成器逐事件) / regenerate_affected | 五步生成流（plan/guard/probe/codegen/result） |
+| runner | execute | 沙箱执行（RunReport: pass/coverage/repair_rounds/cost_s） |
+| trace | append / query / create_from_run / trigger_regression / evaluate_plan | 追溯事件、缺陷闭环、迭代准入准出 |
 
-调用机制（`grpc_client.py`）：`grpc_call()/grpc_stream()` 统一入口——mono 模式走 `mono.dispatch` 进程内直调（`FakeContext.abort()` 等价 gRPC abort）；微服务模式走 `insecure_channel` + stub 缓存 + UNAVAILABLE/DEADLINE 重试；trace_id 经 `x-trace-id` metadata 全链透传。
+历史 gRPC 形态（MONO_MODE 切换、50051~50057 端口、proto 契约）已随传输层删除移除；设计依据见[后端单体化重构设计](./后端单体化重构设计.md)。
 
 ## 4. 核心流程
 
@@ -102,7 +102,7 @@ flowchart TB
 sequenceDiagram
     autonumber
     actor U as 前端/AI助手
-    participant G as 网关 generations.py
+    participant G as api/generations.py
     participant J as jobs 队列
     participant TG as TestGen
     participant RN as TestRunner
@@ -260,7 +260,7 @@ sequenceDiagram
 ```mermaid
 flowchart TB
     subgraph local["本地开发（默认，Windows 主环境）"]
-        DEV["make dev → dev_up.py<br/>uvicorn gateway :8000 + vite :5173"]
+        DEV["make dev → dev_up.py<br/>uvicorn app.main:app :8000 + vite :5173"]
         WSL["PostgreSQL 16 + pgvector<br/>WSL docker :5432"]
         TUN["pg_tunnel.py 自动隧道<br/>127.0.0.1:15432 → wsl:5432<br/>(握手失败自动拉起)"]
         DEV <--> TUN --> WSL
@@ -269,23 +269,20 @@ flowchart TB
     subgraph compose["docker compose（deploy/）"]
         PG2["pgvector/pgvector:pg16"]
         RD["redis:7"]
-        BE["backend<br/>uvicorn gateway.main:app :8000<br/>MONO_MODE=1"]
+        BE["backend<br/>uvicorn app.main:app :8000"]
         FEN["frontend nginx :80<br/>反代 /api"]
         SBXI["Dockerfile.sandbox<br/>testforge-sandbox:py312"]
     end
-
-    subgraph micro["微服务模式（MONO_MODE=0）"]
-        M["同一镜像按 command 分进程<br/>repo-svc…trace-svc 占 50051~50057<br/>+ gateway"]
-    end
 ```
 
-常用运维面（Makefile）：`make proto / dev / test / lint / demo-m0~m5 / seed-real / mcp / kg-rebuild-vdb / kg-clean-cache / kg-repair / kg-communities / rag-eval / stack-up`。
+常用运维面（Makefile）：`make dev / test / lint / demo-m0~m5 / seed-real / mcp / analyze / kg-build / kg-rebuild-vdb / kg-clean-cache / kg-repair / kg-communities / rag-eval / stack-up`。
 
 ## 9. 前端架构
 
-- **组织**：`src/views/` 20 视图，**Hub 收敛式信息架构**——同域功能收拢为一页多 Tab，砍掉重复菜单入口：知识资产页（资产库 + 图谱管线双 Tab）、知识图谱 Hub（代码图谱 + 文档图谱双 Tab）、检索中心（查询实验 + 检索测试台 + 检索质量三 Tab）；共享展示组件以 `embedded` prop 复用（Hub 内嵌或独立页均可挂）。`?view=` URL 路由；App.tsx Shell 统一监听 `tf-navigate` CustomEvent 实现引用标签跨页直达。
+- **组织**：`src/pages/`（routes 层集中注册视图与菜单）20+ 视图，**Hub 收敛式信息架构**——同域功能收拢为一页多 Tab，砍掉重复菜单入口：知识资产页（资产库 + 图谱管线双 Tab）、知识图谱 Hub（代码图谱 + 文档图谱双 Tab）、检索中心（查询实验 + 检索测试台 + 检索质量三 Tab）；共享展示组件以 `embedded` prop 复用（Hub 内嵌或独立页均可挂）。`?view=` URL 路由（解析与视图/菜单注册表都在 `routes/index.tsx`）；App.tsx Shell 统一监听 `tf-navigate` CustomEvent 实现引用标签跨页直达。
+- **目录分层（脚手架八目录 + `@` 别名）**：`assets/css`（全局样式）/ `components`（通用组件）/ `hooks`（一 hook 一文件）/ `pages`（页面）/ `routes`（视图注册 + 菜单分组）/ `service`（接口层）/ `store`（状态 + i18n + 主题 token）/ `utils`（纯函数）；`@` 别名指向 src（vite resolve.alias + tsconfig paths）。工程链：ESLint + Prettier（.cjs 配置）+ Husky（pre-commit=lint-staged、commit-msg=commitlint）+ terser 构建期 drop_console/drop_debugger。
 - **懒渲染**：antd Tabs 首次激活才挂载子视图——Sigma 等重初始化成本延后，激活后保持挂载不重复初始化。
-- **数据层**：api.ts 统一封套解包 + AuthError + token localStorage + `X-Renewed-Token` 无感续签；React Query 管理服务端状态；zustand 管全局信号（待审数/跨视图刷新）。
+- **数据层**：`service/` 按资源域拆分——`request.ts` 统一封套解包 + AuthError + token localStorage + `X-Renewed-Token` 无感续签，`upload.ts`（multipart 上传）/`stream.ts`（POST SSE）/`generations.ts`（导出下载），`index.ts` 统一出口；React Query 管理服务端状态；zustand 管全局信号（待审数/跨视图刷新）。
 - **流式**：EventSource（GET SSE，token 走 query）+ `postStreamSSE`（POST SSE：KG 流式问答 retrieved→delta*→done）+ AI 助手 chat SSE 五事件。
 - **可视化**：Sigma.js + graphology（代码图谱/文档图谱：类型图例/社区着色/focus 展开/实体编辑）、ECharts（业务关系图/统计图）、Mermaid（AI 助手流程图）。
 - **体验**：i18n 中英双语（`useLang` 订阅语言切换，antd ConfigProvider locale 同步联动 zh_CN/en_US）、亮暗主题（html[data-theme]）、NextStep 操作引导。
@@ -294,7 +291,7 @@ flowchart TB
 
 | 手段 | 落点 |
 |---|---|
-| 全链路追溯 | traceID（非 GET 自动生成 + 响应头 `X-Trace-Id` + gRPC metadata 透传）→ trace_events 八类事件 |
+| 全链路追溯 | traceID（非 GET 自动生成 + 响应头 `X-Trace-Id`）→ trace_events 八类事件 |
 | 生成过程 | generation_events 五阶段事件流，SSE 断线回放 |
 | 文档管线 | doc_status 状态机台账（kind×status 聚合视图 + 失败原因） |
 | 任务台账 | jobs 表（queued/running/done/failed + error） |

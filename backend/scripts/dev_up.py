@@ -125,9 +125,9 @@ def main() -> int:
     RUN.mkdir(parents=True, exist_ok=True)
     gateway_port = int(os.environ.get("GATEWAY_PORT", "8000"))
 
-    print("[dev_up] 启动后端（单体：gateway + 9 服务进程内）…")
+    print("[dev_up] 启动后端（FastAPI 单体，领域模块进程内直调）…")
     if not port_open(gateway_port):
-        env = {**os.environ, "PYTHONPATH": str(ROOT), "MONO_MODE": os.environ.get("MONO_MODE", "1")}
+        env = {**os.environ, "PYTHONPATH": str(ROOT)}
         env_url = os.environ.get("DATABASE_URL") or _env_database_url()
         if not _pg_handshake_ok(env_url):
             # .env 指向的 PG 不可达：优先 wsl 控制台隧道，其次各直连候选
@@ -139,22 +139,20 @@ def main() -> int:
                 if db_url:
                     env["DATABASE_URL"] = db_url
                     print(f"  ~ .env DATABASE_URL 不健康，已切换直连：{db_url.split('@')[1]}")
-        logf = open(LOGS / "gateway.log", "ab")
+        logf = open(LOGS / "app.api.log", "ab")
         proc = subprocess.Popen(
-            [sys.executable, "-u", "-m", "uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", str(gateway_port)],
+            [sys.executable, "-u", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", str(gateway_port)],
             cwd=ROOT,
             stdout=logf,
             stderr=subprocess.STDOUT,
             env={
-                **os.environ,
-                "PYTHONPATH": str(ROOT),
-                "MONO_MODE": os.environ.get("MONO_MODE", "1"),
+                **env,
                 # 本地开发/验收夹具（seed_real、demo-mX 用 file:// 本地仓库）需要显式开启；
                 # 生产 compose 不设置该变量，仓库接入只收远程 Git URL
                 "TF_ALLOW_LOCAL_REPO_URL": os.environ.get("TF_ALLOW_LOCAL_REPO_URL", "1"),
             },
         )
-        (RUN / "gateway.pid").write_text(str(proc.pid))
+        (RUN / "app.api.pid").write_text(str(proc.pid))
         print(f"  + backend pid={proc.pid} -> :{gateway_port}")
     else:
         print(f"  = backend 已在 :{gateway_port}，跳过")

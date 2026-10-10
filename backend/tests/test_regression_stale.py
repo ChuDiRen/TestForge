@@ -4,9 +4,9 @@ import uuid
 
 
 def test_mark_stale_marks_matching_cases():
-    from gateway.regression import mark_stale
-    from services.shared.db import get_session, init_db
-    from services.shared.models import Cases
+    from app.api.regression import mark_stale
+    from app.db.session import get_session, init_db
+    from app.models import Cases
 
     init_db()
     code = f"CASE-STL-{uuid.uuid4().hex[:6].upper()}-TC-001"

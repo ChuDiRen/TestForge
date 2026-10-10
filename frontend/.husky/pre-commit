@@ -1,0 +1,1 @@
+pnpm --dir frontend run lint:lint-staged

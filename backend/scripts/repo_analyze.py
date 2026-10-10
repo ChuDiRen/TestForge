@@ -11,12 +11,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from services.repo_svc.clusters import list_clusters  # noqa: E402
-from services.repo_svc.clusters import recompute as recompute_clusters  # noqa: E402
-from services.repo_svc.impact import recompute as recompute_impact  # noqa: E402
-from services.repo_svc.impact import top_impact  # noqa: E402
-from services.shared.db import get_session, init_db  # noqa: E402
-from services.shared.models import Repos  # noqa: E402
+from app.db.session import get_session, init_db  # noqa: E402
+from app.models import Repos  # noqa: E402
+from app.services.repo.clusters import list_clusters  # noqa: E402
+from app.services.repo.clusters import recompute as recompute_clusters  # noqa: E402
+from app.services.repo.impact import recompute as recompute_impact  # noqa: E402
+from app.services.repo.impact import top_impact  # noqa: E402
 
 
 def main() -> int:

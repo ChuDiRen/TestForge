@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text  # noqa: E402
 
-from services.shared.db import get_session, init_db  # noqa: E402
-from services.shared.models import KgRelation  # noqa: E402
+from app.db.session import get_session, init_db  # noqa: E402
+from app.models import KgRelation  # noqa: E402
 
 
 def main() -> None:
@@ -49,7 +49,7 @@ def main() -> None:
 
         # 2) 悬空索引（按 workspace 分组重建）
         scopes = sess.execute(text("SELECT repo_id, workspace FROM kg_entities GROUP BY repo_id, workspace")).all()
-        from services.shared.kg_merge import rebuild_index
+        from app.services.knowledge.kg_merge import rebuild_index
 
         for repo_id, ws in scopes:
             ent_missing = sess.execute(
