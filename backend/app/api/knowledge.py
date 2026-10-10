@@ -75,7 +75,7 @@ def llm_cache_stats():
     return ok(cache_stats())
 
 
-@app.delete("/api/llm/cache")
+@app.post("/api/llm/cache/clear")
 def llm_cache_clear(role: str = ""):
     from app.services.knowledge.llm_cache import clear_cache
 

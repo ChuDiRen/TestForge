@@ -46,7 +46,7 @@ function GeneratedCases({ genId }: { genId: string | null }) {
   const rows = (library.data?.items ?? []).filter((c) => genId && c.code.includes(genId.slice(-6)))
 
   const del = useMutation({
-    mutationFn: (id: number) => fetch(`/api/cases/${id}`, { method: 'DELETE' }).then((r) => r.json()),
+    mutationFn: (id: number) => fetch(`/api/cases/${id}/delete`, { method: 'POST' }).then((r) => r.json()),
     onSuccess: () => {
       message.success('用例已删除')
       qc.invalidateQueries({ queryKey: ['library-cases'] })

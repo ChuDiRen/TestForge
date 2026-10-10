@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Popconfirm, Segmented, Space, Tabs, Tag, Tooltip, Upload, message } from 'antd'
 import { DeleteOutlined, FileTextOutlined, InboxOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { del, get, post, uploadKnowledgeAsset } from '@/service'
+import { get, post, uploadKnowledgeAsset } from '@/service'
 import { repoName } from '@/utils'
 import { useIsMobile } from '@/hooks'
 import { KnowledgePipeline } from './KnowledgePipeline'
@@ -84,7 +84,7 @@ export function KnowledgeDocs() {
   })
 
   const uploadDoc = useMutation({
-    mutationFn: () => post('/api/knowledge/documents', { title: docTitle, content: docBody, repo_id: repoId || undefined }),
+    mutationFn: () => post('/api/knowledge/documents/create', { title: docTitle, content: docBody, repo_id: repoId || undefined }),
     onSuccess: () => {
       message.success('文档已入库（向量+全文双索引）——AI 生成用例时会自动检索引用')
       setDocTitle('')
@@ -107,7 +107,7 @@ export function KnowledgeDocs() {
     onError: (e: any) => message.error(e.message),
   })
   const delDoc = useMutation({
-    mutationFn: (docKey: string) => del(`/api/knowledge/documents?doc_key=${encodeURIComponent(docKey)}`),
+    mutationFn: (docKey: string) => post(`/api/knowledge/documents/delete?doc_key=${encodeURIComponent(docKey)}`),
     onSuccess: () => {
       message.success('文档已从检索索引移除')
       qc.invalidateQueries({ queryKey: ['knowledge-docs'] })

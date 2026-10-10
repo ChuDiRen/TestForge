@@ -39,7 +39,7 @@ from pathlib import Path
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
-from app.api.envelope import ApiError, ok
+from app.api.envelope import ApiError, json_body, ok
 from app.main import app, get_session
 from app.models import KgEntity, KgRelation
 from app.schemas.kg import (
@@ -69,7 +69,7 @@ def _resolve_ws(request_body: dict) -> tuple[int, str]:
 # ---------------- 文档管理 ----------------
 
 
-@app.post("/api/kg/documents")
+@app.post("/api/kg/documents/create")
 async def kg_create_document(request: Request, data: KgDocumentCreateIn):
     """纯文本入库（异步管线）：{title, content, workspace?, repo_id?}。"""
     _require_admin(request)
@@ -181,7 +181,7 @@ def kg_chunk_content(doc_key: str):
     return ok({"doc_key": doc_key, "title": row[0], "content": row[1]})
 
 
-@app.delete("/api/kg/documents")
+@app.post("/api/kg/documents/delete")
 def kg_delete_document(request: Request, doc_key: str):
     _require_admin(request)
     try:
@@ -199,7 +199,7 @@ def kg_delete_document(request: Request, doc_key: str):
 async def kg_search_route(data: KgSearchIn):
     """六模式纯召回（contexts 供 RAGAS / 生成上下文包）。"""
     body = data.model_dump()
-    query = (body.get("query") or body.get("q") or "").strip()
+    query = str(body.get("query") or "").strip()
     if not query:
         raise ApiError(1001, "query 必填")
     from app.services.knowledge.kg_query import kg_search
@@ -220,7 +220,7 @@ async def kg_search_route(data: KgSearchIn):
 async def kg_query_stream(data: KgQueryStreamIn):
     """SSE：retrieved → delta* → done（含 contexts/references/answer）。"""
     body = data.model_dump()
-    query = (body.get("query") or body.get("q") or "").strip()
+    query = str(body.get("query") or "").strip()
     if not query:
         raise ApiError(1001, "query 必填")
     from app.services.knowledge.kg_query import answer_stream
@@ -303,7 +303,7 @@ async def kg_merge_entity(request: Request, data: KgEntityMergeIn):
         raise ApiError(404, str(e), 404)
 
 
-@app.delete("/api/kg/entity")
+@app.post("/api/kg/entity/delete")
 def kg_delete_entity(request: Request, name: str, repo_id: int = 0, workspace: str = ""):
     _require_admin(request)
     from app.services.knowledge.kg_merge import delete_entity
@@ -330,7 +330,7 @@ async def kg_edit_relation(request: Request, data: KgRelationEditIn):
         raise ApiError(404, str(e), 404)
 
 
-@app.delete("/api/kg/relation")
+@app.post("/api/kg/relation/delete")
 def kg_delete_relation(request: Request, id: int, repo_id: int = 0, workspace: str = ""):
     _require_admin(request)
     from app.services.knowledge.kg_merge import delete_relation
@@ -422,7 +422,7 @@ def kg_get_settings():
     )
 
 
-@app.put("/api/kg/settings")
+@app.post("/api/kg/settings/update")
 async def kg_put_settings(request: Request, data: KgSettingsIn):
     _require_admin(request)
     body = data.model_dump()
@@ -520,7 +520,7 @@ def _ollama_answer(request: Request, body: dict) -> str:
 @app.post("/ollama/api/chat")
 async def ollama_chat(request: Request):
     _ollama_auth(request)
-    body = await request.json()
+    body = await json_body(request)
     content = _ollama_answer(request, body)
     from datetime import datetime
 
@@ -538,7 +538,7 @@ async def ollama_chat(request: Request):
 @app.post("/ollama/api/generate")
 async def ollama_generate(request: Request):
     _ollama_auth(request)
-    body = await request.json()
+    body = await json_body(request)
     content = _ollama_answer(request, body)
     from datetime import datetime
 
@@ -548,7 +548,7 @@ async def ollama_generate(request: Request):
 @app.post("/ollama/api/embeddings")
 async def ollama_embeddings(request: Request):
     _ollama_auth(request)
-    body = await request.json()
+    body = await json_body(request)
     text = str(body.get("prompt") or "")
     from app.services.knowledge.embedding import embed
 

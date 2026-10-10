@@ -219,8 +219,7 @@ def apply_extraction(repo_id: int, workspace: str, source_ref: str, doc_title: s
                         description=desc[:1000],
                         desc_sources=json.dumps({source_ref: desc[:600]}, ensure_ascii=False),
                         weight=1.0,
-                        source_ref=source_ref,
-                        source_refs=json.dumps([source_ref], ensure_ascii=False),
+                                source_refs=json.dumps([source_ref], ensure_ascii=False),
                     )
                 )
             else:
@@ -235,8 +234,6 @@ def apply_extraction(repo_id: int, workspace: str, source_ref: str, doc_title: s
                     ds[source_ref] = desc[:600]
                 row.desc_sources = json.dumps(ds, ensure_ascii=False)
                 row.description = _resolve_description(ds)[:1000]
-                if not row.source_ref:
-                    row.source_ref = source_ref
         # 5) 抽取结果留存（删除重建依据）：按 (repo, workspace, source_ref) 幂等 upsert
         ext = (
             sess.query(KgExtraction)

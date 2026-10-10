@@ -114,7 +114,7 @@ def admin_token(client):
 
 def _cleanup_user(username: str) -> None:
     from app.db.session import get_session
-    from app.main import _USER_DISABLED_CACHE
+    from app.main import _USER_STATUS_CACHE
     from app.models import Users
 
     with get_session() as sess:
@@ -122,7 +122,7 @@ def _cleanup_user(username: str) -> None:
         if u is not None:
             sess.delete(u)
             sess.commit()
-    _USER_DISABLED_CACHE.pop(username, None)
+    _USER_STATUS_CACHE.pop(username, None)
 
 
 def test_admin_default_password_does_not_force_change(client):
@@ -139,7 +139,7 @@ def test_login_disabled_account_rejected(client, admin_token):
     from app.models import Users
 
     c = client
-    c.post("/api/auth/users", headers={"Authorization": f"Bearer {admin_token}"},
+    c.post("/api/auth/users/create", headers={"Authorization": f"Bearer {admin_token}"},
            json={"username": "tf_disabled_test", "password": "passw0rd1", "role": "viewer"})
     try:
         resp = c.post("/api/auth/login", json={"username": "tf_disabled_test", "password": "passw0rd1"})
@@ -147,9 +147,9 @@ def test_login_disabled_account_rejected(client, admin_token):
         with get_session() as sess:
             sess.query(Users).filter(Users.username == "tf_disabled_test").update({"disabled": True})
             sess.commit()
-        from app.main import _USER_DISABLED_CACHE
+        from app.main import _USER_STATUS_CACHE
 
-        _USER_DISABLED_CACHE.pop("tf_disabled_test", None)
+        _USER_STATUS_CACHE.pop("tf_disabled_test", None)
         resp2 = c.post("/api/auth/login", json={"username": "tf_disabled_test", "password": "passw0rd1"})
         assert resp2.status_code == 401 and "停用" in resp2.json()["message"]
         # 带着停用前的 token 访问业务接口也必须被拒（60s 缓存窗口内即时失效）
@@ -197,13 +197,13 @@ def test_user_crud_and_guards(client, admin_token):
     _cleanup_user(username)
     try:
         # 弱密码拒绝
-        weak = c.post("/api/auth/users", headers=h, json={"username": username, "password": "1", "role": "viewer"})
+        weak = c.post("/api/auth/users/create", headers=h, json={"username": username, "password": "1", "role": "viewer"})
         assert weak.status_code == 400
         # 正常创建
-        created = c.post("/api/auth/users", headers=h, json={"username": username, "password": "passw0rd1", "role": "viewer"})
+        created = c.post("/api/auth/users/create", headers=h, json={"username": username, "password": "passw0rd1", "role": "viewer"})
         assert created.status_code == 200
         # 重复创建拒绝
-        dup = c.post("/api/auth/users", headers=h, json={"username": username, "password": "passw0rd1", "role": "viewer"})
+        dup = c.post("/api/auth/users/create", headers=h, json={"username": username, "password": "passw0rd1", "role": "viewer"})
         assert dup.status_code == 400
         # 列表可见
         listing = c.get("/api/auth/users", headers=h)
@@ -214,7 +214,7 @@ def test_user_crud_and_guards(client, admin_token):
         # 自己不可自改/自删
         self_mod = c.put("/api/auth/users/admin", headers=h, json={"disabled": True})
         assert self_mod.status_code == 400
-        self_del = c.delete("/api/auth/users/admin", headers=h)
+        self_del = c.post("/api/auth/users/admin/delete", headers=h)
         assert self_del.status_code == 400
         # 重置密码 → 启用 → 新密码可登录
         c.put(f"/api/auth/users/{username}", headers=h, json={"disabled": False})
@@ -223,7 +223,7 @@ def test_user_crud_and_guards(client, admin_token):
         login_new = c.post("/api/auth/login", json={"username": username, "password": "freshPass77"})
         assert login_new.status_code == 200
         # 删除
-        deleted = c.delete(f"/api/auth/users/{username}", headers=h)
+        deleted = c.post(f"/api/auth/users/{username}/delete", headers=h)
         assert deleted.status_code == 200
         assert c.get("/api/auth/users", headers=h).json()["data"] == listing.json()["data"] or True
         gone = c.post("/api/auth/login", json={"username": username, "password": "freshPass77"})

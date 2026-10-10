@@ -64,6 +64,9 @@ def init_db() -> None:
         # kg_entities 唯一键升级：repo 作用域 → (repo, workspace, name)（多工作区同 repo_id=0 隔离）
         conn.execute(text("DROP INDEX IF EXISTS ix_kg_entity_repo_name"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_kg_entity_repo_ws_name ON kg_entities (repo_id, workspace, name)"))
+        # 退役旧兼容层：cases_embedding 旧向量表（rag_documents 全量接管）与 kg_relations.source_ref 旧列（source_refs 数组接管）
+        conn.execute(text("DROP TABLE IF EXISTS cases_embedding"))
+        conn.execute(text("ALTER TABLE kg_relations DROP COLUMN IF EXISTS source_ref"))
     # 首启引导管理员账号（幂等：仅当 users 为空）
     from app.core.auth import bootstrap_admin
 
@@ -75,9 +78,8 @@ def init_db() -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("pgvector unavailable: %s", exc)
     try:
-        from app.services.knowledge.rag import ensure_pgvector_table, ensure_rag_documents_table
+        from app.services.knowledge.rag import ensure_rag_documents_table
 
-        ensure_pgvector_table()
         ensure_rag_documents_table()
     except Exception as exc:  # noqa: BLE001
         log.warning("rag table unavailable: %s", exc)

@@ -12,7 +12,7 @@ import uuid
 import httpx
 from _auth import auth_headers
 
-GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
+GATEWAY = f"http://127.0.0.1:{os.environ.get('APP_PORT', '8000')}"
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 ORDER_REPO_URL = os.environ.get(
     "TF_SAMPLE_REPO_URL",
@@ -61,8 +61,8 @@ def main() -> int:
     HEADERS = {"X-Trace-Id": f"tr_{uuid.uuid4().hex[:12]}"}
 
     # ① 多仓接入：订单仓 + 支付 API 仓
-    order_repo = api("POST", "/api/repos", {"url": ORDER_REPO_URL, "branch": "main"})
-    api_repo = api("POST", "/api/repos", {"url": API_REPO_URL, "branch": "main"})
+    order_repo = api("POST", "/api/repos/create", {"url": ORDER_REPO_URL, "branch": "main"})
+    api_repo = api("POST", "/api/repos/create", {"url": API_REPO_URL, "branch": "main"})
     api("POST", f"/api/repos/{int(order_repo['id'])}/pull")
     api("POST", f"/api/repos/{int(api_repo['id'])}/pull")
     repos = api("GET", "/api/repos")
@@ -78,7 +78,7 @@ def main() -> int:
         "paths": {"/api/pay": {"post": {"__fields__": {"payUrl": {}, "amount": {"required": True}}}}},
         "error_codes": ["PAY_101", "PAY_402"],
     }
-    reg1 = api("POST", "/api/contracts", {"name": cname, "type": "rest", "provider_repo": "api-repo", "version": "v2.3.1", "spec": spec_v1, "consumers": ["app.orders.service"]})
+    reg1 = api("POST", "/api/contracts/create", {"name": cname, "type": "rest", "provider_repo": "api-repo", "version": "v2.3.1", "spec": spec_v1, "consumers": ["app.orders.service"]})
     check("契约注册 v2.3.1", not reg1["breaking"] and not reg1.get("changes"))
     cid = int(reg1["contract_id"])
 
@@ -87,7 +87,7 @@ def main() -> int:
         "paths": {"/api/pay": {"post": {"__fields__": {"redirectUrl": {"required": True}, "amount": {"required": True}}}}},
         "error_codes": ["PAY_402"],
     }
-    reg2 = api("POST", "/api/contracts", {"name": cname, "type": "rest", "provider_repo": "api-repo", "version": "v2.4.0", "spec": spec_v2, "consumers": ["app.orders.service"]})
+    reg2 = api("POST", "/api/contracts/create", {"name": cname, "type": "rest", "provider_repo": "api-repo", "version": "v2.4.0", "spec": spec_v2, "consumers": ["app.orders.service"]})
     changes = reg2.get("changes", [])
     check("版本 diff 识别 breaking 变更", reg2["breaking"], "; ".join(changes)[:80])
     check("breaking 规则命中（字段移除/必填新增/错误码弃用）",

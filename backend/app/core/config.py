@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     sandbox_mode: str = "local"
 
     log_level: str = "INFO"
-    gateway_port: int = 8000
+    app_port: int = 8000
     frontend_port: int = 5173
 
     # 本地仓库检出根目录

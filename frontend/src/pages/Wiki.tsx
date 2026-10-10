@@ -175,7 +175,7 @@ export function Wiki() {
     enabled: sessionId > 0,
   })
   const createSession = useMutation({
-    mutationFn: () => post<{ id: number }>('/api/wiki/chat/sessions', { repo_id: repoId }),
+    mutationFn: () => post<{ id: number }>('/api/wiki/chat/sessions/create', { repo_id: repoId }),
     onSuccess: (r) => {
       setSessionId(r.id)
       qc.invalidateQueries({ queryKey: ['wiki-chat-sessions'] })
@@ -192,7 +192,7 @@ export function Wiki() {
   const saveAsk = useMutation({
     // 反幻觉门卫走服务端：kind_hint="qa" + sources 必填，后端 422 强制（不再只靠前端）
     mutationFn: (m: { q: string; a: string; sources: { id: number; title: string }[] }) =>
-      post('/api/knowledge/documents', {
+      post('/api/knowledge/documents/create', {
         title: `问答：${m.q.slice(0, 40)}`,
         content: `${m.a}\n\n---\n来源页：${m.sources.map((s) => s.title).join('、')}`,
         repo_id: repoId || undefined,
@@ -214,7 +214,7 @@ export function Wiki() {
     // 无会话时自动建，消息直接落库
     if (!sid) {
       try {
-        const r = await post<{ id: number }>('/api/wiki/chat/sessions', { repo_id: repoId })
+        const r = await post<{ id: number }>('/api/wiki/chat/sessions/create', { repo_id: repoId })
         sid = r.id
         setSessionId(sid)
         qc.invalidateQueries({ queryKey: ['wiki-chat-sessions'] })

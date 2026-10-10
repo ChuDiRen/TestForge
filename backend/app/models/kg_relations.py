@@ -22,6 +22,5 @@ class KgRelation(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     desc_sources: Mapped[str] = mapped_column(Text, default="{}")  # JSON {source_ref: description}
     weight: Mapped[float] = mapped_column(Float, default=1.0)  # 证据计数（source_refs 长度）
-    source_ref: Mapped[str] = mapped_column(String(256), default="")  # 首个来源（兼容旧读方）
     source_refs: Mapped[str] = mapped_column(Text, default="[]")  # JSON array：全部证据来源
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)

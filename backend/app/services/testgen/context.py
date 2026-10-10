@@ -86,7 +86,7 @@ class ContextBundle:
 
     @property
     def sources(self) -> list[str]:
-        """已命中的上下文路名（兼容旧字段；优先级顺序）。"""
+        """已命中的上下文路名（按优先级顺序）。"""
         return [k for k in ("code", "contract", "wiki", "kg", "trace", "similar", "bugs") if getattr(self, k)]
 
     def enforce_budget(self, budget: int | None = None) -> int:

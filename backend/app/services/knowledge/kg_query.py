@@ -118,9 +118,6 @@ def _backfill_references(ent_hits: list[dict], rel_hits: list[dict], chunk_hits:
     for r in rel_hits:
         for rr_ in (r.get("meta") or {}).get("source_refs", []) or []:
             _add(rr_, "relation")
-        legacy = (r.get("meta") or {}).get("source_ref", "")
-        if legacy:
-            _add(legacy, "relation")
     out = sorted(refs.values(), key=lambda x: x["ref"])
     for c in chunk_hits:
         out.append(

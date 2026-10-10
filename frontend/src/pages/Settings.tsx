@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, Descriptions, Input, InputNumber, Select, Space, Switch, Tag, message } from 'antd'
 import { ClearOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons'
-import { del, get, put } from '@/service'
+import { del, get, post } from '@/service'
 import { useLang, setLang, type Lang } from '@/store'
 
 interface KgSettingsResp {
@@ -29,7 +29,7 @@ export function Settings() {
   }, [resp.data])
 
   const save = useMutation({
-    mutationFn: () => put('/api/kg/settings', { settings: form }),
+    mutationFn: () => post('/api/kg/settings/update', { settings: form }),
     onSuccess: () => {
       message.success(t.settings.saved)
       qc.invalidateQueries({ queryKey: ['kg-settings'] })
@@ -46,7 +46,7 @@ export function Settings() {
     onError: (e: Error) => message.error(e.message),
   })
   const clearExtractCache = useMutation({
-    mutationFn: (role: string) => del<{ cleared: number }>(`/api/llm/cache?role=${role}`),
+    mutationFn: (role: string) => post<{ cleared: number }>(`/api/llm/cache/clear?role=${role}`),
     onSuccess: (r) => {
       message.success(`cleared ${r.cleared}`)
       cacheQ.refetch()

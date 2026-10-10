@@ -7,7 +7,7 @@ import Sigma from 'sigma'
 import EdgeCurveProgram from '@sigma/edge-curve'
 import FA2Layout from 'graphology-layout-forceatlas2/worker'
 import noverlap from 'graphology-layout-noverlap'
-import { del as apiDel, downloadB64, get, post } from '@/service'
+import { downloadB64, get, post } from '@/service'
 import { useThemeMode } from '@/hooks'
 import { useLang } from '@/store'
 
@@ -209,7 +209,7 @@ export function DocKGView() {
   const doDelete = async () => {
     if (!selected) return
     try {
-      await apiDel(`/api/kg/entity?name=${encodeURIComponent(selected.id)}&workspace=${encodeURIComponent(workspace)}`)
+      await post(`/api/kg/entity/delete?name=${encodeURIComponent(selected.id)}&workspace=${encodeURIComponent(workspace)}`)
       message.success(t.docgraph.del)
       setSelected(null)
       graphQ.refetch()

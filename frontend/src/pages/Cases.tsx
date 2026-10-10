@@ -74,7 +74,7 @@ export function Cases() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['cases'] })
   const del = useMutation({
     mutationFn: async (id: number) => {
-      const r = await fetch(`/api/cases/${id}`, { method: 'DELETE' })
+      const r = await fetch(`/api/cases/${id}/delete`, { method: 'POST' })
       return r.json()
     },
     onSuccess: () => {

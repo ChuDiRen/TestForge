@@ -198,7 +198,7 @@ def index_documents_bulk(
     """批量原子索引：单事务先删旧文档再插入（copy-and-swap）。
 
     items: [{doc_key, kind, repo_id, title, content, meta?, workspace?}]。
-    replace_scope=(kind, repo_id)：repo 作用域替换（legacy 区，workspace=''）；
+    replace_scope=(kind, repo_id)：repo 作用域替换（workspace=''）；
     replace_scope_ws=(kind, workspace)：工作区作用域替换。任何一行失败整体回滚。
     """
     if not items and not replace_scope and not replace_scope_ws:
@@ -373,41 +373,15 @@ def _python_fallback(sess, query: str, tokens: str, kinds, limit: int, repo_id: 
     ]
 
 
-# ---------------- 用例检索（兼容旧接口） ----------------
-
-
-def _pgvector_available(sess) -> bool:  # type: ignore[no-untyped-def]
-    try:
-        from sqlalchemy import text
-
-        sess.execute(text("SELECT 1 FROM cases_embedding LIMIT 1"))
-        return True
-    except Exception:  # noqa: BLE001
-        sess.rollback()
-        return False
+# ---------------- 用例检索 ----------------
 
 
 def index_case(case_code: str, content: str, title: str = "", layer: str = "", category: str = "", repo_id: int = 0) -> None:
-    """用例入库时建立索引：rag_documents（混合检索）+ cases_embedding（兼容保留）。
+    """用例入库时建立混合检索索引（rag_documents 向量+全文）。
 
     repo_id 必须传真实仓库：检索按 repo 精确过滤，落 0 会导致用例在带仓库的检索里永远不可见。
     """
     index_document(f"case:{case_code}", "case", title or case_code, content, repo_id=repo_id, meta={"layer": layer, "category": category})
-    vec = embed(content)
-    with get_session() as sess:
-        if _pgvector_available(sess):
-            from sqlalchemy import text
-
-            sess.execute(
-                text("DELETE FROM cases_embedding WHERE case_code = :c"),
-                {"c": case_code},
-            )
-            sess.execute(
-                text("INSERT INTO cases_embedding (case_code, embedding) VALUES (:c, :e)"),
-                {"c": case_code, "e": json.dumps(vec)},
-            )
-            sess.commit()
-        # 表缺失：检索时走 python 兜底，无需存储
 
 
 def similar_cases(content: str, limit: int = 5, layer: str = "") -> list[dict]:
@@ -439,65 +413,4 @@ def similar_cases(content: str, limit: int = 5, layer: str = "") -> list[dict]:
                 out = filtered
         return out[:limit]
 
-    # 旧路径：cases_embedding / python 余弦（历史数据未迁移时兜底）
-    from app.models import Cases
-
-    qvec = _embed_cached(content)
-    ranked: list[tuple[str, float]] = []
-    with get_session() as sess:
-        if _pgvector_available(sess):
-            from sqlalchemy import text
-
-            rows = sess.execute(
-                text(
-                    "SELECT case_code, embedding <-> CAST(:e AS vector) AS dist FROM cases_embedding ORDER BY dist LIMIT :k"
-                ),
-                {"e": json.dumps(qvec), "k": max(limit * 3, 15)},
-            ).all()
-            ranked = [(str(r[0]), float(r[1])) for r in rows]
-        if not ranked:
-            q = sess.query(Cases.code, Cases.title, Cases.category, Cases.target_function, Cases.schema_json).filter(
-                Cases.status == "已入库"
-            )
-            if layer:
-                q = q.filter(Cases.layer == layer)
-            scored: list[tuple[str, float]] = []
-            for code, title, category, target_fn, schema_json in q.limit(500):
-                cvec = _embed_cached(f"{title} {category} {target_fn} {(schema_json or '')[:500]}")
-                score = sum(a * b for a, b in zip(qvec, cvec))
-                scored.append((code, -score))
-            scored.sort(key=lambda x: x[1])
-            ranked = scored[: max(limit * 3, 15)]
-
-        if not ranked:
-            return []
-        wanted = [c for c, _ in ranked]
-        rows = sess.query(Cases).filter(Cases.code.in_(wanted)).all()
-    dist_map = dict(ranked)
-    out = [
-        {
-            "code": r.code,
-            "title": r.title,
-            "layer": r.layer,
-            "category": r.category,
-            "target_function": r.target_function,
-            "score": round(1.0 / (1.0 + dist_map.get(r.code, 1.0)), 4),
-        }
-        for r in rows
-    ]
-    out.sort(key=lambda x: -x["score"])
-    return out[:limit]
-
-
-def ensure_pgvector_table() -> None:
-    """建向量表（幂等，兼容保留）。"""
-    from sqlalchemy import text
-
-    from app.db.session import get_engine
-
-    try:
-        with get_engine().begin() as conn:
-            conn.execute(text(f"CREATE TABLE IF NOT EXISTS cases_embedding (case_code TEXT PRIMARY KEY, embedding vector({DIM}))"))
-        log.info("cases_embedding table ready (pgvector)")
-    except Exception as exc:  # noqa: BLE001
-        log.warning("pgvector table unavailable: %s", exc)
+    return []

@@ -11,7 +11,7 @@ v2 内核（LightRAG 全量对齐，2026-10）：
 - 合并：kg_merge 三阶段（type 投票 / 描述源 <8 拼接 ≥8 摘要 / 关系 weight 证据计数）；
 - 删除：kg_extractions 留存每文档抽取，撤文档从剩余抽取重建（不重跑 LLM）；
 - 检索：kg_query.kg_search 六模式（naive/local/global/hybrid/mix）。
-本模块保留 build_from_repo（repo 语料批量构建入口）与 kg_query（legacy 兼容层，MCP/助手在用）。
+本模块保留 build_from_repo（repo 语料批量构建入口）与 kg_query（确定性双层检索，MCP/助手在用）。
 
 LLM Key 未配置时：build 显式报错（无 mock 原则）；query 走确定性关键词检索不受影响。
 """
@@ -152,7 +152,7 @@ def _keywords(question: str) -> str:
 
 
 def kg_query(repo_id: int, question: str, mode: str = "mix", limit: int = 6) -> dict:
-    """legacy 双层检索（local 实体级 / global 主题级 / mix 融合）。
+    """双层检索（local 实体级 / global 主题级 / mix 融合）。
 
     v2 六模式走 app.services.knowledge.kg_query.kg_search（/api/kg/search）；
     本函数保持响应形状不变（MCP knowledge_query / AI 助手 explore 工具在用）。

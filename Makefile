@@ -4,7 +4,7 @@
 
 UV := uv
 FRONTEND_PORT ?= 5173
-GATEWAY_PORT ?= 8000
+APP_PORT ?= 8000
 
 .PHONY: help install dev up down restart test lint fmt demo-m0 demo-m1 demo-m2 demo-m3 demo-m4 demo-m5 seed clean stack-up stack-down mcp analyze rag-eval kg-build kg-rebuild-vdb kg-clean-cache kg-repair kg-communities
 
@@ -27,8 +27,6 @@ install:
 
 dev:
 	cd backend && $(UV) run python scripts/dev_up.py
-# Windows 主机 asyncio 被三方注入破坏时的备选（WSL 后端 + Windows 前端）：
-# 	cd backend && $(UV) run python scripts/dev_up_win.py
 
 up: dev
 	@cd backend && $(UV) run python scripts/healthcheck.py

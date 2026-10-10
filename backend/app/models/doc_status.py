@@ -12,7 +12,7 @@ from app.models.base import _now
 class DocStatus(Base):
     """知识摄入文档状态跟踪（LightRAG 异步状态机：pending → processing → ok/failed）。
 
-    legacy kind（index/wiki/kg/fts/rag/user_doc）保持同步 ok|failed|stale 写入；
+    index/wiki/kg/fts/rag/user_doc 等同步类 kind 保持 ok|failed|stale 写入；
     kind='kg_doc' 为 LightRAG 式异步摄入管线（工作台分块→抽取→合并→索引）专用。
     """
 

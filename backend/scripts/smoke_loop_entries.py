@@ -98,7 +98,7 @@ def main() -> None:
 
     for c in codes:
         # 缺陷行删库走 SQL（无删除端点）——冒烟脚本直连测试库同级 dev 库不可取，改用检索删除端点清 rag 行
-        call("DELETE", f"/api/knowledge/documents?doc_key=defect:{c}", token)
+        call("POST", f"/api/knowledge/documents/delete?doc_key=defect:{c}", token)
     print(f"7 清理: 已移除缺陷检索行；冒烟仓库 upload://{SLUG}（repo={rid}）与缺陷记录请稍后随 reset 或保留作样例")
     print(f"SMOKE PASS ({ok + 4}/6 核心步骤)")
 

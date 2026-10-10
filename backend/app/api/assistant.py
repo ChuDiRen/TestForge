@@ -883,7 +883,7 @@ def assistant_threads():
         return ok({"threads": [{"id": t.id, "title": t.title, "repo_id": t.repo_id, "updated_at": t.updated_at.isoformat()} for t in rows]})
 
 
-@app.post("/api/assistant/threads")
+@app.post("/api/assistant/threads/create")
 async def assistant_thread_create(data: AssistantThreadCreateIn):
     body = data.model_dump()
     with get_session() as sess:

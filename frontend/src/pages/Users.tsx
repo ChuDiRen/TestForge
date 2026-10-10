@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { DeleteOutlined, KeyOutlined, PlusOutlined, StopOutlined, UserSwitchOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { del, get, post, put } from '@/service'
+import { get, post, put } from '@/service'
 import { PageHeader } from '@/components/PageHeader'
 
 interface UserRow {
@@ -26,7 +26,7 @@ export function Users() {
   const onCreate = async () => {
     const v = await form.validateFields()
     try {
-      await post('/api/auth/users', v)
+      await post('/api/auth/users/create', v)
       message.success(`账号 ${v.username} 已创建`)
       setCreateOpen(false)
       form.resetFields()
@@ -69,7 +69,7 @@ export function Users() {
 
   const remove = async (row: UserRow) => {
     try {
-      await del(`/api/auth/users/${row.username}`)
+      await post(`/api/auth/users/${row.username}/delete`)
       message.success(`账号 ${row.username} 已删除`)
       refresh()
     } catch (e) {

@@ -21,7 +21,7 @@ TIMEOUT = 15.0
 
 def default_base_url() -> str:
     s = get_settings()
-    return f"http://127.0.0.1:{s.gateway_port}"
+    return f"http://127.0.0.1:{s.app_port}"
 
 
 def fetch_openapi(base_url: str) -> dict:

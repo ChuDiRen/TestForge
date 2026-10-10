@@ -320,7 +320,7 @@ export function AssistantMsg({ m }: { m: ChatMsg }) {
 export function useChat() {
   const { message } = App.useApp()
   const qc = useQueryClient()
-  const threads = useQuery({ queryKey: ['assistant-threads'], queryFn: () => get<{ threads: Thread[] }>('/api/assistant/threads') })
+  const threads = useQuery({ queryKey: ['assistant-threads'], queryFn: () => get<{ threads: Thread[] }>('/api/assistant/threads/create') })
   const repos = useQuery({ queryKey: ['repos'], queryFn: () => get<Repo[]>('/api/repos') })
   const [activeId, setActiveId] = useState<number | null>(null)
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
@@ -345,7 +345,7 @@ export function useChat() {
   }, [msgs])
 
   const createThread = useMutation({
-    mutationFn: (repo_id: number = 0) => post<{ id: number }>('/api/assistant/threads', { repo_id }),
+    mutationFn: (repo_id: number = 0) => post<{ id: number }>('/api/assistant/threads/create', { repo_id }),
     onSuccess: (t) => {
       qc.invalidateQueries({ queryKey: ['assistant-threads'] })
       setActiveId(t.id)

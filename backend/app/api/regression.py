@@ -59,7 +59,7 @@ def mark_stale(repo_id: int, changed_functions: list[str]) -> list[str]:
         sess.commit()
     if hit:
         preview = ", ".join(hit[:8]) + ("…" if len(hit) > 8 else "")
-        emit("执行", "gateway", f"代码变更影响 {len(hit)} 条用例，已标记待回归: {preview}")
+        emit("执行", "backend", f"代码变更影响 {len(hit)} 条用例，已标记待回归: {preview}")
     return hit
 
 
@@ -131,7 +131,7 @@ def _regress_group(repo_id: int, suite_cases: list[dict], trace_id: str) -> dict
 
     emit(
         "执行",
-        "gateway",
+        "backend",
         f"变更回归完成 {report.get('pass_count', 0)}/{report.get('pass_total', 0)} 通过，失败 {len(failed)} 条"
         + ("（已自动建缺陷）" if failed else ""),
         trace_id=trace_id or None,
@@ -213,7 +213,7 @@ def regress_changed(repo_id: int, changed_functions: list[str]) -> dict:
         if blast:
             emit(
                 "执行",
-                "gateway",
+                "backend",
                 f"影响面：{sum(len(v) for v in blast.values())} 个上游函数受波及（{len(blast)} 变更函数），见 impact 报告",
             )
     job = enqueue("regression", {"repo_id": repo_id, "case_codes": hit}) if hit else None

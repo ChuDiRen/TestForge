@@ -11,7 +11,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { del, downloadB64, get, post, uploadKgDoc } from '@/service'
+import { downloadB64, get, post, uploadKgDoc } from '@/service'
 import { useIsMobile } from '@/hooks'
 import { useLang } from '@/store'
 interface KgDoc {
@@ -91,7 +91,7 @@ export function KnowledgePipeline({ embedded = false }: { embedded?: boolean } =
   }
 
   const delDoc = useMutation({
-    mutationFn: (docKey: string) => del(`/api/kg/documents?doc_key=${encodeURIComponent(docKey)}`),
+    mutationFn: (docKey: string) => post(`/api/kg/documents/delete?doc_key=${encodeURIComponent(docKey)}`),
     onSuccess: () => {
       message.success(t.pipeline.deleted)
       qc.invalidateQueries({ queryKey: ['kg-docs'] })

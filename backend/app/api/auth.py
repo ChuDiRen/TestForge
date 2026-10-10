@@ -21,7 +21,7 @@ from app.core.auth import (
 )
 from app.crud import crud_users
 from app.main import (
-    _USER_DISABLED_CACHE,
+    _USER_STATUS_CACHE,
     ApiError,
     app,
     ok,
@@ -149,7 +149,7 @@ def auth_list_users(request: Request, db: Session = Depends(get_db)):
     )
 
 
-@app.post("/api/auth/users")
+@app.post("/api/auth/users/create")
 async def auth_create_user(request: Request, data: AuthUserCreateIn, db: Session = Depends(get_db)):
     """管理员创建账号（role: admin|viewer；密码过策略）。"""
     from app.core.trace import emit
@@ -202,12 +202,12 @@ async def auth_update_user(username: str, request: Request, data: AuthUserUpdate
         changed.append("停用" if disabled else "启用")
     if patch:
         crud_users.update(db, db_obj=u, obj_in=patch)
-    _USER_DISABLED_CACHE.pop(username, None)
+    _USER_STATUS_CACHE.pop(username, None)
     emit("认证", user["username"], f"更新账号 {username}: {', '.join(changed) or '无变更'}")
     return ok({"username": username, "role": u.role, "disabled": bool(u.disabled)})
 
 
-@app.delete("/api/auth/users/{username}")
+@app.post("/api/auth/users/{username}/delete")
 async def auth_delete_user(username: str, request: Request, db: Session = Depends(get_db)):
     """管理员删除账号（不可删自己；保底一个可用 admin）。"""
     from app.core.trace import emit
@@ -220,7 +220,7 @@ async def auth_delete_user(username: str, request: Request, db: Session = Depend
         raise ApiError(404, "用户不存在", 404)
     _last_active_admin_guard(db, username)
     crud_users.remove(db, id=u.id)
-    _USER_DISABLED_CACHE.pop(username, None)
+    _USER_STATUS_CACHE.pop(username, None)
     emit("认证", user["username"], f"删除账号 {username}")
     return ok({"deleted": username})
 

@@ -72,9 +72,9 @@
 | GET | `/api/auth/me` | 当前用户 `{username, role, exp}` | 🟢 |
 | POST | `/api/auth/change-password` | 自助改密 `{old_password, new_password}`（≥8 位含字母数字） | 🟢 自助 |
 | GET | `/api/auth/users` | 用户清单 | 🔴 |
-| POST | `/api/auth/users` | 创建账号 `{username, password, role?=viewer}` | 🔴 |
+| POST | `/api/auth/users/create` | 创建账号 `{username, password, role?=viewer}` | 🔴 |
 | PUT | `/api/auth/users/{username}` | 改角色/停启用 `{role?, disabled?}`（不能操作自己/保底 admin） | 🔴 |
-| DELETE | `/api/auth/users/{username}` | 删除账号（防呆同上） | 🔴 |
+| POST | `/api/auth/users/{username}/delete` | 删除账号（防呆同上） | 🔴 |
 | POST | `/api/auth/users/{username}/reset-password` | 管理员重置密码 `{new_password}`；viewer 置 must_change | 🔴 |
 
 ### 2.3 仪表盘（1）
@@ -88,7 +88,7 @@
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | GET | `/api/repos` | 仓库列表 | 🟢 |
-| POST | `/api/repos` | 注册 git 仓库 `{url*, branch?=main, credential_ref?, webhook?}`（URL 校验 1003） | 🔴 |
+| POST | `/api/repos/create` | 注册 git 仓库 `{url*, branch?=main, credential_ref?, webhook?}`（URL 校验 1003） | 🔴 |
 | POST | `/api/repos/{repo_id}/pull` | 拉取+增量索引+变更回归（标 stale→异步回归）+Wiki 增量重建；响应含 `regression{affected_cases, job_code}` | 🔴 |
 | POST | `/api/repos/{repo_id}/webhook` | git webhook；可选 `X-Webhook-Secret` 校验；后台执行立即返回 `{accepted}` | 🔴（Bearer + 可选共享密钥） |
 | POST | `/api/repos/upload` | **入口①** zip 上传建仓：multipart `file*` + `name?` + `branch?`；安全解压（zip-slip/200MB/2 万成员/1GB）；同名重传=更新图谱；响应含 functions/call_edges/wiki_pages/steps | 🔴 |
@@ -129,7 +129,7 @@
 | GET | `/api/cases` | 用例分页（layer/module/status/category/source_req/stale 过滤；status 缺省隐藏「已替换」；响应带 total/by_layer/by_category） | 🟢 |
 | GET | `/api/cases/{case_code}/file` | 用例源码文件预览 `{filename, content, size}` | 🟢 |
 | PUT | `/api/cases/{case_id}` | 编辑元数据 `{title?, status?, review_note?, confidence?, stale?}` | 🔴 |
-| DELETE | `/api/cases/{case_id}` | 删除用例（历史 run/trace 保留） | 🔴 |
+| POST | `/api/cases/{case_id}/delete` | 删除用例（历史 run/trace 保留） | 🔴 |
 | POST | `/api/cases/{case_id}/review` | 人审 `{action: approve\|reject, note?}` | 🔴 |
 
 ### 2.8 追溯（2）
@@ -153,7 +153,7 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| POST | `/api/contracts` | 注册契约 `{name*, type?=rest, provider_repo?, version?, spec?, consumers[]?}` | 🔴 |
+| POST | `/api/contracts/create` | 注册契约 `{name*, type?=rest, provider_repo?, version?, spec?, consumers[]?}` | 🔴 |
 | GET | `/api/contracts` | 契约列表（≤200） | 🟢 |
 | POST | `/api/contracts/{contract_id}/impact` | 影响分析（进程内聚合，`{to_v?}`） | 🔴 |
 | POST | `/api/contracts/{contract_id}/regenerate` | 契约变更闭环：影响分析→受影响用例重生成入队 | 🔴 |
@@ -164,7 +164,7 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| POST | `/api/defects` | 建缺陷 `{run_id?\|origin_run, case_codes[]?, req_code?, trace_id?, reason?}` | 🔴 |
+| POST | `/api/defects/create` | 建缺陷 `{run_id?\|origin_run, case_codes[]?, req_code?, trace_id?, reason?}` | 🔴 |
 | GET | `/api/defects` | 缺陷列表（≤200） | 🟢 |
 | GET | `/api/defects/{defect_id}/suggestion` | 查看修复建议 | 🟢 |
 | POST | `/api/defects/{defect_id}/suggest` | AI 生成根因分析+修复建议（缓存落库；LLM 不可用 503） | 🔴 |
@@ -175,7 +175,7 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| POST | `/api/plans` | 建迭代 `{version?, req_codes[]?}`；准入/准出自动判定；入检索库(kind=plan) | 🔴 |
+| POST | `/api/plans/create` | 建迭代 `{version?, req_codes[]?}`；准入/准出自动判定；入检索库(kind=plan) | 🔴 |
 | GET | `/api/plans` | 迭代列表（≤100） | 🟢 |
 | GET | `/api/plans/{iter_code}` | 迭代详情（实时判定 + report + checks） | 🟢 |
 | POST | `/api/reports/{iter_code}` | 生成测试报告（平台真实数据汇总） | 🔴 |
@@ -194,7 +194,7 @@
 | GET | `/api/wiki/{page_id}/related` | 相关页推荐（TF-IDF top-K） | 🟢 |
 | POST | `/api/wiki/ask` | 三阶段 RAG 问答 `{question*, repo_id?=0, history?, session_id?}`；反幻觉 no_data | 🟢 |
 | GET | `/api/wiki/chat/sessions` | 问答会话列表（≤50） | 🟢 |
-| POST | `/api/wiki/chat/sessions` | 新建会话 | 🔴 |
+| POST | `/api/wiki/chat/sessions/create` | 新建会话 | 🔴 |
 | DELETE | `/api/wiki/chat/sessions/{session_id}` | 删除会话 | 🔴 |
 | GET | `/api/wiki/chat/sessions/{session_id}/messages` | 会话消息（≤200） | 🟢 |
 | POST | `/api/wiki/rebuild` | 一键重建 `{repo_id*, full?=false}`；并发 409 编译锁 | 🔴 |
@@ -206,8 +206,8 @@
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | GET | `/api/knowledge/documents` | 用户知识文档列表（kind=user_doc） | 🟢 |
-| POST | `/api/knowledge/documents` | 知识入库（upsert；三道门卫：敏感 422 / qa 无来源 422 / 评估分 <0.5 拒绝 422）`{title*, content*, repo_id?, kind_hint?, sources[]?, assess?}` | 🔴 |
-| DELETE | `/api/knowledge/documents` | 删除（doc_key*） | 🔴 |
+| POST | `/api/knowledge/documents/create` | 知识入库（upsert；三道门卫：敏感 422 / qa 无来源 422 / 评估分 <0.5 拒绝 422）`{title*, content*, repo_id?, kind_hint?, sources[]?, assess?}` | 🔴 |
+| POST | `/api/knowledge/documents/delete` | 删除（doc_key*） | 🔴 |
 | GET | `/api/knowledge/search` | 检索测试台：七路混合检索（q*, repo_id?, limit=8, hide_sensitive 打码） | 🟢 |
 | POST | `/api/knowledge/import-url` | URL 一键入库（公众号/GitHub README 专用路由+通用 HTML；<30 字 422） | 🔴 |
 
@@ -227,7 +227,7 @@
 | GET | `/api/kg/stats` | 图谱规模统计 | 🟢 |
 | GET | `/api/knowledge/status` | 摄入健康视图（kind×status + 最近失败） | 🟢 |
 | GET | `/api/llm/cache` | LLM 抽取缓存台账 | 🟢 |
-| DELETE | `/api/llm/cache` | 清缓存（role? 按角色） | 🔴 |
+| POST | `/api/llm/cache/clear` | 清缓存（role? 按角色） | 🔴 |
 | GET | `/api/rag/eval` | 检索质量评估（黄金集 recall@k/MRR，混合 vs 向量对照） | 🟢 |
 | GET | `/api/graph` | 业务知识图谱（repo→模块→函数调用→用例←需求→缺陷，ECharts 可渲染；max_functions≤600） | 🟢 |
 
@@ -237,13 +237,13 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| POST | `/api/kg/documents` | 纯文本入库→异步管线 `{title*, content*, workspace?, repo_id?}` | 🔴 |
+| POST | `/api/kg/documents/create` | 纯文本入库→异步管线 `{title*, content*, workspace?, repo_id?}` | 🔴 |
 | POST | `/api/kg/documents/upload` | 文件上传（pdf/docx/txt/md/rst/csv；parser?=native；文本类敏感扫描） | 🔴 |
 | GET | `/api/kg/documents` | 分页列表（repo_id/workspace/status/q 过滤，page_size≤100） | 🟢 |
 | GET | `/api/kg/documents/track` | 单文档状态（doc_key*） | 🟢 |
 | GET | `/api/kg/documents/chunks` | 某文档分块清单 | 🟢 |
 | GET | `/api/kg/chunk-content` | 单 chunk 全文 | 🟢 |
-| DELETE | `/api/kg/documents` | 删除文档（撤 chunk + 从抽取缓存重建图谱） | 🔴 |
+| POST | `/api/kg/documents/delete` | 删除文档（撤 chunk + 从抽取缓存重建图谱） | 🔴 |
 
 **查询 / 流式**
 
@@ -261,9 +261,9 @@
 | GET | `/api/kg/entity/exists` | 实体存在性 | 🟢 |
 | PATCH | `/api/kg/entity` | 实体编辑（改名/类型/描述） | 🔴 |
 | POST | `/api/kg/entity/merge` | 实体合并 `{into*, sources[]*}` | 🔴 |
-| DELETE | `/api/kg/entity` | 实体级联删除 | 🔴 |
+| POST | `/api/kg/entity/delete` | 实体级联删除 | 🔴 |
 | PATCH | `/api/kg/relation` | 关系编辑 | 🔴 |
-| DELETE | `/api/kg/relation` | 关系删除 | 🔴 |
+| POST | `/api/kg/relation/delete` | 关系删除 | 🔴 |
 
 **社区 / 导出 / 工作区 / 设置**
 
@@ -274,14 +274,14 @@
 | GET | `/api/kg/export` | 导出（what=entities/relations/communities/chunks/graph × fmt=json/csv/md/xlsx/graphml/zip；base64 内嵌） | 🟢 |
 | GET | `/api/kg/workspaces` | 工作区清单 | 🟢 |
 | GET | `/api/kg/settings` | 运行时参数 + 能力状态 + communities dirty 标记 | 🟢 |
-| PUT | `/api/kg/settings` | 更新运行时参数（白名单键：chunk_strategy/size/overlap/drop_references、gleaning_rounds、query_cache、user_prompt_prefix、websearch_*） | 🔴 |
+| POST | `/api/kg/settings/update` | 更新运行时参数（白名单键：chunk_strategy/size/overlap/drop_references、gleaning_rounds、query_cache、user_prompt_prefix、websearch_*） | 🔴 |
 
 ### 2.18 AI 助手（5）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | GET | `/api/assistant/threads` | 会话列表（≤50） | 🟢 |
-| POST | `/api/assistant/threads` | 新建会话 `{title?, repo_id?}` | 🟢* |
+| POST | `/api/assistant/threads/create` | 新建会话 `{title?, repo_id?}` | 🟢* |
 | DELETE | `/api/assistant/threads/{thread_id}` | 删除会话 | 🔴 |
 | GET | `/api/assistant/threads/{thread_id}/messages` | 历史消息（≤200，含 tool_events/citations） | 🟢 |
 | POST | `/api/assistant/chat` | **SSE** 对话 `{thread_id*, content*}`；事件 token/tool_start/tool_end/done/error；写操作工具层 `_require_admin` 二次拦截 | 🟢（viewer 可聊天） |

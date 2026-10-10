@@ -123,10 +123,10 @@ def _env_database_url() -> str:
 def main() -> int:
     LOGS.mkdir(parents=True, exist_ok=True)
     RUN.mkdir(parents=True, exist_ok=True)
-    gateway_port = int(os.environ.get("GATEWAY_PORT", "8000"))
+    app_port = int(os.environ.get("APP_PORT", "8000"))
 
     print("[dev_up] 启动后端（FastAPI 单体，领域模块进程内直调）…")
-    if not port_open(gateway_port):
+    if not port_open(app_port):
         env = {**os.environ, "PYTHONPATH": str(ROOT)}
         env_url = os.environ.get("DATABASE_URL") or _env_database_url()
         if not _pg_handshake_ok(env_url):
@@ -141,7 +141,7 @@ def main() -> int:
                     print(f"  ~ .env DATABASE_URL 不健康，已切换直连：{db_url.split('@')[1]}")
         logf = open(LOGS / "app.api.log", "ab")
         proc = subprocess.Popen(
-            [sys.executable, "-u", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", str(gateway_port)],
+            [sys.executable, "-u", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", str(app_port)],
             cwd=ROOT,
             stdout=logf,
             stderr=subprocess.STDOUT,
@@ -153,10 +153,10 @@ def main() -> int:
             },
         )
         (RUN / "app.api.pid").write_text(str(proc.pid))
-        print(f"  + backend pid={proc.pid} -> :{gateway_port}")
+        print(f"  + backend pid={proc.pid} -> :{app_port}")
     else:
-        print(f"  = backend 已在 :{gateway_port}，跳过")
-    wait_port(gateway_port, 30, "backend")
+        print(f"  = backend 已在 :{app_port}，跳过")
+    wait_port(app_port, 30, "backend")
 
     if "--no-fe" not in sys.argv:
         fe_port = int(os.environ.get("FRONTEND_PORT", "5173"))
@@ -179,7 +179,7 @@ def main() -> int:
         wait_port(fe_port, 40, "frontend")
 
     fe_port = os.environ.get("FRONTEND_PORT", "5173")
-    print(f"[dev_up] 完成：backend=http://127.0.0.1:{gateway_port}  frontend=http://127.0.0.1:{fe_port}")
+    print(f"[dev_up] 完成：backend=http://127.0.0.1:{app_port}  frontend=http://127.0.0.1:{fe_port}")
     print(f"[dev_up] 手机访问（同一 Wi-Fi）：http://{lan_ip()}:{fe_port}")
     return 0
 

@@ -24,7 +24,7 @@ def new_generation(payload: dict) -> dict:
     from app.api.envelope import ApiError
     from app.api.jobs import enqueue
 
-    target = payload.get("function") or payload.get("target") or ""
+    target = payload.get("function") or ""
     if not target:
         raise ApiError(1001, "function 必填")
     repo_id = int(payload.get("repo_id") or 0)
@@ -221,7 +221,7 @@ def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_re
                 .update({"status": "已替换"}, synchronize_session=False)
             )
             if superseded:
-                emit("生成", "gateway", f"目标 {target} 重新生成，{superseded} 条旧用例置已替换")
+                emit("生成", "backend", f"目标 {target} 重新生成，{superseded} 条旧用例置已替换")
             for c, sc in zip(cases, suite_cases):
                 ok = case_results.get(c["code"]) == "passed"
                 code = f"CASE-{gen_code[-6:]}-{c['code']}"
@@ -245,7 +245,7 @@ def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_re
                     )
                 )
             sess.flush()
-            # RAG 混合索引（rag_documents 向量+全文；cases_embedding 兼容保留）
+            # RAG 混合索引（rag_documents 向量+全文）
             try:
                 from app.services.knowledge.rag import index_case
 
@@ -289,7 +289,7 @@ def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_re
                 g.status = "failed"
             sess.commit()
         _event(gen_code, "result", "result", f"管线失败: {exc}", "", 1.0)
-        emit("生成", "gateway", f"生成管线失败 {gen_code}: {exc}", trace_id=trace_id)
+        emit("生成", "backend", f"生成管线失败 {gen_code}: {exc}", trace_id=trace_id)
     finally:
         set_trace_id("-")
 

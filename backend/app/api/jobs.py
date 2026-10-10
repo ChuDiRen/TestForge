@@ -1,4 +1,4 @@
-"""任务队列：jobs 表持久化 + gateway 进程内 worker 池。
+"""任务队列：jobs 表持久化 + 应用进程内 worker 池。
 
 生成/回归全部以任务形式入队执行：可观测（/api/jobs）、可恢复（崩溃时 running 重排队）、
 可限流（job_workers 并发上限，避免 DeepSeek 并发打爆）。任务本身幂等——重跑等价。

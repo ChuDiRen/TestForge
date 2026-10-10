@@ -9,7 +9,7 @@ import uuid
 import httpx
 from _auth import auth_headers
 
-GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
+GATEWAY = f"http://127.0.0.1:{os.environ.get('APP_PORT', '8000')}"
 FRONTEND = f"http://127.0.0.1:{os.environ.get('FRONTEND_PORT', '5173')}"
 REPO_URL = os.environ.get("TF_SAMPLE_REPO_URL", "file:///mnt/e/TestForge/fixtures/sample-repo")
 
@@ -45,7 +45,7 @@ def main() -> int:
     HEADERS = {"X-Trace-Id": f"tr_{uuid.uuid4().hex[:12]}"}
 
     # ① 前置：仓库 + 需求生效 + 自动编排（复用 M3 管线产生完整数据）
-    repo = api("POST", "/api/repos", {"url": REPO_URL, "branch": "main"})
+    repo = api("POST", "/api/repos/create", {"url": REPO_URL, "branch": "main"})
     rid = int(repo["id"])
     api("POST", f"/api/repos/{rid}/pull")
     req = api("POST", "/api/requirements/ingest", {
@@ -63,7 +63,7 @@ def main() -> int:
     # ② 失败自动建缺陷（runner 超修复轮次上报 → 四向关联 + 自动指派）
     cases = api("GET", f"/api/cases?source_req={confirmed['code']}")
     case_codes = [c["code"] for c in cases["items"][:3]]
-    defect = api("POST", "/api/defects", {"run_id": run["code"], "case_codes": case_codes, "req_code": confirmed["code"], "reason": "演示：修复超轮次仍失败"})
+    defect = api("POST", "/api/defects/create", {"run_id": run["code"], "case_codes": case_codes, "req_code": confirmed["code"], "reason": "演示：修复超轮次仍失败"})
     check("失败自动建缺陷（四向关联）", defect["code"].startswith("BUG-") and defect.get("assignee"), f"{defect['code']} → {defect.get('assignee', '-')}（{defect.get('severity', '-')}）")
 
     # ③ 缺陷生命周期 + 自动回归（只重跑关联用例 → 通过自动关闭）
@@ -77,7 +77,7 @@ def main() -> int:
           f"缺陷 {reg_inner.get('defect_code')} → {reg_inner.get('status')}")
 
     # ④ 迭代计划：准入/准出自动判定
-    plan = api("POST", "/api/plans", {"version": "v1.0", "req_codes": [confirmed["code"]]})
+    plan = api("POST", "/api/plans/create", {"version": "v1.0", "req_codes": [confirmed["code"]]})
     check("迭代计划准入自动判定", plan["entry_ok"], "; ".join(check for check in plan["checks"] if check.startswith("[准入]")))
     detail = api("GET", f"/api/plans/{plan['code']}")
     check("准出核对项输出", len(detail["checks"]) >= 4, f"{len(detail['checks'])} 项")

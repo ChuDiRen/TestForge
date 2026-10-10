@@ -20,7 +20,7 @@ from app.schemas.contracts import (
 log = logging.getLogger("app.api.contract")
 
 
-@app.post("/api/contracts")
+@app.post("/api/contracts/create")
 async def register_contract(data: ContractCreateIn):
     body = data.model_dump()
     name = (body.get("name") or "").strip()

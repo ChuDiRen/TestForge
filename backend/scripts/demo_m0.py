@@ -6,7 +6,7 @@ import sys
 import httpx
 from _auth import auth_headers
 
-GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
+GATEWAY = f"http://127.0.0.1:{os.environ.get('APP_PORT', '8000')}"
 FRONTEND = f"http://127.0.0.1:{os.environ.get('FRONTEND_PORT', '5173')}"
 
 CHECKS: list[tuple[str, bool, str]] = []

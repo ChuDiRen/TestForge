@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 from _auth import auth_headers
 
-GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
+GATEWAY = f"http://127.0.0.1:{os.environ.get('APP_PORT', '8000')}"
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 REPO_URL = os.environ.get(
     "TF_SAMPLE_REPO_URL",
@@ -59,7 +59,7 @@ def main() -> int:
     HEADERS = {"X-Trace-Id": f"tr_{uuid.uuid4().hex[:12]}"}
 
     # ① 接入（或复用）sample-repo 并全量编译 Wiki
-    repo = api("POST", "/api/repos", {"url": REPO_URL, "branch": "main"})
+    repo = api("POST", "/api/repos/create", {"url": REPO_URL, "branch": "main"})
     rid = int(repo["id"])  # protobuf int64 经 JSON 为字符串
     api("POST", f"/api/repos/{rid}/pull")
     pages = api("GET", f"/api/wiki?repo_id={rid}")

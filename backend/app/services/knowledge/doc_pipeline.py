@@ -7,7 +7,7 @@
 
 状态落 doc_status(kind=kg_doc, workspace)，前端轮询 /api/kg/documents（分页/过滤）。
 删除文档：撤 chunk + kg_merge.remove_source（从剩余抽取重建图谱，不重跑 LLM）。
-启动恢复：gateway lifespan 调 recover_and_start()，崩溃遗留的 pending/processing 重新入队。
+启动恢复：应用 lifespan 调 recover_and_start()，崩溃遗留的 pending/processing 重新入队。
 LLM Key 未配置：入队与状态机照常工作，抽取步显式 failed（无 mock 原则），错误信息进状态行。
 """
 

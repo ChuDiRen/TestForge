@@ -7,7 +7,7 @@ from _auth import auth_headers
 
 
 def main() -> int:
-    port = __import__("os").environ.get("GATEWAY_PORT", "8000")
+    port = __import__("os").environ.get("APP_PORT", "8000")
     base = f"http://127.0.0.1:{port}"
     try:
         r = httpx.get(f"{base}/api/system/services", timeout=30, headers=auth_headers())
@@ -18,7 +18,7 @@ def main() -> int:
     data = r.json()["data"]
     for s in data["services"]:
         mark = "OK " if s["ok"] and s["db_ok"] else "FAIL"
-        print(f"  [{mark}] {s['name']:<20} :{s['port']}")
+        print(f"  [{mark}] {s['name']:<20} v{s.get('version', '?')}")
     if data["all_green"]:
         print("[healthcheck] 全部服务 GREEN")
         return 0

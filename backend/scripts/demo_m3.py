@@ -12,7 +12,7 @@ import uuid
 import httpx
 from _auth import auth_headers
 
-GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
+GATEWAY = f"http://127.0.0.1:{os.environ.get('APP_PORT', '8000')}"
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 REPO_URL = os.environ.get(
     "TF_SAMPLE_REPO_URL",
@@ -77,7 +77,7 @@ def main() -> int:
     HEADERS = {"X-Trace-Id": f"tr_{uuid.uuid4().hex[:12]}"}
 
     # ① 前置：仓库 + wiki 就绪（知识就绪 G1）
-    repo = api("POST", "/api/repos", {"url": REPO_URL, "branch": "main"})
+    repo = api("POST", "/api/repos/create", {"url": REPO_URL, "branch": "main"})
     rid = int(repo["id"])
     api("POST", f"/api/repos/{rid}/pull")
 

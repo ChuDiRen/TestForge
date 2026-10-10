@@ -20,7 +20,7 @@ export function Assistant() {
   }))
 
   const createThread = useMutation({
-    mutationFn: (repo_id: number) => post<{ id: number }>('/api/assistant/threads', { repo_id }),
+    mutationFn: (repo_id: number) => post<{ id: number }>('/api/assistant/threads/create', { repo_id }),
     onSuccess: (t) => {
       qc.invalidateQueries({ queryKey: ['assistant-threads'] })
       chat.setActiveId(t.id)

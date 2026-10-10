@@ -22,7 +22,7 @@ import time
 import httpx
 from _auth import auth_headers
 
-GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
+GATEWAY = f"http://127.0.0.1:{os.environ.get('APP_PORT', '8000')}"
 _ROOT = pathlib.Path(__file__).resolve().parents[1]  # backend/
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]  # 仓库根
 REPO_URL = _REPO_ROOT.as_uri()  # file:///E:/TestForge（Linux: file:///mnt/e/TestForge）
@@ -120,7 +120,7 @@ def main() -> int:
 
     # ① 接入本仓库（真实 clone + 多语言 tree-sitter 索引 + Wiki 编译）
     t0 = time.time()
-    repo = api("POST", "/api/repos", {"url": REPO_URL, "branch": "main"})
+    repo = api("POST", "/api/repos/create", {"url": REPO_URL, "branch": "main"})
     rid = repo["id"]
     check("① 本仓库接入（clone→索引→Wiki）", repo["status"] == "已接入", f"id={rid} 耗时{time.time()-t0:.0f}s")
     if repo["status"] != "已接入":
@@ -157,14 +157,14 @@ def main() -> int:
     version = re.search(r'VERSION = "([^"]+)"', (_ROOT / "app" / "core" / "config.py").read_text(encoding="utf-8")).group(1)
     openapi = httpx.get(f"{GATEWAY}/openapi.json", timeout=30).json()
     rest_spec = {"paths": {p: {} for p in openapi.get("paths", {})}}
-    c2 = api("POST", "/api/contracts", {
+    c2 = api("POST", "/api/contracts/create", {
         "name": "testforge-rest-api", "type": "rest", "provider_repo": "testforge",
         "version": version, "spec": rest_spec, "consumers": ["frontend"],
     })
     check("④ 真实契约注册（运行时 openapi）", bool(c2.get("contract_id")) and len(rest_spec["paths"]) >= 30,
           f"rest paths={len(rest_spec['paths'])}")
 
-    plan = api("POST", "/api/plans", {"version": "real-1", "req_codes": req_codes})
+    plan = api("POST", "/api/plans/create", {"version": "real-1", "req_codes": req_codes})
     plans = {p["code"]: p for p in api("GET", "/api/plans")}
     row = plans.get(plan["code"], {})
     check("④ 测试计划创建并核对准入", row.get("entry_status") not in ("", "已打回", None), f"{plan['code']} 准入 {row.get('entry_status')}")

@@ -1,7 +1,6 @@
 """知识图谱域（KG/LightRAG）API 请求模型。
 
-/workspace+repo_id 由各路由的 _resolve_ws 统一解析；query/q 双键是
-kg 检索的兼容别名（query or q），model_dump 后两个键都在，原 or 链保持不变。
+/workspace+repo_id 由各路由的 _resolve_ws 统一解析。
 """
 
 from pydantic import BaseModel
@@ -20,7 +19,6 @@ class KgDocumentCreateIn(BaseModel):
 
 class KgSearchIn(BaseModel):
     query: str = ""
-    q: str = ""  # query 的兼容别名
     mode: str = "mix"  # naive | local | global | hybrid | mix
     repo_id: int = 0
     workspace: str = ""

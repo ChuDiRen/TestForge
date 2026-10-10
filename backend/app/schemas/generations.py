@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 class GenerationCreateIn(BaseModel):
     function: str = ""
-    target: str = ""  # function 的兼容别名（new_generation 二选一）
     repo_id: int = 0
     layer: str = "ut"
     source_req: str = ""

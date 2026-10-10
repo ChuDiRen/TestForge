@@ -43,6 +43,6 @@ def setup_logging(service: str, level: str = "INFO") -> None:
     root.handlers = [handler]
     root.setLevel(level.upper())
     # 收敛 grpc/uvicorn 噪音
-    for noisy in ("grpc", "uvicorn.access", "uvicorn.error", "uvicorn"):
+    for noisy in ("uvicorn.access", "uvicorn.error", "uvicorn"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     logging.getLogger(service).setLevel(level.upper())

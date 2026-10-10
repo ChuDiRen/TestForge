@@ -14,7 +14,7 @@ import time
 import httpx
 from _auth import auth_headers
 
-GATEWAY = f"http://127.0.0.1:{os.environ.get('GATEWAY_PORT', '8000')}"
+GATEWAY = f"http://127.0.0.1:{os.environ.get('APP_PORT', '8000')}"
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 REPO_URL = os.environ.get(
     "TF_SAMPLE_REPO_URL",
@@ -52,7 +52,7 @@ def main() -> int:
     HEADERS = {"X-Trace-Id": trace_all}
 
     # ① 接入仓库（repo-svc: clone → tree-sitter 索引 → 调用图）
-    repo = api("POST", "/api/repos", {"url": REPO_URL, "branch": "main"})
+    repo = api("POST", "/api/repos/create", {"url": REPO_URL, "branch": "main"})
     rid = repo["id"]
     check("仓库接入", repo["status"] == "已接入", f"id={rid}")
 

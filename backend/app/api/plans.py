@@ -26,7 +26,7 @@ log = logging.getLogger("app.api.loop")
 # ---------------- 缺陷闭环（FR-11） ----------------
 
 
-@app.post("/api/defects")
+@app.post("/api/defects/create")
 async def create_defect(data: DefectCreateIn):
     """失败执行自动建缺陷（runner-svc 调用）/ 人工报障。"""
     body = data.model_dump()
@@ -225,7 +225,7 @@ def _evaluate(code: str, version: str, req_codes: list[str]) -> dict:
     return evaluate_plan(code, version, req_codes)
 
 
-@app.post("/api/plans")
+@app.post("/api/plans/create")
 async def create_plan(data: PlanCreateIn):
     """建迭代 + 准入/准出自动判定。"""
     body = data.model_dump()

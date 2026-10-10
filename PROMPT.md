@@ -70,9 +70,9 @@ TestForge/
 
 ## 7. 接口契约（REST + SSE，统一封套）
 
-`POST /api/repos`、`POST /api/repos/{id}/pull`、`POST /api/requirements/ingest`、`POST /api/requirements/{id}/confirm`、`POST /api/generations`、`GET /api/generations/{id}/events`(SSE)、`GET /api/cases`、`POST /api/cases/{id}/review`、`GET /api/runs`、`POST /api/runs/{id}/rerun`、`POST /api/contracts/{id}/impact`、`POST /api/plans`、`GET /api/plans/{iter}`、`POST /api/defects`、`POST /api/defects/{id}/regression`、`POST /api/reports/{iter}`、`GET /api/traces/{traceId}`、`GET /api/quality/requirements`（需求质量流水线 G0~G5）。
+`POST /api/repos/create`、`POST /api/repos/{id}/pull`、`POST /api/requirements/ingest`、`POST /api/requirements/{id}/confirm`、`POST /api/generations`、`GET /api/generations/{id}/events`(SSE)、`GET /api/cases`、`POST /api/cases/{id}/review`、`GET /api/runs`、`POST /api/runs/{id}/rerun`、`POST /api/contracts/{id}/impact`、`POST /api/plans/create`、`GET /api/plans/{iter}`、`POST /api/defects/create`、`POST /api/defects/{id}/regression`、`POST /api/reports/{iter}`、`GET /api/traces/{traceId}`、`GET /api/quality/requirements`（需求质量流水线 G0~G5）。
 
-统一响应 `{code, message, data}`；SSE 事件：`stage(plan|guard|codegen|sandbox|coverage)` / `log` / `result`。全部路由模块在 `backend/app/api/`（一域一文件），完整端点以 `/openapi.json` 与 `docs/TestForge-接口设计.md` 为准；除 health/login 外全部端点需 Bearer token。
+统一响应 `{code, message, data}`；SSE 事件：`stage(plan|guard|codegen|sandbox|coverage)` / `log` / `result`。全部路由模块在 `backend/app/api/`（一域一文件），完整端点以 `/openapi.json` 与 `docs/TestForge-接口设计.md` 为准；除 health/login 外全部端点需 Bearer token。**接口风格约束：一个路径只允许一种 HTTP 方法**——列表用 GET 留在集合路径，创建/删除/更新一律 `POST <path>/create|delete|update` 动作后缀，禁止在同一路径挂多个方法（如 `GET+POST /api/repos` 这种形态不允许再出现）。
 
 ## 8. 关键业务逻辑（这些是平台的灵魂，不得破坏）
 

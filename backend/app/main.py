@@ -1,4 +1,4 @@
-"""gateway 主应用：REST/SSE 唯一入口（单体：服务进程内直调）。
+"""TestForge 后端主应用：REST/SSE 唯一入口（单体：领域模块进程内直调）。
 
 认证：除 /api/health 与 /api/auth/login 外全部需要 Bearer token（admin 全权，viewer 只读）。
 """
@@ -19,7 +19,7 @@ from sqlalchemy import Integer, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.api.envelope import ApiError, err, ok
+from app.api.envelope import ApiError, err, json_body, ok
 from app.core.auth import parse_token, renewed_token
 from app.core.config import VERSION, get_settings
 from app.core.logutil import new_trace_id, set_trace_id, setup_logging
@@ -42,7 +42,7 @@ from app.schemas.generations import GenerationBatchIn, GenerationCreateIn
 from app.schemas.knowledge import KnowledgeDocBody, WikiAskBody, WikiChatSessionBody
 from app.schemas.repos import RepoCreateIn
 
-log = logging.getLogger("gateway")
+log = logging.getLogger("app")
 
 SERVICE_LIST = [
     "repo-svc",
@@ -78,7 +78,7 @@ def _service_pings() -> list[tuple[str, Any]]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
-    setup_logging("gateway", get_settings().log_level)
+    setup_logging("app", get_settings().log_level)
     s = get_settings()
     if s.env == "prod":
         problems = s.validate_for_prod()
@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
             raise RuntimeError(f"ENV=prod 安全检查未通过（{len(problems)} 项），拒绝启动——详见上方日志")
         log.info("生产安全检查通过（env=prod）")
     init_db()
-    log.info("backend v%s up on :%d（单体：服务进程内直调）", VERSION, get_settings().gateway_port)
+    log.info("backend v%s up on :%d（单体：服务进程内直调）", VERSION, get_settings().app_port)
     from app.api.jobs import recover_and_start
 
     workers = recover_and_start()
@@ -113,7 +113,6 @@ app.add_middleware(
 
 
 _USER_STATUS_CACHE: dict[str, tuple[bool, bool, float]] = {}  # username -> (disabled, must_change, ts)
-_USER_DISABLED_CACHE = _USER_STATUS_CACHE  # 兼容别名（auth 模块清缓存用）
 _USER_STATUS_TTL_S = 60.0
 
 
@@ -486,7 +485,7 @@ def _assess_knowledge_content(title: str, content: str) -> tuple[float, str]:
         return 1.0, "评估服务不可用，放行"
 
 
-@app.post("/api/knowledge/documents")
+@app.post("/api/knowledge/documents/create")
 def create_knowledge_document(body: KnowledgeDocBody):
     """用户知识文档入库（Wiki 页上传卡片）：upsert 进 rag_documents（向量+全文双索引），
     AI 生成用例的六路上下文会自动检索引用。doc_key=repo+标题哈希，同标题重复上传是更新。
@@ -535,7 +534,7 @@ def create_knowledge_document(body: KnowledgeDocBody):
     return ok({"doc_key": doc_key, "indexed": True})
 
 
-@app.delete("/api/knowledge/documents")
+@app.post("/api/knowledge/documents/delete")
 def delete_knowledge_document(doc_key: str):
     from app.services.knowledge.rag import remove_document
 
@@ -720,7 +719,7 @@ def wiki_chat_sessions(repo_id: int = 0, db: Session = Depends(get_db)):
     )
 
 
-@app.post("/api/wiki/chat/sessions")
+@app.post("/api/wiki/chat/sessions/create")
 def create_wiki_chat_session(body: WikiChatSessionBody, db: Session = Depends(get_db)):
     s = crud_wiki_chat_sessions.create(db, obj_in={"repo_id": body.repo_id, "title": body.title.strip() or "新问答"})
     return ok({"id": s.id, "title": s.title})
@@ -901,7 +900,7 @@ async def rebuild_wiki(request: Request):
     """一键重建：body {repo_id, full?}。full=true 全量重编译并清 stale。
     同仓库已有重建在进行时返回 409（编译锁）。"""
 
-    body = await request.json()
+    body = await json_body(request)
     repo_id = int(body.get("repo_id") or 0)
     full = bool(body.get("full"))
     with get_session() as sess:
@@ -947,7 +946,7 @@ def list_repos(db: Session = Depends(get_db)):
     )
 
 
-@app.post("/api/repos")
+@app.post("/api/repos/create")
 async def create_repo(data: RepoCreateIn):
     from app.core.config import get_settings as _gs
     from app.services.repo.gitops import GitError, validate_remote_url
@@ -981,7 +980,10 @@ def pull_repo(repo_id: int):
     from app.api.regression import regress_changed
     from app.services.repo.api import pull as repo_pull
 
-    res = repo_pull(repo_id)
+    try:
+        res = repo_pull(repo_id)
+    except KeyError as exc:
+        raise ApiError(404, f"repo {repo_id} 不存在", 404) from exc
     summary = regress_changed(repo_id, res.get("changed_functions") or [])
     if res.get("changed_functions"):
         _spawn_wiki_rebuild(repo_id, "pull")
@@ -1307,7 +1309,7 @@ def case_file(case_code: str, db: Session = Depends(get_db)):
     return ok({"filename": filename, "content": code_text, "size": len(code_text.encode("utf-8"))})
 
 
-@app.delete("/api/cases/{case_id}")
+@app.post("/api/cases/{case_id}/delete")
 def delete_case(case_id: int, request: Request, db: Session = Depends(get_db)):
     """删除用例（已入库的需 admin；删除即移除，历史 run/trace 保留）。"""
     user = getattr(request.state, "user", {"role": "viewer"})
@@ -1453,4 +1455,4 @@ app.include_router(_knowledge_assets.router)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=get_settings().gateway_port, log_config=None)
+    uvicorn.run(app, host="0.0.0.0", port=get_settings().app_port, log_config=None)

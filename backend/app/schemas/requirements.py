@@ -6,7 +6,6 @@ from pydantic import BaseModel
 class RequirementIngestIn(BaseModel):
     title: str = ""
     body: str = ""
-    text: str = ""  # body 的兼容别名（二选一）
     repo_id: int = 0
     source: str = "paste"
 

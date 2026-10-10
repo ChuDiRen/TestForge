@@ -46,7 +46,7 @@ export function RepoAdd() {
   }
 
   const add = useMutation({
-    mutationFn: (v: { url: string; branch: string }) => post<any>('/api/repos', v),
+    mutationFn: (v: { url: string; branch: string }) => post<any>('/api/repos/create', v),
     onSuccess: (r) => {
       message.success(`仓库 #${r.id} 已接入`)
       form.resetFields()

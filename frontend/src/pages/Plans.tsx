@@ -29,7 +29,7 @@ export function Plans() {
     enabled: !!detail,
   })
   const create = useMutation({
-    mutationFn: () => post<any>('/api/plans', { version: `v1.${sel.length}`, req_codes: sel }),
+    mutationFn: () => post<any>('/api/plans/create', { version: `v1.${sel.length}`, req_codes: sel }),
     onSuccess: (r) => {
       message.success(`迭代 ${r.code} 建好：准入 ${r.entry_ok ? 'PASS' : 'FAIL'}`)
       qc.invalidateQueries({ queryKey: ['plans'] })

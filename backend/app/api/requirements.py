@@ -76,7 +76,7 @@ def ingest_one(title: str, text: str, repo_id: int = 0, source: str = "paste") -
 async def ingest_requirement(data: RequirementIngestIn):
     body = data.model_dump()
     title = (body.get("title") or "").strip()
-    text = (body.get("body") or body.get("text") or "").strip()
+    text = str(body.get("body") or "").strip()
     if not title or not text:
         raise ApiError(1001, "title 与 body 必填")
     repo_id = int(body.get("repo_id") or 0)

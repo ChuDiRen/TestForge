@@ -101,7 +101,7 @@ TestForge/                       # 前后端分离 monorepo：frontend/ + backen
 8. **变更驱动回归**：pull 检出函数源码 diff → 关联用例标 stale → 自动回归（按 code_file 分组执行真实沙箱）→ 通过清 stale / 失败自动建缺陷并保持待回归（自愈闭环）；`POST /api/repos/{id}/webhook` 可远程触发；
 9. **任务队列**：生成/回归全部持久化入 jobs 表，应用内 worker 池消费（并发 `JOB_WORKERS`），进程崩溃重启自动重排队，`GET /api/jobs` 全程可观测；
 10. **认证**：除 health/login 外全部端点需 Bearer token（HMAC 签名 12h，剩余 <6h 自动续签 `X-Renewed-Token`），admin 全权 / viewer 只读；登录限速（同 IP 60s×5 / 同账号 15min×10 锁定）、密码策略（≥8 位含字母数字）、自助改密、默认口令强制修改、账号停用、用户管理（列表/创建/改角色/重置密码/删除，保底一个可用 admin）、登录/停用/删除全量审计（trace_events type=认证）；SSE 走 `?token=` 查询参数。
-    认证端点：`POST /api/auth/login`、`POST /api/auth/change-password`、`GET|POST /api/auth/users`、`PUT|DELETE /api/auth/users/{username}`、`POST /api/auth/users/{username}/reset-password`。
+    认证端点：`POST /api/auth/login`、`POST /api/auth/change-password`、`GET /api/auth/users`、`POST /api/auth/users/create`、`PUT /api/auth/users/{username}`、`POST /api/auth/users/{username}/delete`、`POST /api/auth/users/{username}/reset-password`。
     **已知限制**（内网工具可接受）：无状态 token 无法单个吊销（改 `SECRET_KEY` 全员下线）；SSE token 走 URL 查询参数可能进代理日志；`SECRET_KEY`/`ADMIN_PASSWORD` 生产部署必须改默认值。
 
 ## 知识增强（GitNexus / LightRAG 借鉴改造）
@@ -126,7 +126,7 @@ TestForge/                       # 前后端分离 monorepo：frontend/ + backen
 | MCP 工具面 | GitNexus 19 MCP tools | `make mcp` 起 stdio MCP server（零依赖 JSON-RPC 2.0）：`list_functions` / `function_impact` / `search_cases` / `get_symbol_context` / `knowledge_query` / `repo_status`，只读面供 Cursor/Claude Code 等接入；写操作仍走带鉴权的 REST |
 
 相关命令：`make analyze`（影响面+聚类重算）、`make kg-build`（文档图谱构建，需 LLM Key）、`make rag-eval`（检索质量评估）、`make mcp`（MCP server）。
-新增端点：`POST /api/kg/build`、`GET /api/kg/query`、`GET /api/kg/stats`、`POST /api/repos/{id}/analyze`、`GET /api/repos/{id}/clusters`、`GET /api/functions/{name}/impact`、`GET /api/knowledge/status`、`GET/DELETE /api/llm/cache`、`GET /api/rag/eval`。
+新增端点：`POST /api/kg/build`、`GET /api/kg/query`、`GET /api/kg/stats`、`POST /api/repos/{id}/analyze`、`GET /api/repos/{id}/clusters`、`GET /api/functions/{name}/impact`、`GET /api/knowledge/status`、`GET /api/llm/cache`、`POST /api/llm/cache/clear`、`GET /api/rag/eval`。
 
 ## 公司落地部署（production checklist）
 
@@ -153,8 +153,6 @@ thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传
 - Alembic 数据库版本化迁移、备份策略、监控告警
 - AI 生成用例的人审规约：草稿态 → 人审 → 入库已有字段支撑，流程需团队固化
 
-## Windows 主机注意
-
 ## 双平台执行（Windows + Linux 服务器）
 
 后端单体在 **Windows 原生** 与 **Linux 服务器** 上均已全量验证（27 测试全过、demo-m0~m5 全 PASS）：
@@ -164,7 +162,7 @@ thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传
 | Linux 服务器 | `python scripts/dev_up.py` | `pytest` 27 passed（全量含 TestClient） | `python scripts/verify_native.py` 11/11 |
 | Windows | 同左（原生） | 同左 | 同左 |
 
-> 注：Python 解释器选择影响 Windows asyncio——本机曾因 uv 的 CPython 3.12.10 构建（python-build-standalone）被三方软件干扰导致 asyncio 挂死，切换 `.python-version` 到 3.13 并重装依赖后恢复正常。若主机出现 `asyncio.run` 挂起，换 3.13/3.11 解释器重装依赖即可；`scripts/dev_up_win.py`（WSL 后端备选）与 `needs_asyncio` 自动跳过标记仍保留作兜底。
+> 注：Windows 主机若出现 `asyncio.run` 挂起（三方软件注入破坏事件循环），换 3.13/3.11 解释器重装依赖即可。
 
 - demo 验收脚本在两端通用：仓库 URL 按平台自动推导（Windows `file:///E:/...`，Linux `file:///mnt/e/...`），`TF_SAMPLE_REPO_URL` 可覆盖。
 
@@ -172,7 +170,7 @@ thread-scoped 工作区 + 环境变量白名单（宿主机 .env 密钥不透传
 
 ## REST 端点（PRD 3.2 全量）
 
-`POST /api/repos`、`POST /api/repos/{id}/pull`、`POST /api/requirements/ingest`、`POST /api/requirements/{id}/confirm`、`POST /api/generations`、`GET /api/generations/{id}/events`(SSE)、`GET /api/cases`、`POST /api/cases/{id}/review`、`GET /api/runs`、`POST /api/runs/{id}/rerun`、`POST /api/generations/batch`、`GET /api/jobs`、`GET /api/generations/{id}/export`、`POST /api/generations/{id}/export-to-repo`、`POST /api/contracts/{id}/regenerate`、`POST /api/repos/{id}/webhook`、`POST /api/defects/{id}/suggest`、`POST /api/auth/login`、`POST /api/contracts/{id}/impact`、`POST /api/plans`、`GET /api/plans/{iter}`、`POST /api/defects`、`POST /api/defects/{id}/regression`、`POST /api/reports/{iter}`、`GET /api/traces/{traceId}`、`GET /api/quality/requirements`。统一响应 `{code, message, data}`；SSE 事件 `stage(plan|guard|codegen|sandbox|coverage)` / `log` / `result`。
+`POST /api/repos/create`、`POST /api/repos/{id}/pull`、`POST /api/requirements/ingest`、`POST /api/requirements/{id}/confirm`、`POST /api/generations`、`GET /api/generations/{id}/events`(SSE)、`GET /api/cases`、`POST /api/cases/{id}/review`、`GET /api/runs`、`POST /api/runs/{id}/rerun`、`POST /api/generations/batch`、`GET /api/jobs`、`GET /api/generations/{id}/export`、`POST /api/generations/{id}/export-to-repo`、`POST /api/contracts/{id}/regenerate`、`POST /api/repos/{id}/webhook`、`POST /api/defects/{id}/suggest`、`POST /api/auth/login`、`POST /api/contracts/{id}/impact`、`POST /api/plans/create`、`GET /api/plans/{iter}`、`POST /api/defects/create`、`POST /api/defects/{id}/regression`、`POST /api/reports/{iter}`、`GET /api/traces/{traceId}`、`GET /api/quality/requirements`。统一响应 `{code, message, data}`；SSE 事件 `stage(plan|guard|codegen|sandbox|coverage)` / `log` / `result`。
 
 ## 里程碑与 tag
 
