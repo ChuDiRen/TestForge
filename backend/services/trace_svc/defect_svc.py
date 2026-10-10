@@ -66,7 +66,7 @@ def create_from_run(run_id: str, case_codes: list[str], req_code: str, trace_id:
 
 def _infer_repo_id(req_code: str) -> int:
     """缺陷没有直接 repo 关联：经需求反查；单仓库部署兜底取唯一仓库（与 lesson 沉淀同规则）。"""
-    from services.shared.models import Requirements, Repos
+    from services.shared.models import Repos, Requirements
 
     with get_session() as sess:
         if req_code:

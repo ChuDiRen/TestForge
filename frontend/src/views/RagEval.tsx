@@ -31,7 +31,7 @@ interface EvalResp {
 
 /** 检索质量评估（rag_eval 闭环的消费端）：黄金集 recall@k / MRR，
  *  混合检索（向量+全文 RRF）vs 向量单路对照——评估结果反哺检索参数调优。 */
-export function RagEval() {
+export function RagEval({ embedded = false }: { embedded?: boolean } = {}) {
   const [ran, setRan] = useState(false);
   const evalQ = useQuery({
     queryKey: ["rag-eval"],
@@ -44,7 +44,7 @@ export function RagEval() {
 
   return (
     <div>
-      <PageHeader title="检索质量" subtitle="黄金集评测：生成侧混合检索 vs 向量单路的 recall@k / MRR 对照——评估反哺检索调优" />
+      {!embedded && <PageHeader title="检索质量" subtitle="黄金集评测：生成侧混合检索 vs 向量单路的 recall@k / MRR 对照——评估反哺检索调优" />}
       <Card
         title="RAG 检索质量评估"
         extra={
@@ -61,7 +61,17 @@ export function RagEval() {
           </Button>
         }
       >
-        {!ran && <span style={{ fontSize: 13, color: "var(--tf-ink-3)" }}>点击「运行评测」——以已入库用例为黄金集（用例标题/描述 → 应命中的用例编码），对照两种检索路径的召回质量。</span>}
+        {!ran && (
+          <div style={{ textAlign: "center", padding: "28px 0 20px" }}>
+            <div style={{ fontSize: 34, marginBottom: 10 }}>🎯</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>以已入库用例为黄金集评测两路检索</div>
+            <div style={{ fontSize: 12.5, color: "var(--tf-ink-3)", maxWidth: 520, margin: "0 auto 14px" }}>
+              评测把每条已入库用例的标题/描述当作黄金问题 → 应命中的用例编码当标准答案，
+              分别跑「混合检索（生成侧在用）」和「向量单路」对照 recall@k / MRR。
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--tf-ink-2)", marginBottom: 4 }}>① 点上方「运行评测」② 看 recall 差距 ③ 到「系统设置」调检索参数</div>
+          </div>
+        )}
         {ran && evalQ.isFetching && <span style={{ fontSize: 13, color: "var(--tf-ink-3)" }}>评测运行中…</span>}
         {ran && evalQ.data && evalQ.data.queries === 0 && (
           <span style={{ fontSize: 13, color: "var(--tf-ink-3)" }}>{evalQ.data.message ?? "黄金集为空——先完成一轮生成建库"}</span>

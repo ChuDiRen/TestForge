@@ -47,6 +47,11 @@ class RepoSvcStub:
                 request_serializer=testforge__pb2.RepoSpec.SerializeToString,
                 response_deserializer=testforge__pb2.RepoInfo.FromString,
                 _registered_method=True)
+        self.RegisterUpload = channel.unary_unary(
+                '/testforge.v1.RepoSvc/RegisterUpload',
+                request_serializer=testforge__pb2.RepoUploadSpec.SerializeToString,
+                response_deserializer=testforge__pb2.RepoUploadRes.FromString,
+                _registered_method=True)
         self.Pull = channel.unary_unary(
                 '/testforge.v1.RepoSvc/Pull',
                 request_serializer=testforge__pb2.PullReq.SerializeToString,
@@ -77,6 +82,12 @@ class RepoSvcServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RegisterUpload(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Pull(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -101,6 +112,11 @@ def add_RepoSvcServicer_to_server(servicer, server):
                     servicer.Register,
                     request_deserializer=testforge__pb2.RepoSpec.FromString,
                     response_serializer=testforge__pb2.RepoInfo.SerializeToString,
+            ),
+            'RegisterUpload': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterUpload,
+                    request_deserializer=testforge__pb2.RepoUploadSpec.FromString,
+                    response_serializer=testforge__pb2.RepoUploadRes.SerializeToString,
             ),
             'Pull': grpc.unary_unary_rpc_method_handler(
                     servicer.Pull,
@@ -170,6 +186,33 @@ class RepoSvc:
             '/testforge.v1.RepoSvc/Register',
             testforge__pb2.RepoSpec.SerializeToString,
             testforge__pb2.RepoInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RegisterUpload(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/testforge.v1.RepoSvc/RegisterUpload',
+            testforge__pb2.RepoUploadSpec.SerializeToString,
+            testforge__pb2.RepoUploadRes.FromString,
             options,
             channel_credentials,
             insecure,

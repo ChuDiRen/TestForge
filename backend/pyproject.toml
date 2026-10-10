@@ -27,6 +27,9 @@ dependencies = [
     "deepagents>=0.7.15",
     "langchain-deepseek>=1.1.0",
     "websockets==16.1.1",
+    "openpyxl>=3.1.5",
+    "ddgs>=9.16.0",
+    "pypdf>=6.20.0",
 ]
 
 [dependency-groups]

@@ -27,6 +27,22 @@ class RepoServicer(pb2_grpc.RepoSvcServicer):
         res = service.register(request.url, request.branch, request.credential_ref, request.webhook)
         return pb2.RepoInfo(id=res["id"], url=res["url"], branch=res["branch"], status=res["status"])
 
+    def RegisterUpload(self, request, context):  # noqa: N802
+        from services.repo_svc import service
+
+        try:
+            res = service.register_upload(request.name, request.path, request.branch)
+        except Exception as exc:  # noqa: BLE001
+            context.abort(grpc.StatusCode.INTERNAL, str(exc)[:300])
+        repo = pb2.RepoInfo(id=res["id"], url=res["url"], branch=res["branch"], status=res["status"])
+        return pb2.RepoUploadRes(
+            repo=repo,
+            steps=res["steps"],
+            functions=res.get("functions", 0),
+            call_edges=res.get("call_edges", 0),
+            wiki_pages=res.get("wiki_pages", 0),
+        )
+
     def Pull(self, request, context):  # noqa: N802
         from services.repo_svc import service
 

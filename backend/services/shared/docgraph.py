@@ -1,14 +1,17 @@
-"""文档级知识图谱（LightRAG 式双层检索）：从非结构化文本（Wiki/需求/缺陷）抽实体+关系。
+"""文档级知识图谱：从非结构化文本（Wiki/需求/缺陷）抽实体+关系，v2 全量内核。
 
 与 /api/graph 的结构化业务关系图互补：
 - 结构化图：repo→模块→函数调用→需求→用例→缺陷（数据库真实关系派生）；
 - 文档图：LLM 从文本抽实体/关系，主题级关联（"支付链路的历史缺陷模式"这类
-  向量相似度找不到的跨文档语义），local（实体级）+ global（关系/主题级）双层检索。
+  向量相似度找不到的跨文档语义）。
 
-增量与成本（LightRAG 思路落地）：
-- 每份源文档按 content_hash 跳过未变更单元；
-- 抽取走 llm_cache（chat_cached, role=extract），同样的输入只付一次 token；
-- 选择性删除：按 source_ref 精确重建单文档贡献的实体/关系，不重跑全库。
+v2 内核（LightRAG 全量对齐，2026-10）：
+- 分块：chunking 四策略（默认 paragraph），每 chunk 独立抽取；
+- 抽取：逐 chunk LLM + gleaning 多轮补抽，llm_cache 键控（未变 chunk 零成本）；
+- 合并：kg_merge 三阶段（type 投票 / 描述源 <8 拼接 ≥8 摘要 / 关系 weight 证据计数）；
+- 删除：kg_extractions 留存每文档抽取，撤文档从剩余抽取重建（不重跑 LLM）；
+- 检索：kg_query.kg_search 六模式（naive/local/global/hybrid/mix）。
+本模块保留 build_from_repo（repo 语料批量构建入口）与 kg_query（legacy 兼容层，MCP/助手在用）。
 
 LLM Key 未配置时：build 显式报错（无 mock 原则）；query 走确定性关键词检索不受影响。
 """
@@ -26,14 +29,6 @@ from services.shared.db import get_session
 from services.shared.models import Defects, KgEntity, KgRelation, Requirements, WikiPages
 
 log = logging.getLogger("shared.docgraph")
-
-_EXTRACT_SYSTEM = (
-    "你是测试平台的知识图谱构建专家。从给定文档中抽取测试域知识实体与关系。"
-    "只输出 JSON，结构：{\"entities\":[{\"name\":\"\",\"type\":\"\",\"description\":\"\"}],"
-    "\"relations\":[{\"src\":\"\",\"dst\":\"\",\"type\":\"\",\"description\":\"\"}]}。"
-    "type 从 module/function/concept/risk/flow/contract 中选；实体名用文档中的原始术语；"
-    "关系要体现测试视角（可能暴露/依赖/属于/触发/破坏）。不要输出 JSON 以外的任何内容。"
-)
 
 
 def _doc_hash(title: str, content: str) -> str:
@@ -76,12 +71,21 @@ def _collect_sources(repo_id: int) -> list[dict]:
 
 
 def build_from_repo(repo_id: int, trace_id: str = "") -> dict:
-    """构建/增量更新文档知识图谱。返回 {docs_total, docs_built, docs_skipped, docs_failed, entities, relations}。"""
+    """构建/增量更新文档知识图谱（v2 内核：分块→抽取+gleaning→三阶段合并）。
+
+    返回 {docs_total, docs_built, docs_skipped, docs_failed, entities, relations}。
+    """
+    from services.shared.doc_pipeline import settings_get
     from services.shared.docstatus import mark as mark_doc
-    from services.shared.llm_cache import chat_cached
+    from services.shared.kg_extract import extract_document
+    from services.shared.kg_merge import apply_extraction
 
     docs = _collect_sources(repo_id)
     stats = {"docs_total": len(docs), "docs_built": 0, "docs_skipped": 0, "docs_failed": 0, "entities": 0, "relations": 0}
+    strategy = settings_get("chunk_strategy", "paragraph")
+    chunk_size = int(settings_get("chunk_size", "1200"))
+    gleaning = int(settings_get("gleaning_rounds", "1"))
+    drop_refs = settings_get("chunk_drop_references", "True").lower() == "true"
     for doc in docs:
         ref = doc["source_ref"]
         h = _doc_hash(doc["title"], doc["content"])
@@ -96,121 +100,28 @@ def build_from_repo(repo_id: int, trace_id: str = "") -> dict:
             stats["docs_skipped"] += 1
             continue
         try:
-            raw = chat_cached(
-                f"文档标题：{doc['title']}\n\n文档内容：\n{doc['content'][:3500]}",
-                system=_EXTRACT_SYSTEM,
-                role="extract",
+            from services.shared.chunking import chunk_text
+
+            chunks = chunk_text(doc["content"], strategy=strategy, chunk_size=chunk_size, drop_references=drop_refs)
+            extraction = extract_document(chunks, doc["title"], gleaning=gleaning)
+            apply_extraction(
+                repo_id,
+                workspace="",
+                source_ref=ref,
+                doc_title=doc["title"],
+                extraction=extraction,
+                content_hash=h,
+                chunk_count=len(chunks),
+                gleaning_rounds=extraction.get("gleaning_rounds", 0),
             )
-            obj = _parse_json(raw)
-            _apply_doc(repo_id, ref, h, doc, obj)
             stats["docs_built"] += 1
-            mark_doc(repo_id, "kg", ref, "ok", detail=f"entities={len(obj.get('entities', []))} relations={len(obj.get('relations', []))}")
+            mark_doc(repo_id, "kg", ref, "ok", detail=f"chunks={len(chunks)} entities={len(extraction.get('entities', []))} relations={len(extraction.get('relations', []))}")
         except Exception as exc:  # noqa: BLE001
             stats["docs_failed"] += 1
             mark_doc(repo_id, "kg", ref, "failed", error=str(exc)[:500])
             log.warning("kg build failed %s: %s", ref, exc)
-    with get_session() as sess:
-        stats["entities"] = int(sess.query(func.count()).select_from(KgEntity).filter(KgEntity.repo_id == repo_id).scalar() or 0)
-        stats["relations"] = int(sess.query(func.count()).select_from(KgRelation).filter(KgRelation.repo_id == repo_id).scalar() or 0)
+    stats["entities"], stats["relations"] = kg_stats(repo_id)["entities"], kg_stats(repo_id)["relations"]
     return stats
-
-
-def _apply_doc(repo_id: int, source_ref: str, h: str, doc: dict, obj: dict) -> None:
-    """单文档抽取结果落库：关系按 source_ref 重建，实体按 (repo,name) 合并 refs。"""
-    from services.shared.rag import index_documents_bulk
-
-    ents = [e for e in (obj.get("entities") or []) if isinstance(e, dict) and (e.get("name") or "").strip()]
-    rels = [
-        r
-        for r in (obj.get("relations") or [])
-        if isinstance(r, dict) and (r.get("src") or "").strip() and (r.get("dst") or "").strip()
-    ]
-    names = {(e["name"].strip()) for e in ents}
-
-    with get_session() as sess:
-        # 1) 该文档旧关系全删（选择性删除）
-        sess.query(KgRelation).filter(KgRelation.repo_id == repo_id, KgRelation.source_ref == source_ref).delete(synchronize_session=False)
-        # 2) 实体合并
-        for e in ents:
-            name = e["name"].strip()
-            row = sess.query(KgEntity).filter(KgEntity.repo_id == repo_id, KgEntity.name == name).first()
-            if row is None:
-                sess.add(
-                    KgEntity(
-                        repo_id=repo_id,
-                        name=name,
-                        etype=(e.get("type") or "concept")[:64],
-                        description=(e.get("description") or "")[:1500],
-                        source_refs=json.dumps([source_ref], ensure_ascii=False),
-                        content_hash=h,
-                    )
-                )
-            else:
-                try:
-                    refs = json.loads(row.source_refs or "[]")
-                except json.JSONDecodeError:
-                    refs = []
-                if source_ref not in refs:
-                    refs.append(source_ref)
-                row.source_refs = json.dumps(refs, ensure_ascii=False)
-                row.content_hash = h
-                if not row.description and e.get("description"):
-                    row.description = e["description"][:1500]
-        # 3) 只被本文档引用且新抽取中消失的实体 → 删除
-        for row in sess.query(KgEntity).filter(KgEntity.repo_id == repo_id).all():
-            try:
-                refs = json.loads(row.source_refs or "[]")
-            except json.JSONDecodeError:
-                refs = []
-            if refs == [source_ref] and row.name not in names:
-                sess.delete(row)
-        # 4) 关系插入
-        for r in rels:
-            sess.add(
-                KgRelation(
-                    repo_id=repo_id,
-                    src_name=r["src"].strip()[:250],
-                    dst_name=r["dst"].strip()[:250],
-                    rtype=(r.get("type") or "related")[:64],
-                    description=(r.get("description") or "")[:1000],
-                    weight=1.0,
-                    source_ref=source_ref,
-                )
-            )
-        sess.commit()
-
-    # 5) 实体/关系入统一检索表（kg_query 直接吃 hybrid_search 结果）；两类各自单事务替换
-    with get_session() as sess:
-        rel_rows = sess.query(KgRelation).filter(KgRelation.repo_id == repo_id).all()
-        degree: dict[str, int] = {}
-        for r in rel_rows:
-            degree[r.src_name] = degree.get(r.src_name, 0) + 1
-            degree[r.dst_name] = degree.get(r.dst_name, 0) + 1
-        ent_rows = sess.query(KgEntity).filter(KgEntity.repo_id == repo_id).all()
-
-    def _ent_item(e: KgEntity) -> dict:
-        refs = _refs_of(e)
-        return {
-            "doc_key": f"kg_entity:{repo_id}:{e.name}",
-            "kind": "kg_entity",
-            "repo_id": repo_id,
-            "title": e.name,
-            "content": f"{e.name}（{e.etype}）：{e.description}",
-            "meta": {"etype": e.etype, "degree": degree.get(e.name, 0), "source_refs": refs},
-        }
-
-    def _rel_item(r: KgRelation) -> dict:
-        return {
-            "doc_key": f"kg_relation:{repo_id}:{r.id}",
-            "kind": "kg_relation",
-            "repo_id": repo_id,
-            "title": f"{r.src_name} -{r.rtype}-> {r.dst_name}",
-            "content": f"{r.src_name} -{r.rtype}-> {r.dst_name}：{r.description}",
-            "meta": {"rtype": r.rtype, "src": r.src_name, "dst": r.dst_name},
-        }
-
-    index_documents_bulk([_ent_item(e) for e in ent_rows], replace_scope=("kg_entity", repo_id))
-    index_documents_bulk([_rel_item(r) for r in rel_rows], replace_scope=("kg_relation", repo_id))
 
 
 def _refs_of(e: KgEntity) -> list[str]:
@@ -241,7 +152,11 @@ def _keywords(question: str) -> str:
 
 
 def kg_query(repo_id: int, question: str, mode: str = "mix", limit: int = 6) -> dict:
-    """双层检索（LightRAG 查询模式裁剪）：local 实体级 / global 主题级 / mix 融合。"""
+    """legacy 双层检索（local 实体级 / global 主题级 / mix 融合）。
+
+    v2 六模式走 services.shared.kg_query.kg_search（/api/kg/search）；
+    本函数保持响应形状不变（MCP knowledge_query / AI 助手 explore 工具在用）。
+    """
     from services.shared.rag import hybrid_search
 
     kw = _keywords(question)

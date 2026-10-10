@@ -1,7 +1,9 @@
 import { PageHeader } from "../components/PageHeader";
 import { useState } from "react";
 import { Button, Card, message, Table, Tag } from "antd";
-import { CopyOutlined } from "@ant-design/icons";
+import { CopyOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { get, post } from "../api";
 
 const MCP_CONFIG = `{
   "mcpServers": {
@@ -19,9 +21,9 @@ const TOOLS: [string, string][] = [
   ["detect_changes", "git 工作区未提交变更 → 受影响函数与风险分"],
   ["call_cycles", "调用环检测（循环依赖）"],
   ["entry_chains", "入口最长调用链"],
-  ["wiki_ask", "Wiki 知识库问答（检索后作答，带来源）"],
+  ["wiki_ask", "Wiki 知识库问答（混合检索后作答，带来源）"],
   ["wiki_lint", "Wiki 健康体检（stale/重复/孤儿页）"],
-  ["search_cases", "用例库检索（分层/类别/模块过滤）"],
+  ["search_cases", "用例库混合检索（向量+全文 RRF 融合）"],
   ["get_symbol_context", "符号 360° 视图：签名+调用方+被调+用例覆盖"],
   ["knowledge_query", "文档知识图谱双层检索（LightRAG 模式）"],
   ["repo_status", "仓库接入状态与统计"],
@@ -30,6 +32,7 @@ const TOOLS: [string, string][] = [
 /** 开放接入：外部 AI（Cursor / Claude / 任意 MCP 客户端）消费 TestForge 知识层。 */
 export function OpenAccess() {
   const [copied, setCopied] = useState(false);
+  const qc = useQueryClient();
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(MCP_CONFIG);
@@ -40,6 +43,20 @@ export function OpenAccess() {
       message.error("复制失败——请手动选择文本复制");
     }
   };
+
+  // 一键接入 Claude Desktop（OpenWiki commands/mcp.rs 移植）：备份后合并注入 mcpServers
+  const statusQ = useQuery({
+    queryKey: ["mcp-claude-status"],
+    queryFn: () => get<{ config_path: string; exists: boolean; injected: boolean }>("/api/mcp/claude-desktop/status"),
+  });
+  const install = useMutation({
+    mutationFn: () => post<{ config_path: string }>("/api/mcp/claude-desktop/install"),
+    onSuccess: (r) => {
+      message.success(`已注入 ${r.config_path}——重启 Claude Desktop 生效`);
+      qc.invalidateQueries({ queryKey: ["mcp-claude-status"] });
+    },
+    onError: (e: any) => message.error(e.message),
+  });
 
   return (
     <div>
@@ -75,6 +92,35 @@ export function OpenAccess() {
           配置后外部 AI 即可查询代码图谱、调用链、影响半径、Wiki 问答与用例库——改代码前先问影响面，
           与 GitNexus 的「Precomputed Relational Intelligence」同一工作流。
         </p>
+        {/* 一键接入（OpenWiki commands/mcp.rs 移植）：探测 Claude Desktop 配置 → 备份 → 合并注入 */}
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 12,
+            borderTop: "1px dashed var(--tf-line)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <Button
+            type="primary"
+            ghost
+            icon={<ThunderboltOutlined />}
+            loading={install.isPending}
+            onClick={() => install.mutate()}
+          >
+            一键接入 Claude Desktop
+          </Button>
+          {statusQ.data && (
+            <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>
+              {!statusQ.data.exists
+                ? "未检测到 Claude Desktop 配置（安装后可一键注入）"
+                : `${statusQ.data.injected ? "✅ 已注入 TestForge MCP" : "检测到配置文件，尚未接入"}（${statusQ.data.config_path}）`}
+            </span>
+          )}
+        </div>
       </Card>
       <Card title={`开放工具（${TOOLS.length} 个只读）`}>
         <Table

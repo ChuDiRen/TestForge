@@ -1,6 +1,6 @@
 import { PageHeader } from "../components/PageHeader";
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, Drawer, Empty, Input, Popconfirm, Space, Table, Tabs, Tag, Tooltip, message } from "antd";
+import { Badge, Button, Card, Drawer, Empty, Input, Modal, Popconfirm, Space, Table, Tabs, Tag, Tooltip, message } from "antd";
 import { AppstoreOutlined, ApartmentOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post, del, repoName } from "../api";
@@ -130,6 +130,8 @@ export function Wiki() {
   const openPageById = (pid: number | string) => {
     const row = data.find((x) => x.id === Number(pid));
     if (row) setDetail(row);
+    else if (typeof pid === "string" && pid.startsWith("userdoc:"))
+      message.info("问答沉淀的知识文档——在「知识文档」页管理");
   };
 
   // 卡片视图：level 筛选 + 标题搜索 + 分页（全部在前端做，795 页无压力）
@@ -144,47 +146,98 @@ export function Wiki() {
   const CARD_PAGE_SIZE = 24;
   const paged = filtered.slice((cardPage - 1) * CARD_PAGE_SIZE, cardPage * CARD_PAGE_SIZE);
 
-  // Wiki 问答（OpenWiki wiki_ask 移植）：检索知识库 → LLM 依据资料作答 → 带来源
+  // Wiki 问答（OpenWiki wiki_ask + wiki_chat_sessions 移植）：多会话、服务端持久化、
+  // 追问指代解析（"第一个/最后一个"）、时间过滤（"本周/最近N天"）在后端自动生效
   const [askOpen, setAskOpen] = useState(false);
   const [askQ, setAskQ] = useState("");
   const [asking, setAsking] = useState(false);
-  const [askMsgs, setAskMsgs] = useState<{ q: string; a: string; sources: { id: number; title: string }[]; saved?: boolean }[]>([]);
+  const [sessionId, setSessionId] = useState(0);
+  const [pendingQ, setPendingQ] = useState("");
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const sessionsQ = useQuery({
+    queryKey: ["wiki-chat-sessions", repoId],
+    queryFn: () =>
+      get<{ id: number; title: string; messages: number; updated_at: string }[]>(
+        `/api/wiki/chat/sessions${repoId ? `?repo_id=${repoId}` : ""}`
+      ),
+    enabled: askOpen && repoId > 0,
+  });
+  // 打开抽屉自动选最近会话；没有会话等用户首次提问时自动建
+  useEffect(() => {
+    if (askOpen && repoId > 0 && sessionsQ.data) {
+      if (sessionId === 0 && sessionsQ.data.length > 0) setSessionId(sessionsQ.data[0].id);
+      if (sessionId > 0 && !sessionsQ.data.some((s) => s.id === sessionId)) setSessionId(0);
+    }
+  }, [askOpen, repoId, sessionsQ.data, sessionId]);
+  const messagesQ = useQuery({
+    queryKey: ["wiki-chat-messages", sessionId],
+    queryFn: () =>
+      get<{ id: number; role: string; content: string; sources: { id: number; title: string }[]; source_mode: string }[]>(
+        `/api/wiki/chat/sessions/${sessionId}/messages`
+      ),
+    enabled: sessionId > 0,
+  });
+  const createSession = useMutation({
+    mutationFn: () => post<{ id: number }>("/api/wiki/chat/sessions", { repo_id: repoId }),
+    onSuccess: (r) => {
+      setSessionId(r.id);
+      qc.invalidateQueries({ queryKey: ["wiki-chat-sessions"] });
+    },
+  });
+  const delSession = useMutation({
+    mutationFn: (id: number) => del(`/api/wiki/chat/sessions/${id}`),
+    onSuccess: (_r, id) => {
+      if (id === sessionId) setSessionId(0);
+      qc.invalidateQueries({ queryKey: ["wiki-chat-sessions"] });
+      message.success("会话已删除");
+    },
+  });
   const saveAsk = useMutation({
-    // 反幻觉门卫（OpenWiki save_message_as_page 移植）：只有带知识库来源的回答允许入库，
-    // 纯 AI 生成的内容禁止污染知识库
+    // 反幻觉门卫走服务端：kind_hint="qa" + sources 必填，后端 422 强制（不再只靠前端）
     mutationFn: (m: { q: string; a: string; sources: { id: number; title: string }[] }) =>
       post("/api/knowledge/documents", {
         title: `问答：${m.q.slice(0, 40)}`,
         content: `${m.a}\n\n---\n来源页：${m.sources.map((s) => s.title).join("、")}`,
         repo_id: repoId || undefined,
+        kind_hint: "qa",
+        sources: m.sources,
       }),
     onSuccess: (_r, m) => {
-      message.success("回答已存为知识文档——生成用例时会自动检索引用");
-      setAskMsgs((msgs) => msgs.map((x) => (x.q === m.q && x.a === m.a ? { ...x, saved: true } : x)));
+      message.success("回答已存为知识文档——生成用例时会自动检索引用，图谱可看见引用边");
+      setSavedIds((ids) => new Set(ids).add(m.a));
       qc.invalidateQueries({ queryKey: ["knowledge-docs"] });
+      qc.invalidateQueries({ queryKey: ["wiki-graph"] });
     },
     onError: (e: any) => message.error(e.message),
   });
   const ask = async () => {
     const q = askQ.trim();
     if (!q || asking || !repoId) return;
+    let sid = sessionId;
+    // 无会话时自动建，消息直接落库
+    if (!sid) {
+      try {
+        const r = await post<{ id: number }>("/api/wiki/chat/sessions", { repo_id: repoId });
+        sid = r.id;
+        setSessionId(sid);
+        qc.invalidateQueries({ queryKey: ["wiki-chat-sessions"] });
+      } catch (e: any) {
+        message.error(e.message);
+        return;
+      }
+    }
     setAsking(true);
+    setPendingQ(q);
     setAskQ("");
     try {
-      const history = askMsgs
-        .slice(-3)
-        .map((m) => `问：${m.q}`)
-        .join("\n");
-      const res = await post<{ answer: string; sources: { id: number; title: string }[] }>("/api/wiki/ask", {
-        question: q,
-        repo_id: repoId,
-        history,
-      });
-      setAskMsgs((m) => [...m, { q, a: res.answer, sources: res.sources ?? [] }]);
+      await post("/api/wiki/ask", { question: q, repo_id: repoId, session_id: sid });
+      await qc.invalidateQueries({ queryKey: ["wiki-chat-messages", sid] });
+      qc.invalidateQueries({ queryKey: ["wiki-chat-sessions"] });
     } catch (e: any) {
       message.error(e.message);
     } finally {
       setAsking(false);
+      setPendingQ("");
     }
   };
 
@@ -211,6 +264,20 @@ export function Wiki() {
   });
 
   const staleCount = data.filter((p) => p.stale).length;
+
+  // 知识洞察（OpenWiki 注意力雷达的对等物）：统计+LLM 板块报告
+  const [insightOpen, setInsightOpen] = useState(false);
+  const insightsQ = useQuery({
+    queryKey: ["wiki-insights", repoId],
+    queryFn: () =>
+      get<{
+        stats: Record<string, any>;
+        insights: Record<string, any> | null;
+        insights_error: string;
+      }>(`/api/wiki/insights?repo_id=${repoId}`),
+    enabled: insightOpen && repoId > 0,
+    staleTime: 60000,
+  });
 
   const wikiCard = (
     <Card
@@ -354,11 +421,18 @@ export function Wiki() {
     <div>
       <PageHeader title="代码库 / Wiki" subtitle="预编译知识层：卡片 / 图谱 / 表格三视图 · TF-IDF 互链 · 增量重建 · stale 传播（知识文档上传已移至「知识文档」页）" />
       {repoId > 0 && lintQ.data && (
-        <Card
-          title={`Wiki 体检（${lintQ.data.checked.pages} 页 · ${lintQ.data.findings.length} 项发现）`}
-          size="small"
-          style={{ marginBottom: 16 }}
-        >
+      <Card
+        title={
+          <Space>
+            <span>Wiki 体检（{lintQ.data.checked.pages} 页 · {lintQ.data.findings.length} 项发现）</span>
+            <Button size="small" type="link" style={{ padding: 0 }} onClick={() => setInsightOpen(true)} disabled={!repoId}>
+              知识洞察报告
+            </Button>
+          </Space>
+        }
+        size="small"
+        style={{ marginBottom: 16 }}
+      >
           {lintQ.data.findings.length === 0 ? (
             <span style={{ fontSize: 13, color: "var(--tf-ink-3)" }}>无发现——没有 stale/重复/孤儿页，模块覆盖完整。</span>
           ) : (
@@ -437,27 +511,108 @@ export function Wiki() {
         )}
       </Drawer>
       <Drawer
-        title="Wiki 问答（检索知识库作答）"
+        title="Wiki 问答（检索知识库作答 · 多会话）"
         open={askOpen}
         onClose={() => setAskOpen(false)}
-        width={isMobile ? "100%" : 460}
-        extra={repoId === 0 ? <Tag color="orange">先选择仓库</Tag> : undefined}
+        width={isMobile ? "100%" : 520}
+        extra={
+          repoId === 0 ? (
+            <Tag color="orange">先选择仓库</Tag>
+          ) : (
+            <Space.Compact size="small">
+              <select
+                value={sessionId}
+                onChange={(e) => setSessionId(Number(e.target.value))}
+                style={{ padding: "2px 6px", maxWidth: 200, fontSize: 12 }}
+              >
+                <option value={0}>＋ 新提问（自动建会话）</option>
+                {(sessionsQ.data ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}（{s.messages}条）
+                  </option>
+                ))}
+              </select>
+              {sessionId > 0 && (
+                <Popconfirm title="删除该问答会话？" onConfirm={() => delSession.mutate(sessionId)}>
+                  <Button size="small" danger>
+                    删
+                  </Button>
+                </Popconfirm>
+              )}
+            </Space.Compact>
+          )
+        }
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {askMsgs.length === 0 && (
+          {repoId > 0 && (messagesQ.data ?? []).length === 0 && !pendingQ && (
             <Empty
               description={
                 <span style={{ fontSize: 13, color: "var(--tf-ink-3)" }}>
                   问点仓库里的事：
                   <br />
                   『订单创建的流程是怎样的？』『密码是怎么校验的？』
+                  <br />
+                  支持追问指代（『第二个来源详细讲讲』）与时间过滤（『本周新增的文档里…』）
                 </span>
               }
               style={{ margin: "32px 0" }}
             />
           )}
-          {askMsgs.map((m, i) => (
-            <div key={i} style={{ display: "grid", gap: 8 }}>
+          {(messagesQ.data ?? []).map((m) =>
+            m.role === "user" ? (
+              <div
+                key={m.id}
+                style={{
+                  alignSelf: "flex-end",
+                  background: "var(--tf-acc-soft)",
+                  borderRadius: 10,
+                  padding: "6px 12px",
+                  fontSize: 13,
+                  maxWidth: "85%",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {m.content}
+              </div>
+            ) : (
+              <div key={m.id} style={{ fontSize: 13.5, display: "grid", gap: 8 }}>
+                <Markdown>{m.content}</Markdown>
+                {m.sources.length > 0 ? (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>来源：</span>
+                    {m.sources.map((s) => (
+                      <Tag key={s.id} style={{ cursor: "pointer" }} onClick={() => openPageById(s.id)}>
+                        {s.title}
+                      </Tag>
+                    ))}
+                    {savedIds.has(m.content) ? (
+                      <Tag color="green">已存为知识文档</Tag>
+                    ) : (
+                      <Button
+                        size="small"
+                        type="link"
+                        style={{ padding: 0 }}
+                        loading={saveAsk.isPending}
+                        onClick={() => {
+                          const prevQ =
+                            (messagesQ.data ?? []).filter((x) => x.role === "user" && x.id < m.id).slice(-1)[0]?.content ?? "";
+                          saveAsk.mutate({ q: prevQ, a: m.content, sources: m.sources });
+                        }}
+                      >
+                        存为知识文档
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <Tooltip title="反幻觉门卫（服务端强制）：该回答没有知识库来源支撑，禁止入库，防止 AI 幻觉污染知识库">
+                    <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>无知识库来源——不可存入知识库</span>
+                  </Tooltip>
+                )}
+              </div>
+            )
+          )}
+          {pendingQ && (
+            <div style={{ display: "grid", gap: 6 }}>
               <div
                 style={{
                   alignSelf: "flex-end",
@@ -466,37 +621,14 @@ export function Wiki() {
                   padding: "6px 12px",
                   fontSize: 13,
                   maxWidth: "85%",
+                  whiteSpace: "pre-wrap",
                 }}
               >
-                {m.q}
+                {pendingQ}
               </div>
-              <div style={{ fontSize: 13.5 }}>
-                <Markdown>{m.a}</Markdown>
-              </div>
-              {m.sources.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>来源：</span>
-                  {m.sources.map((s) => (
-                    <Tag key={s.id} style={{ cursor: "pointer" }} onClick={() => openPageById(s.id)}>
-                      {s.title}
-                    </Tag>
-                  ))}
-                  {m.saved ? (
-                    <Tag color="green">已存为知识文档</Tag>
-                  ) : (
-                    <Button size="small" type="link" style={{ padding: 0 }} loading={saveAsk.isPending} onClick={() => saveAsk.mutate(m)}>
-                      存为知识文档
-                    </Button>
-                  )}
-                </div>
-              )}
-              {m.sources.length === 0 && (
-                <Tooltip title="反幻觉门卫：该回答没有知识库来源支撑，禁止入库，防止 AI 幻觉污染知识库">
-                  <span style={{ fontSize: 12, color: "var(--tf-ink-3)" }}>无知识库来源——不可存入知识库</span>
-                </Tooltip>
-              )}
+              <span style={{ fontSize: 12.5, color: "var(--tf-ink-3)" }}>检索知识库并作答中…</span>
             </div>
-          ))}
+          )}
           <Input.TextArea
             value={askQ}
             onChange={(e) => setAskQ(e.target.value)}
@@ -515,6 +647,79 @@ export function Wiki() {
           </Button>
         </div>
       </Drawer>
+      <Modal
+        title={`知识洞察报告（OpenWiki 雷达移植 · ${repoName(repos.data?.find((r) => r.id === repoId)?.url || "")}）`}
+        open={insightOpen}
+        onCancel={() => setInsightOpen(false)}
+        footer={null}
+        width={isMobile ? "100%" : 720}
+      >
+        {insightsQ.isLoading ? (
+          <div style={{ textAlign: "center", padding: "48px 0", color: "var(--tf-ink-3)", fontSize: 13 }}>统计知识库并生成洞察…</div>
+        ) : insightsQ.data ? (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[
+                ["Wiki 页", insightsQ.data.stats.pages],
+                ["stale", insightsQ.data.stats.stale],
+                ["知识文档", insightsQ.data.stats.doc_count],
+                ["问答次数", insightsQ.data.stats.qa_answers],
+                ["知识盲区提问", insightsQ.data.stats.qa_no_data],
+                ["体检发现", insightsQ.data.stats.lint_findings],
+              ].map(([label, v]) => (
+                <div key={label as string} style={{ background: "var(--tf-panel)", border: "1px solid var(--tf-line)", borderRadius: 8, padding: "8px 14px", minWidth: 96 }}>
+                  <div style={{ fontSize: 20, fontWeight: 700 }}>{v as number}</div>
+                  <div style={{ fontSize: 11, color: "var(--tf-ink-3)" }}>{label as string}</div>
+                </div>
+              ))}
+            </div>
+            {insightsQ.data.insights ? (
+              <>
+                {insightsQ.data.insights.summary && (
+                  <div style={{ fontSize: 13.5, lineHeight: 1.7 }}>{insightsQ.data.insights.summary}</div>
+                )}
+                {(
+                  [
+                    ["🧭 用户关注焦点", insightsQ.data.insights.focus_topics],
+                    ["🕳️ 知识盲区（问过但答不上）", insightsQ.data.insights.coverage_gaps],
+                    ["⚠️ 过期与质量风险", insightsQ.data.insights.stale_risks],
+                    ["✅ 行动建议", insightsQ.data.insights.actions],
+                  ] as const
+                ).map(
+                  ([title, items]) =>
+                    Array.isArray(items) &&
+                    items.length > 0 && (
+                      <div key={title}>
+                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{title}</div>
+                        <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.9 }}>
+                          {items.map((it: string, i: number) => (
+                            <li key={i}>{it}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 12.5, color: "var(--tf-ink-3)" }}>
+                {insightsQ.data.insights_error || "暂无 LLM 洞察——先重建 Wiki 或提问几次再试"}
+              </div>
+            )}
+            {(insightsQ.data.stats.gap_questions ?? []).length > 0 && (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>检索盲区的真实提问（补知识的线索）</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {(insightsQ.data.stats.gap_questions as string[]).map((q, i) => (
+                    <Tag key={i} color="orange">
+                      {q.slice(0, 40)}
+                    </Tag>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>原型 · 入口② 知识资产中心</title>
+<style>
+  :root{--bg:#f7f7f5;--panel:#fff;--line:#e6e8ea;--ink:#1f2328;--ink2:#57606a;--ink3:#8b949e;--acc:#2fb3a4;--acc-soft:rgba(47,179,164,.12);
+    --violet:#7c3aed;--teal:#0d7d72;--amber:#b45309;--red:#c93a2e;--green:#15803d}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:28px}
+  .wrap{max-width:1080px;margin:0 auto}
+  .page-title{font-size:19px;font-weight:700}
+  .page-sub{color:var(--ink2);font-size:13px;margin:2px 0 18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:14px}
+  .card h3{font-size:14px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .stats{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;text-align:center}
+  .stat{border:1px solid var(--line);border-radius:8px;padding:10px 4px}
+  .stat b{display:block;font-size:20px}
+  .stat span{font-size:12px;color:var(--ink3)}
+  .loop-note{background:var(--acc-soft);border:1px solid rgba(47,179,164,.3);border-radius:8px;padding:9px 14px;font-size:12.5px;color:var(--ink2);margin-top:12px}
+  .seg{display:inline-flex;background:#f0f1f2;border-radius:8px;padding:3px;margin-bottom:14px}
+  .seg div{padding:5px 16px;border-radius:6px;font-size:13px;color:var(--ink2);cursor:pointer}
+  .seg div.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .row{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  select{border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:13px;background:#fff}
+  .dragger{border:1.5px dashed #cfd6da;border-radius:10px;padding:26px;text-align:center;background:#fafbfb}
+  .dragger b{color:var(--acc)}
+  .btn{background:var(--acc);border:none;color:#fff;border-radius:6px;padding:7px 18px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .btn.ghost{background:#fff;color:var(--ink2);border:1px solid var(--line)}
+  .results{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px;font-size:13px}
+  .ok{color:var(--green)} .err{color:var(--red)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--ink3);font-weight:500}
+  .tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500}
+  .t-doc{background:rgba(8,145,178,.12);color:#0891b2}
+  .t-url{background:rgba(37,99,235,.1);color:#2563eb}
+  .muted{color:var(--ink3);font-size:12px}
+  .two{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">知识资产</div>
+  <div class="page-sub">统一入口：需求文档 · 技术文档 · 测试方案 · 历史缺陷 → 解析 → 门卫 → 检索索引 + 知识图谱 → 生成用例自动引用</div>
+
+  <div class="card">
+    <h3>知识闭环总览</h3>
+    <div class="stats">
+      <div class="stat"><b>12</b><span>需求文档</span></div>
+      <div class="stat"><b>34</b><span>技术文档</span></div>
+      <div class="stat"><b>6</b><span>测试方案</span></div>
+      <div class="stat"><b style="color:var(--red)">41</b><span>历史缺陷</span></div>
+      <div class="stat"><b style="color:var(--green)">462</b><span>测试用例</span></div>
+      <div class="stat"><b>793</b><span>Wiki 页</span></div>
+      <div class="stat"><b>660</b><span>KG 实体</span></div>
+    </div>
+    <div class="loop-note">↻ 闭环：资产入检索库 → 生成用例六路上下文自动召回 → 沙箱执行 → 失败自动建缺陷/关闭沉淀教训 → 回流知识库，越挫越准。下方检索测试台可预演「生成时能不能召回它」。</div>
+  </div>
+
+  <div class="card">
+    <h3>上传知识资产</h3>
+    <div class="seg">
+      <div>技术文档</div><div class="on">需求文档</div><div>测试方案</div><div>历史缺陷</div>
+    </div>
+    <div class="row">
+      <span class="muted">归属仓库</span>
+      <select><option>TestForge</option><option>payment-svc</option></select>
+      <span class="muted">需求文档走需求解析管线（可测性评分 → G0 门禁 → 待人审）；解析后自动入 req 检索路与知识图谱。</span>
+    </div>
+    <div class="dragger">
+      点击或拖拽文件到此处（支持多选）<br>
+      <span style="font-size:12.5px;color:var(--ink3)">支持 .pdf · .docx · .md · .txt —— 解析 → 敏感扫描 → 入库</span>
+    </div>
+    <div class="results">
+      <div class="ok">✓ 会员营销需求 v2.3.pdf —— REQ-114 已建立（可测性 86，待人审）</div>
+      <div class="ok">✓ 订单退款规则.docx —— REQ-115 已建立（可测性 92，待人审）</div>
+      <div class="err">✗ 遗留系统说明.pdf —— 命中敏感信息（AWS Access Key），已拒绝入库——请脱敏后重试</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>已入库文档（34 篇）<span style="flex:1"></span><span class="muted">技术文档同步进入 LightRAG 图谱管线（文档图谱页可见实体）</span></h3>
+    <table>
+      <tr><th>标题</th><th>标签</th><th>字数</th><th>更新时间</th><th></th></tr>
+      <tr><td>支付模块业务规则</td><td><span class="tag t-doc">知识文档</span></td><td>3,204</td><td>2026-10-10 14:22</td><td>🗑</td></tr>
+      <tr><td>订单接口约定 v1.4</td><td><span class="tag t-doc">知识文档</span> <span class="tag t-url">URL 导入</span></td><td>1,870</td><td>2026-10-09 18:03</td><td>🗑</td></tr>
+      <tr><td>问答沉淀：如何配置沙箱</td><td><span class="tag" style="background:rgba(124,58,237,.12);color:var(--violet)">问答沉淀</span> <span class="tag" style="background:rgba(6,182,212,.14);color:#0e7490">引 3 页</span></td><td>942</td><td>2026-10-09 11:40</td><td>🗑</td></tr>
+    </table>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h3>检索测试台</h3>
+      <div class="row">
+        <input class="input" style="flex:1;border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:13px" value="submit_payment 支付失败怎么处理">
+        <button class="btn">检索</button>
+      </div>
+      <table>
+        <tr><th>类型</th><th>标题</th><th>命中片段</th><th>相关度</th></tr>
+        <tr><td><span class="tag" style="background:rgba(124,58,237,.12);color:var(--violet)">需求文档</span></td><td>需求 REQ-101 支付对账</td><td>…submit_payment 超时后补偿…</td><td>0.8213</td></tr>
+        <tr><td><span class="tag" style="background:rgba(194,65,12,.12);color:var(--amber)">测试计划</span></td><td>ITER-07 测试方案</td><td>…支付正向/反向/幂等…</td><td>0.7745</td></tr>
+        <tr><td><span class="tag" style="background:rgba(201,58,46,.1);color:var(--red)">功能缺陷</span></td><td>缺陷 BUG-8C2F 支付回调重复</td><td>…幂等键缺失导致重复扣款…</td><td>0.7102</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>历史缺陷导入模板</h3>
+      <p style="font-size:13px;color:var(--ink2)">csv / xlsx 首行为表头，识别以下列（其余忽略）：</p>
+      <p style="font-size:12.5px;font-family:Consolas,monospace;background:#f6f7f7;border:1px solid var(--line);border-radius:6px;padding:10px;margin-top:8px">标题*, 描述, 严重, 状态, 模块, 需求编号</p>
+      <p class="muted" style="margin-top:8px">缺陷入 defects 结构化表（可回归/流转/统计），同时生成 defect 摘要行进入成检索的 bugs 路——导入的历史缺陷立即参与同模块生成的知识召回。* 必填。</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

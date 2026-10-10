@@ -20,51 +20,75 @@ def test_doc_hash_stable():
     assert _doc_hash("t", "c") != _doc_hash("t", "c2")
 
 
-def test_apply_doc_merge_and_selective_delete():
-    """单文档重建：关系按 source_ref 重建；实体引用合并；只属本文档且消失的实体被删。"""
+def test_apply_extraction_merge_votes_weights_and_selective_delete():
+    """v2 合并（LightRAG 三阶段）：type 投票、关系 weight 证据计数、选择性删除。"""
     from services.shared.db import get_session, init_db
-    from services.shared.docgraph import _apply_doc
-    from services.shared.models import KgEntity, KgRelation
+    from services.shared.kg_merge import apply_extraction, remove_source
+    from services.shared.models import KgEntity, KgExtraction, KgRelation
 
     init_db()
     rid = 991001
     try:
-        _apply_doc(rid, "wiki:1", "h1", {"title": "t"}, {
+        apply_extraction(rid, "", "wiki:1", "t", {
             "entities": [
                 {"name": "支付服务", "type": "module", "description": "支付域"},
                 {"name": "幂等性", "type": "concept", "description": "重复请求防护"},
             ],
             "relations": [{"src": "支付服务", "dst": "幂等性", "type": "依赖", "description": "回调依赖幂等"}],
-        })
+        }, content_hash="h1", reindex=False)
         with get_session() as sess:
             names = {e.name: e for e in sess.query(KgEntity).filter(KgEntity.repo_id == rid).all()}
             assert set(names) == {"支付服务", "幂等性"}
             rels = sess.query(KgRelation).filter(KgRelation.repo_id == rid).all()
-            assert len(rels) == 1 and rels[0].source_ref == "wiki:1"
+            assert len(rels) == 1 and rels[0].weight == 1.0 and json.loads(rels[0].source_refs) == ["wiki:1"]
+            ext = sess.query(KgExtraction).filter(KgExtraction.repo_id == rid).count()
+            assert ext == 1, "抽取结果应留存（删除重建依据）"
 
-        # wiki:2 只贡献 支付服务 → 实体引用合并为两处
-        _apply_doc(rid, "wiki:2", "h2", {"title": "t2"}, {
+        # wiki:2 再次抽到 支付服务（type 投票一致）+ 新关系 → weight=2 证据计数
+        apply_extraction(rid, "", "wiki:2", "t2", {
             "entities": [{"name": "支付服务", "type": "module", "description": "支付域"}],
-            "relations": [],
-        })
+            "relations": [{"src": "支付服务", "dst": "幂等性", "type": "依赖", "description": "二文档再次证实"}],
+        }, content_hash="h2", reindex=False)
         with get_session() as sess:
             e = sess.query(KgEntity).filter(KgEntity.repo_id == rid, KgEntity.name == "支付服务").first()
             assert sorted(json.loads(e.source_refs)) == ["wiki:1", "wiki:2"], "实体引用应合并"
-            assert sess.query(KgRelation).filter(KgRelation.repo_id == rid, KgRelation.source_ref == "wiki:1").count() == 1
+            assert json.loads(e.etype_votes) == {"module": 2}, "type 投票应累计"
+            rel = sess.query(KgRelation).filter(KgRelation.repo_id == rid).first()
+            assert rel.weight == 2.0, "关系 weight 应为证据计数"
 
-        # wiki:1 重建后只剩 支付服务 → 幂等性（仅属 wiki:1）被选择性删除，关系重建
-        _apply_doc(rid, "wiki:1", "h1b", {"title": "t"}, {
+        # wiki:1 重建后：幂等性仍被 wiki:2 的边引用（LightRAG 语义：边端点是节点的引用者），存活
+        apply_extraction(rid, "", "wiki:1", "t", {
             "entities": [{"name": "支付服务", "type": "module", "description": "支付域"}],
             "relations": [],
-        })
+        }, content_hash="h1b", reindex=False)
         with get_session() as sess:
             left = {e.name for e in sess.query(KgEntity).filter(KgEntity.repo_id == rid).all()}
-            assert left == {"支付服务"}, "只属重建文档且消失的实体应删除"
-            assert sess.query(KgRelation).filter(KgRelation.repo_id == rid).count() == 0, "wiki:1 旧关系应清空"
+            assert left == {"支付服务", "幂等性"}, "被剩余边引用的端点应存活"
+            rel = sess.query(KgRelation).filter(KgRelation.repo_id == rid).first()
+            assert json.loads(rel.source_refs) == ["wiki:2"] and rel.weight == 1.0, "wiki:1 的旧关系证据应撤除"
+
+        # remove_source（删除文档 → 剩余抽取重建）：wiki:2 撤除后，边消失、幂等性（仅靠边引用）随之归零；
+        # 支付服务仍被 wiki:1 引用，存活
+        remove_source(rid, "", "wiki:2", reindex=False)
+        with get_session() as sess:
+            left = {e.name for e in sess.query(KgEntity).filter(KgEntity.repo_id == rid).all()}
+            assert left == {"支付服务"}, "仅靠 wiki:2 边引用的幂等性应删除，支付服务仍被 wiki:1 引用应存活"
+            assert sess.query(KgRelation).filter(KgRelation.repo_id == rid).count() == 0
+            assert sess.query(KgExtraction).filter(KgExtraction.repo_id == rid).count() == 1, "wiki:1 的抽取留存仍在（它没被删）"
+
+        # 工作区隔离：同 repo_id 不同 workspace 实体互不可见
+        apply_extraction(0, "ws-a", "kgdoc:a1", "ta", {"entities": [{"name": "共享名", "type": "concept", "description": "A 区"}]}, content_hash="ha", reindex=False)
+        apply_extraction(0, "ws-b", "kgdoc:b1", "tb", {"entities": [{"name": "共享名", "type": "module", "description": "B 区"}]}, content_hash="hb", reindex=False)
+        with get_session() as sess:
+            ws_rows = sess.query(KgEntity).filter(KgEntity.name == "共享名").all()
+            assert {r.workspace for r in ws_rows} == {"ws-a", "ws-b"}, "工作区应隔离同名词"
     finally:
         with get_session() as sess:
             sess.query(KgEntity).filter(KgEntity.repo_id == rid).delete(synchronize_session=False)
             sess.query(KgRelation).filter(KgRelation.repo_id == rid).delete(synchronize_session=False)
+            sess.query(KgExtraction).filter(KgExtraction.repo_id == rid).delete(synchronize_session=False)
+            sess.query(KgEntity).filter(KgEntity.name == "共享名").delete(synchronize_session=False)
+            sess.query(KgExtraction).filter(KgExtraction.source_ref.in_(["kgdoc:a1", "kgdoc:b1"])).delete(synchronize_session=False)
             sess.commit()
         from services.shared.rag import remove_documents_by_prefix
 

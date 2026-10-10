@@ -14,7 +14,7 @@ from gateway.main import (
     grpc_call,
     ok,
 )
-from services.shared.models import Cases, Defects, Iterations, Repos, Runs
+from services.shared.models import Cases, Defects, Iterations, Repos, Requirements, Runs
 from services.shared.trace import emit
 
 log = logging.getLogger("gateway.loop")

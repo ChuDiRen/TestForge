@@ -80,7 +80,7 @@ def _tool_explore(repo_id: int) -> Callable[[dict], dict]:
         )
         return {
             "entities": [
-                {"name": e["title"], "excerpt": e["content"][:300], "refs": e.get("meta", {}).get("refs", [])}
+                {"name": e["title"], "excerpt": e["content"][:300], "refs": e.get("meta", {}).get("source_refs", [])}
                 for e in res.get("entities", [])
             ],
             "relations": [

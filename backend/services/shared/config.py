@@ -77,6 +77,8 @@ class Settings(BaseSettings):
             problems.append("sandbox_mode != docker——AI 执行沙箱未容器化隔离，生产建议 docker 模式")
         if self.allow_local_repo_url:
             problems.append("ALLOW_LOCAL_REPO_URL=true——生产环境禁止本地路径接入仓库")
+        if self.ollama_compat and not self.ollama_api_key:
+            problems.append("OLLAMA_COMPAT=true 但 OLLAMA_API_KEY 未配置——生产环境必须为 Ollama 兼容端点设独立密钥")
         return problems
 
     # 执行记录保留条数（超出自动清理最旧记录）
@@ -91,6 +93,52 @@ class Settings(BaseSettings):
 
     # 变更影响分析：反向传播深度上限（置信度随深度衰减 1/depth）
     impact_max_depth: int = 4
+
+    # ---------------- LightRAG 全量移植：分块 ----------------
+    # chunk 策略：fixed（定长 token 窗）/ recursive（递归字符分隔）/ vector（向量语义断点）/ paragraph（段落语义）
+    chunk_strategy: str = "paragraph"
+    chunk_size: int = 1200  # token 预算
+    chunk_overlap: int = 100  # 相邻块重叠 token
+    # 段落语义分块丢弃参考引用块（防超时噪声进抽取，对齐 CHUNK_P_DROP_REFERENCES）
+    chunk_drop_references: bool = True
+
+    # ---------------- LightRAG 全量移植：抽取 ----------------
+    gleaning_rounds: int = 1  # 实体/关系多轮补抽轮数（0=单轮）
+    extract_max_tokens: int = 3500  # 单 chunk 送入抽取 prompt 的最大 token
+
+    # ---------------- LightRAG 全量移植：查询 ----------------
+    kg_entity_token_max: int = 4000  # 实体上下文 token 预算
+    kg_relation_token_max: int = 4000  # 关系上下文 token 预算
+    kg_chunk_token_max: int = 6000  # 原文 chunk 上下文 token 预算
+    query_cache_enabled: bool = True  # 查询级答案缓存（mode+query 键控，bypass 参数可绕过）
+    user_prompt_prefix: str = ""  # 全局查询指令前缀（对齐 USER_PROMPT_PREFIX）
+    websearch_enabled: bool = False  # 检索枯竭时 web 搜索兜底（ddgs）
+    websearch_max_results: int = 5
+
+    # ---------------- LightRAG 全量移植：Embedding/Rerank 多 provider ----------------
+    # embedding_backend: local（默认，确定性 hash 词袋 256 维，零外部依赖）| openai（OpenAI 兼容 /v1/embeddings）
+    # 切换后维度变化会自动重建向量列并清空旧向量（跑 make kg-rebuild-vdb 重嵌全库）
+    embedding_backend: str = "local"
+    embedding_base_url: str = ""  # 如 https://api.siliconflow.cn/v1
+    embedding_api_key: str = ""
+    embedding_model: str = ""  # 如 BAAI/bge-m3
+    embedding_batch_size: int = 16
+    # rerank_backend: 空=关闭 | jina | cohere | custom（POST {base_url}/rerank，jina 兼容协议）
+    rerank_backend: str = ""
+    rerank_base_url: str = ""
+    rerank_api_key: str = ""
+    rerank_model: str = ""
+
+    # ---------------- LightRAG 全量移植：VLM 角色 / Ollama 兼容 / 摄入管线 ----------------
+    # VLM 角色（docx 内嵌图片描述；空=禁用图片分析，跳过并记录）
+    vlm_model: str = ""
+    vlm_base_url: str = ""  # 空=回退 llm_base_url
+    vlm_api_key: str = ""  # 空=回退 llm_api_key
+    # Ollama 兼容端点（/ollama/*）：dev 默认开放；prod 必须配置 ollama_api_key 否则拒绝启动
+    ollama_compat: bool = True
+    ollama_model_name: str = "testforge-kg"
+    ollama_api_key: str = ""
+    doc_pipeline_workers: int = 1  # 文档摄入后台线程数（pending/processing 状态机）
 
 
 @lru_cache

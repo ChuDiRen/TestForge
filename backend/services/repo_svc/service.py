@@ -49,6 +49,58 @@ def register(url: str, branch: str, credential_ref: str, webhook: bool) -> dict:
     return {"id": repo_id, "url": url, "branch": branch or "main", "status": "已接入", "steps": steps}
 
 
+def register_upload(name: str, path: str, branch: str) -> dict:
+    """上传代码包接入（入口①）：网关完成安全解压后，目录直接走完整索引流水线
+    （tree-sitter → 调用图 → 影响面/聚类 → Wiki 编译），产出与 git 接入完全同构的知识图谱。
+
+    同名重复上传 = 更新图谱：upload:// 无远端可 pull，重传即全量重建（目录由网关先行清空重解压）。"""
+    import uuid as _uuid
+    from pathlib import Path
+
+    tid = get_trace_id() or new_trace_id()
+    dest = Path(path)
+    if not dest.is_dir():
+        raise FileNotFoundError(f"上传解压目录缺失: {dest}")
+    url = f"upload://{name}"
+    with get_session() as sess:
+        repo = sess.query(Repos).filter(Repos.url == url).first()
+        if repo is None:
+            repo = Repos(url=url, branch=branch or "main", credential_ref="", status="接入中", local_path=str(dest))
+            sess.add(repo)
+        else:
+            repo.status = "接入中"
+            repo.local_path = str(dest)
+        sess.commit()
+        repo_id = repo.id
+
+    steps: list[str] = [f"代码包解压: {dest.name}"]
+    try:
+        rev = f"upload-{_uuid.uuid4().hex[:8]}"
+        counts = _reindex(repo_id, dest, rev, steps)
+        with get_session() as sess:
+            r = sess.get(Repos, repo_id)
+            r.status = "已接入"
+            r.last_pull = datetime.now()
+            r.head_rev = rev
+            sess.commit()
+        emit("仓库", "repo-svc", f"代码包接入成功 id={repo_id} name={name}", trace_id=tid, extra={"steps": " > ".join(steps)})
+    except Exception as exc:  # noqa: BLE001
+        with get_session() as sess:
+            r = sess.get(Repos, repo_id)
+            r.status = f"失败: {str(exc)[:80]}"
+            sess.commit()
+        emit("仓库", "repo-svc", f"代码包接入失败 id={repo_id}: {exc}", trace_id=tid)
+        raise
+    return {
+        "id": repo_id,
+        "url": url,
+        "branch": branch or "main",
+        "status": "已接入",
+        "steps": steps,
+        **counts,
+    }
+
+
 def pull(repo_id: int) -> dict:
     """拉取 + 增量索引（git diff → 行级定位变更函数 → 仅重建受影响页）。"""
     from pathlib import Path
@@ -58,6 +110,8 @@ def pull(repo_id: int) -> dict:
         repo = sess.get(Repos, repo_id)
         if repo is None:
             raise KeyError(f"repo {repo_id} not found")
+        if (repo.url or "").startswith("upload://"):
+            raise ValueError("代码包来源的仓库没有远端，不支持拉取——代码更新请重新上传 zip（同名重传=更新图谱）")
         local_path = repo.local_path or gitops.repo_local_path(repo.url)
         from_rev = repo.head_rev
         url = repo.url

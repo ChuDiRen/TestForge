@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Avatar, Button, ConfigProvider, Dropdown, Drawer, Grid, Layout, Menu, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import enUS from "antd/locale/en_US";
 import {
   AimOutlined,
   ApartmentOutlined,
@@ -9,6 +10,7 @@ import {
   BugOutlined,
   CheckCircleOutlined,
   CloudDownloadOutlined,
+  CloudUploadOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   ExperimentOutlined,
@@ -33,7 +35,8 @@ import { useQuery } from "@tanstack/react-query";
 import { get, setToken } from "./api";
 import { themes, getInitialThemeMode, THEME_STORAGE_KEY, type ThemeMode } from "./theme";
 import { Dashboard } from "./views/Dashboard";
-import { KnowledgeGraph } from "./views/KnowledgeGraph";
+import { KnowledgeGraphHub } from "./views/KnowledgeGraphHub";
+import { RetrievalHub } from "./views/RetrievalHub";
 import { Wiki } from "./views/Wiki";
 import { Map } from "./views/ServiceMap";
 import { RepoAdd } from "./views/RepoAdd";
@@ -49,9 +52,10 @@ import { Users } from "./views/Users";
 import { Login } from "./views/Login";
 import { Jobs } from "./views/Jobs";
 import { Assistant } from "./views/Assistant";
-import { RagEval } from "./views/RagEval";
 import { OpenAccess } from "./views/OpenAccess";
 import { KnowledgeDocs } from "./views/KnowledgeDocs";
+import { Settings } from "./views/Settings";
+import { getLang, useLang } from "./i18n";
 
 const { Sider, Header, Content } = Layout;
 
@@ -68,9 +72,9 @@ export const VIEWS = [
   // 知识资产（接入 → 编译 → 文档 → 图谱 → 检索质量）
   { key: "repo-add", label: "仓库接入", icon: <CloudDownloadOutlined /> },
   { key: "wiki", label: "代码库 / Wiki", icon: <BookOutlined /> },
-  { key: "knowledge-docs", label: "知识文档", icon: <FileTextOutlined /> },
+  { key: "knowledge-docs", label: "知识资产", icon: <FileTextOutlined /> },
   { key: "graph", label: "知识图谱", icon: <ApartmentOutlined /> },
-  { key: "rageval", label: "检索质量", icon: <SearchOutlined /> },
+  { key: "retrieval", label: "检索中心", icon: <SearchOutlined /> },
   // 质量运营（横切视角）
   { key: "quality", label: "需求质量流水线", icon: <SafetyCertificateOutlined /> },
   { key: "map", label: "服务地图 / 契约", icon: <DeploymentUnitOutlined /> },
@@ -78,6 +82,7 @@ export const VIEWS = [
   { key: "logs", label: "日志 / 追溯", icon: <FileSearchOutlined /> },
   // 系统
   { key: "openaccess", label: "开放接入", icon: <ApiOutlined /> },
+  { key: "settings", label: "系统设置", icon: <SettingOutlined /> },
   { key: "users", label: "用户管理", icon: <TeamOutlined />, adminOnly: true },
 ] as const;
 
@@ -98,12 +103,12 @@ const MENU_GROUPS: MenuGroup[] = [
   { key: "g-ai", label: "AI 助手", icon: <RobotOutlined />, views: ["assistant"] },
   // 测试主线：需求 → 计划 → 生成 → 用例 → 执行 → 缺陷，一条旅程走完
   { key: "g-flow", label: "测试流程", icon: <FileDoneOutlined />, views: ["requirements", "plans", "workbench", "cases", "runs", "defects"] },
-  // 知识资产：接入 → 编译 → 图谱 → 检索质量，知识生产链
-  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["repo-add", "wiki", "knowledge-docs", "graph", "rageval"] },
+  // 知识资产：接入 → 资产/管线 → 编译 → 图谱双视图 → 检索中心，知识生产链（5 项）
+  { key: "g-knowledge", label: "知识资产", icon: <NodeIndexOutlined />, views: ["repo-add", "knowledge-docs", "wiki", "graph", "retrieval"] },
   // 质量运营：横切视角（需求质量关 / 系统契约 / 作业 / 追溯）
   { key: "g-quality", label: "质量运营", icon: <CheckCircleOutlined />, views: ["quality", "map", "jobs", "logs"] },
   // 系统：开放接入对所有人可见，用户管理仅管理员（view 级 adminOnly 过滤）
-  { key: "g-system", label: "系统", icon: <SettingOutlined />, views: ["openaccess", "users"] },
+  { key: "g-system", label: "系统", icon: <SettingOutlined />, views: ["openaccess", "settings", "users"] },
 ];
 
 function currentView(): ViewKey {
@@ -114,7 +119,7 @@ function currentView(): ViewKey {
 const VIEW_COMPONENTS: Record<ViewKey, () => JSX.Element> = {
   dashboard: Dashboard,
   assistant: Assistant,
-  graph: KnowledgeGraph,
+  graph: KnowledgeGraphHub,
   wiki: Wiki,
   map: Map,
   "repo-add": RepoAdd,
@@ -127,9 +132,10 @@ const VIEW_COMPONENTS: Record<ViewKey, () => JSX.Element> = {
   defects: Defects,
   logs: Logs,
   quality: Quality,
-  rageval: RagEval,
+  retrieval: RetrievalHub,
   openaccess: OpenAccess,
   "knowledge-docs": KnowledgeDocs,
+  settings: Settings,
   users: Users,
 };
 
@@ -213,7 +219,7 @@ function Shell({ user, mode, onToggleTheme }: { user: Me; mode: ThemeMode; onTog
   };
 
   return (
-    <ConfigProvider locale={zhCN} theme={themes[mode] as ThemeConfig}>
+    <ConfigProvider locale={getLang() === "en" ? enUS : zhCN} theme={themes[mode] as ThemeConfig}>
       <Layout style={{ minHeight: "100vh" }}>
         {!isMobile && (
           <Sider width={220} className="tf-sider" style={{ overflow: "hidden" }}>
@@ -305,6 +311,8 @@ export function App() {
     retry: false,
     staleTime: Infinity,
   });
+  // 语言：订阅 i18n store，切换时触发 ConfigProvider locale 联动（antd 组件文案同步）
+  useLang();
 
   // 主题模式：亮色「暖灰杉青」/ 暗色「杉青夜航」，选择持久化并同步 html[data-theme]
   const [mode, setMode] = useState<ThemeMode>(getInitialThemeMode);

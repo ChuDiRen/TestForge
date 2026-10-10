@@ -296,14 +296,23 @@ class FnCluster(Base):
 
 
 class KgEntity(Base):
-    """文档级知识图谱实体（LightRAG 式）：从 wiki/需求/缺陷文本抽取。"""
+    """文档级知识图谱实体（LightRAG 式）：从 wiki/需求/缺陷文本抽取。
+
+    合并语义（LightRAG 三阶段对齐）：
+    - etype_votes：type 投票计数 JSON {type: count}，多数票胜出；
+    - desc_sources：各来源文档描述 JSON {source_ref: desc}，<8 条直接拼接、≥8 条 LLM 摘要；
+    - source_refs：来源文档引用（选择性删除依据）。
+    """
 
     __tablename__ = "kg_entities"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     repo_id: Mapped[int] = mapped_column(Integer, index=True, default=0)
+    workspace: Mapped[str] = mapped_column(String(128), default="", index=True)  # 空=repo 作用域旧区
     name: Mapped[str] = mapped_column(String(256), index=True)
     etype: Mapped[str] = mapped_column(String(64), default="concept")  # module|function|concept|defect_pattern|...
+    etype_votes: Mapped[str] = mapped_column(Text, default="{}")  # JSON {type: count}（type 投票）
     description: Mapped[str] = mapped_column(Text, default="")
+    desc_sources: Mapped[str] = mapped_column(Text, default="{}")  # JSON {source_ref: description}
     source_refs: Mapped[str] = mapped_column(Text, default="[]")  # JSON array：来源文档引用（选择性删除依据）
     content_hash: Mapped[str] = mapped_column(String(64), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
@@ -311,33 +320,96 @@ class KgEntity(Base):
 
 
 class KgRelation(Base):
-    """知识图谱关系边：src/dst 为 KgEntity.name；source_ref 单值（按文档重建）。"""
+    """知识图谱关系边：src/dst 为 KgEntity.name；weight=证据计数（支持该边的文档数）。"""
 
     __tablename__ = "kg_relations"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     repo_id: Mapped[int] = mapped_column(Integer, index=True, default=0)
+    workspace: Mapped[str] = mapped_column(String(128), default="", index=True)  # 空=repo 作用域旧区
     src_name: Mapped[str] = mapped_column(String(256), index=True)
     dst_name: Mapped[str] = mapped_column(String(256), index=True)
     rtype: Mapped[str] = mapped_column(String(64), default="related")
     description: Mapped[str] = mapped_column(Text, default="")
-    weight: Mapped[float] = mapped_column(Float, default=1.0)
-    source_ref: Mapped[str] = mapped_column(String(256), default="")  # 来源文档（wiki:123 / defect:BUG-x）
+    desc_sources: Mapped[str] = mapped_column(Text, default="{}")  # JSON {source_ref: description}
+    weight: Mapped[float] = mapped_column(Float, default=1.0)  # 证据计数（source_refs 长度）
+    source_ref: Mapped[str] = mapped_column(String(256), default="")  # 首个来源（兼容旧读方）
+    source_refs: Mapped[str] = mapped_column(Text, default="[]")  # JSON array：全部证据来源
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
 class DocStatus(Base):
-    """知识摄入文档状态跟踪（pending/processing/ok/failed）。"""
+    """知识摄入文档状态跟踪（LightRAG 异步状态机：pending → processing → ok/failed）。
+
+    legacy kind（index/wiki/kg/fts/rag/user_doc）保持同步 ok|failed|stale 写入；
+    kind='kg_doc' 为 LightRAG 式异步摄入管线（工作台分块→抽取→合并→索引）专用。
+    """
 
     __tablename__ = "doc_status"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     repo_id: Mapped[int] = mapped_column(Integer, index=True, default=0)
-    kind: Mapped[str] = mapped_column(String(32), index=True)  # index|wiki|kg|fts|rag
+    workspace: Mapped[str] = mapped_column(String(128), default="", index=True)  # 空=repo 作用域旧区
+    kind: Mapped[str] = mapped_column(String(32), index=True)  # index|wiki|kg|fts|rag|kg_doc
     doc_key: Mapped[str] = mapped_column(String(512), default="")
-    status: Mapped[str] = mapped_column(String(16), default="ok", index=True)  # ok|failed|stale
+    status: Mapped[str] = mapped_column(String(16), default="ok", index=True)  # pending|processing|ok|failed|stale
     error: Mapped[str] = mapped_column(Text, default="")
-    detail: Mapped[str] = mapped_column(Text, default="")
+    detail: Mapped[str] = mapped_column(Text, default="")  # JSON：chunks/extract/strategy/file 等进度元数据
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
     __table_args__ = (Index("ix_doc_status_key", "repo_id", "kind", "doc_key", unique=True),)
+
+
+class KgCommunity(Base):
+    """KG 社区（Louvain）+ 社区报告：map-reduce LLM 摘要，global 查询的主题级弹药库。"""
+
+    __tablename__ = "kg_communities"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    repo_id: Mapped[int] = mapped_column(Integer, index=True, default=0)
+    workspace: Mapped[str] = mapped_column(String(128), default="", index=True)
+    level: Mapped[int] = mapped_column(Integer, default=1, index=True)  # 1=基础社区 2=社区 的社区（reduce 层）
+    cluster_id: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(256), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    members: Mapped[str] = mapped_column(Text, default="[]")  # JSON array：成员实体名
+    member_count: Mapped[int] = mapped_column(Integer, default=0)
+    summary_source: Mapped[str] = mapped_column(String(16), default="llm")  # llm|concat（无 Key 时的确定性回退）
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+    __table_args__ = (Index("ix_kg_comm_scope", "repo_id", "workspace", "level", "cluster_id"),)
+
+
+class KgExtraction(Base):
+    """每份源文档的抽取结果留存（LightRAG 删除文档→用缓存重建图谱描述的依据）。"""
+
+    __tablename__ = "kg_extractions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    repo_id: Mapped[int] = mapped_column(Integer, index=True, default=0)
+    workspace: Mapped[str] = mapped_column(String(128), default="", index=True)
+    source_ref: Mapped[str] = mapped_column(String(256), index=True)  # 文档引用（kgdoc:xx / wiki:1 / defect:BUG-x）
+    doc_key: Mapped[str] = mapped_column(String(512), default="")  # rag_documents 主文档 doc_key（kg_doc 管线用）
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
+    result_json: Mapped[str] = mapped_column(Text, default="{}")  # 全 chunk 合并后的抽取结果
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    gleaning_rounds: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+    __table_args__ = (Index("ix_kg_ext_scope_ref", "repo_id", "workspace", "source_ref"),)
+
+
+class KgSetting(Base):
+    """运行时检索参数覆盖（设置页可改，优先于 config .env 默认值）。"""
+
+    __tablename__ = "kg_settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")  # JSON 标量
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class EmbeddingCache(Base):
+    """神经 embedding 持久缓存：同 (backend, model, text) 只付一次钱，重启不失效。"""
+
+    __tablename__ = "embedding_cache"
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256(backend|model|text)
+    model: Mapped[str] = mapped_column(String(128), default="")
+    vec: Mapped[str] = mapped_column(Text, default="")  # JSON array[float]
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class ChatThread(Base):
@@ -362,4 +434,29 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     tool_events: Mapped[str] = mapped_column(Text, default="[]")  # [{name,args,summary,ms}]
     citations: Mapped[str] = mapped_column(Text, default="[]")  # [[path:12-34]] 解析结果
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class WikiChatSession(Base):
+    """Wiki 问答会话（OpenWiki wiki_chat_sessions 对等物）：按仓库分组的多会话。"""
+
+    __tablename__ = "wiki_chat_sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    repo_id: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    title: Mapped[str] = mapped_column(String(256), default="新问答")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class WikiChatMessage(Base):
+    """Wiki 问答消息：sources 存来源页（供追问指代解析与 qa_reference 边），
+    source_mode = knowledge_base|no_data（no_data 服务端禁止存为知识文档）。"""
+
+    __tablename__ = "wiki_chat_messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(Integer, index=True)
+    role: Mapped[str] = mapped_column(String(16))  # user|assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    sources_json: Mapped[str] = mapped_column(Text, default="[]")  # [{id,title,score}]
+    source_mode: Mapped[str] = mapped_column(String(24), default="knowledge_base")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

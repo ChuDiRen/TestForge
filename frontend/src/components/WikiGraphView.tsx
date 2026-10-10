@@ -23,13 +23,14 @@ export interface WikiGraphData {
   edges: WikiGraphEdge[];
 }
 
-// 节点色对齐知识图谱页类别色板：仓库墨色 / 模块杉青 / 函数深杉青
+// 节点色对齐知识图谱页类别色板：仓库墨色 / 模块杉青 / 函数深杉青 / 知识文档紫（问答沉淀）
 const LEVEL_COLORS: Record<string, string> = {
   repo: "#24272b",
   module: "#0d7d72",
   function: "#0891b2",
+  doc: "#7c3aed",
 };
-const LEVEL_LABELS: Record<string, string> = { repo: "仓库", module: "模块", function: "函数" };
+const LEVEL_LABELS: Record<string, string> = { repo: "仓库", module: "模块", function: "函数", doc: "知识文档" };
 
 interface GNode extends SimulationNodeDatum {
   id: string;
@@ -238,7 +239,7 @@ function WikiGraphViewInner({
     const nodes: GNode[] = data.nodes.map((n) => ({
       id: n.id,
       title: n.title,
-      short: n.title.replace(/^(函数|模块|仓库)\s*/, "").slice(0, 12),
+      short: n.title.replace(/^(函数|模块|仓库|问答：|文档)\s*/, "").slice(0, 12),
       level: n.level,
       stale: n.stale,
       degree: 0,

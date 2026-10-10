@@ -106,6 +106,7 @@ def _request_type(svc_name: str, method: str) -> str:
 
 _REQ_MAP: dict[tuple[str, str], str] = {
     ("RepoSvc", "Register"): "RepoSpec",
+    ("RepoSvc", "RegisterUpload"): "RepoUploadSpec",
     ("RepoSvc", "Pull"): "PullReq",
     ("WikiBuilder", "Rebuild"): "RepoDiff",
     ("WikiBuilder", "GetModulePage"): "PageQuery",

@@ -55,6 +55,18 @@ def init_db() -> None:
         # users.disabled：账号停用（2026-10 认证加固新增）
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change BOOLEAN NOT NULL DEFAULT FALSE"))
+        # LightRAG 全量移植（2026-10）：KG 工作区 + 合并元数据 + 摄入管线状态机列
+        conn.execute(text("ALTER TABLE kg_entities ADD COLUMN IF NOT EXISTS workspace VARCHAR(128) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE kg_entities ADD COLUMN IF NOT EXISTS etype_votes TEXT NOT NULL DEFAULT '{}'"))
+        conn.execute(text("ALTER TABLE kg_entities ADD COLUMN IF NOT EXISTS desc_sources TEXT NOT NULL DEFAULT '{}'"))
+        conn.execute(text("ALTER TABLE kg_relations ADD COLUMN IF NOT EXISTS workspace VARCHAR(128) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE kg_relations ADD COLUMN IF NOT EXISTS source_refs TEXT NOT NULL DEFAULT '[]'"))
+        conn.execute(text("ALTER TABLE kg_relations ADD COLUMN IF NOT EXISTS desc_sources TEXT NOT NULL DEFAULT '{}'"))
+        conn.execute(text("ALTER TABLE doc_status ADD COLUMN IF NOT EXISTS workspace VARCHAR(128) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE doc_status ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64) NOT NULL DEFAULT ''"))
+        # kg_entities 唯一键升级：repo 作用域 → (repo, workspace, name)（多工作区同 repo_id=0 隔离）
+        conn.execute(text("DROP INDEX IF EXISTS ix_kg_entity_repo_name"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_kg_entity_repo_ws_name ON kg_entities (repo_id, workspace, name)"))
     # 首启引导管理员账号（幂等：仅当 users 为空）
     from services.shared.auth import bootstrap_admin
 

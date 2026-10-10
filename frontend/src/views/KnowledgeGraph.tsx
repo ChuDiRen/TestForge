@@ -96,7 +96,7 @@ interface SigmaRefs {
 /** 知识图谱：Sigma.js/Graphology WebGL 渲染（对齐 GitNexus GraphCanvas 效果）。
  *  节点/边全部来自 /api/graph 真实业务关系；FA2 worker 力导 + 标签密度控制 +
  *  邻居高亮暗化 + 相机动画聚焦 + 搜索定位 + 同心圆布局 + 影响半径（blast radius）。 */
-export function KnowledgeGraph() {
+export function KnowledgeGraph({ embedded = false }: { embedded?: boolean } = {}) {
   const repos = useQuery({ queryKey: ["repos"], queryFn: () => get<any[]>("/api/repos") });
   const [repoId, setRepoId] = useState<number | undefined>();
   const [module, setModule] = useState<string>("");
@@ -628,7 +628,7 @@ export function KnowledgeGraph() {
 
   return (
     <div>
-      <PageHeader title="知识图谱" subtitle="接入仓库的代码调用图（Sigma.js WebGL 力导）：默认函数调用层，点图例叠加模块 / 需求 / 用例 / 缺陷溯源" />
+      {!embedded && <PageHeader title="知识图谱" subtitle="接入仓库的代码调用图（Sigma.js WebGL 力导）：默认函数调用层，点图例叠加模块 / 需求 / 用例 / 缺陷溯源" />}
       <Card size="small" style={{ marginBottom: 12 }}>
         <Space wrap style={{ display: "flex", justifyContent: "space-between" }}>
           <Space wrap>

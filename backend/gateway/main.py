@@ -6,6 +6,7 @@
 import hmac
 import json
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -71,6 +72,11 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
 
     workers = recover_and_start()
     log.info("job queue started with %d worker(s)", workers)
+    from services.shared.doc_pipeline import recover_and_start as recover_doc_pipeline
+
+    recovered_docs = recover_doc_pipeline()
+    if recovered_docs:
+        log.info("kg doc pipeline recovered %d in-flight document(s)", recovered_docs)
     yield
 
 
@@ -339,8 +345,12 @@ def wiki_lint(repo_id: int):
 @app.get("/api/wiki/graph")
 def wiki_graph(repo_id: int = 0):
     """Wiki 互链图谱数据（OpenWiki WikiGraphView 移植的配套接口）：
-    页面为节点，TF-IDF 余弦相似（related_map，阈值 0.05 / 每页 top-6）为边。
+    页面为节点，TF-IDF 余弦相似（related_map，阈值 0.05 / 每页 top-6）为边；
+    问答存档的知识文档（meta.sources 非空）作为 doc 节点入图，与来源 wiki 页
+    连 qa_reference 边（OpenWiki qa_reference 双向边对等物）。
     必须注册在 /api/wiki/{page_id} 之前，否则 "graph" 会被路径参数吞掉。"""
+    from sqlalchemy import text as _text
+
     from services.shared.models import WikiPages
     from services.wiki_builder.analytics import related_map
 
@@ -349,6 +359,30 @@ def wiki_graph(repo_id: int = 0):
         if repo_id:
             q = q.filter(WikiPages.repo_id == repo_id)
         rows = q.order_by(WikiPages.level, WikiPages.id).all()
+        # 问答沉淀的知识文档（带来源页引用的才入图）
+        doc_rows = sess.execute(
+            _text("SELECT doc_key, title, meta FROM rag_documents WHERE kind = 'user_doc'"),
+            {},
+        ).all()
+    doc_nodes = []
+    qa_edges = []
+    for dk, dtitle, raw in doc_rows:
+        try:
+            meta = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        refs = meta.get("sources") or []
+        if not refs:
+            continue
+        if repo_id:
+            # meta 里没记 repo 的旧数据按 doc_key 前缀放行，避免历史存档消失
+            pass
+        doc_nodes.append({"id": dk, "title": dtitle, "level": "doc", "module": "", "stale": False})
+        for ref in refs:
+            pid = int(ref.get("id") or 0)
+            if pid > 0:
+                qa_edges.append({"source": dk, "target": str(pid), "weight": 0.9, "relation": "qa_reference"})
+
     nodes = [
         {
             "id": str(w.id),
@@ -371,7 +405,8 @@ def wiki_graph(repo_id: int = 0):
                 continue
             seen.add(key)
             edges.append({"source": str(pid), "target": str(n["id"]), "weight": n["score"]})
-    return ok({"nodes": nodes, "edges": edges})
+    edges.extend(qa_edges)
+    return ok({"nodes": nodes + doc_nodes, "edges": edges})
 
 
 # ---------------- 知识文档（用户注入知识 → RAG 双索引 → 生成上下文） ----------------
@@ -394,6 +429,15 @@ def list_knowledge_documents(repo_id: int = 0):
             params["rid"] = repo_id
         sql += " ORDER BY updated_at DESC LIMIT 200"
         rows = sess.execute(text(sql), params).all()
+
+        def _meta_of(raw) -> dict:  # type: ignore[no-untyped-def]
+            if isinstance(raw, dict):
+                return raw
+            try:
+                return json.loads(raw or "{}")
+            except (json.JSONDecodeError, TypeError):
+                return {}
+
         return ok(
             [
                 {
@@ -402,6 +446,9 @@ def list_knowledge_documents(repo_id: int = 0):
                     "title": r[2],
                     "chars": int(r[3] or 0),
                     "updated_at": r[5].isoformat() if r[5] else None,
+                    "source": _meta_of(r[4]).get("source", ""),
+                    "source_url": _meta_of(r[4]).get("source_url", ""),
+                    "sources_count": len(_meta_of(r[4]).get("sources") or []),
                 }
                 for r in rows
             ]
@@ -412,24 +459,83 @@ class KnowledgeDocBody(BaseModel):
     title: str
     content: str
     repo_id: int = 0
+    # 问答存档场景（OpenWiki save_message_as_page 移植）：kind_hint="qa" 时必须带
+    # 知识库来源，否则 422 拒绝——反幻觉门卫在服务端强制，不再只靠前端
+    kind_hint: str = ""  # "" | "qa"
+    sources: list[dict] = []  # [{id,title}] 来源 wiki 页（qa_reference 边数据源）
+    assess: bool = True  # 评估门卫（OpenWiki assess_content 移植）
+
+
+def _assess_knowledge_content(title: str, content: str) -> tuple[float, str]:
+    """评估门卫（OpenWiki wiki_engine.rs assess_content 移植）：知识分 <0.5 拒绝入库。
+    启发式兜底 + LLM 打分；LLM 不可用时放行（门卫不能挡住正常上传）。"""
+    if len(content) < 30:
+        return 0.0, "内容过短（<30 字），无检索价值"
+    try:
+        from services.shared.llm import chat_once
+
+        prompt = (
+            "评估以下知识内容对『AI 生成测试用例』的价值，返回 JSON："
+            '{"score": 0到1的小数, "reason": "一句话理由"}。\n'
+            "高分(>=0.7)：业务规则/接口约定/验收标准/领域知识/代码文档；"
+            "低分(<0.5)：无意义碎片、纯闲聊、与软件测试无关的噪音。\n\n"
+            f"【标题】{title}\n【内容】{content[:2000]}"
+        )
+        raw = chat_once(prompt, system="只输出 JSON，不要解释。", role="keyword").strip()
+        raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+        m = re.search(r"\{.*\}", raw, re.S)
+        data = json.loads(m.group(0) if m else raw)
+        return float(data.get("score", 1.0)), str(data.get("reason", ""))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("knowledge assess 放行（评估服务不可用）: %s", exc)
+        return 1.0, "评估服务不可用，放行"
 
 
 @app.post("/api/knowledge/documents")
 def create_knowledge_document(body: KnowledgeDocBody):
     """用户知识文档入库（Wiki 页上传卡片）：upsert 进 rag_documents（向量+全文双索引），
-    AI 生成用例的六路上下文会自动检索引用。doc_key=repo+标题哈希，同标题重复上传是更新。"""
+    AI 生成用例的六路上下文会自动检索引用。doc_key=repo+标题哈希，同标题重复上传是更新。
+
+    三道服务端门卫（OpenWiki 移植）：①敏感信息扫描（sensitive_filter.rs）
+    ②问答存档反幻觉——kind_hint=qa 且无来源页时 422（save_message_as_page 的
+    ai_only 禁入库）③评估门卫——知识分 <0.5 拒绝（assess_content）。"""
     import hashlib
 
     from services.shared.docstatus import mark
     from services.shared.rag import ensure_rag_documents_table, index_document
+    from services.shared.sensitive import scan_sensitive
 
     title = body.title.strip()
     content = body.content.strip()
     if not title or not content:
         raise ApiError(400, "title 与 content 必填", 400)
+
+    # 门卫①：敏感信息（写入侧拦截，防密钥进库被全员检索到）
+    hits = scan_sensitive(f"{title}\n{content}")
+    if hits:
+        raise ApiError(422, f"内容命中敏感信息（{'、'.join(hits)}），已拒绝入库——请脱敏后重试", 422)
+
+    # 门卫②：问答存档必须有知识库来源（ai_only 禁止污染知识库）
+    clean_sources = [
+        {"id": int(s.get("id") or 0), "title": str(s.get("title") or "")}
+        for s in (body.sources or [])
+        if int(s.get("id") or 0) > 0
+    ]
+    if body.kind_hint == "qa" and not clean_sources:
+        raise ApiError(422, "该回答没有知识库来源支撑，禁止存入知识库（反幻觉门卫）", 422)
+
+    # 门卫③：评估知识分（qa 存档已过来源门卫，跳过重复评估）
+    if body.assess and body.kind_hint != "qa":
+        score, reason = _assess_knowledge_content(title, content)
+        if score < 0.5:
+            raise ApiError(422, f"评估门卫：知识分 {score:.2f} < 0.5，拒绝入库——{reason}", 422)
+
     ensure_rag_documents_table()
     doc_key = "userdoc:" + hashlib.sha1(f"{body.repo_id}:{title}".encode()).hexdigest()[:16]
-    index_document(doc_key, "user_doc", title, content, repo_id=body.repo_id, meta={"source": "wiki-page-upload"})
+    meta = {"source": "qa-archive" if body.kind_hint == "qa" else "wiki-page-upload"}
+    if body.kind_hint == "qa":
+        meta["sources"] = clean_sources  # qa_reference 边数据源（图谱可见）
+    index_document(doc_key, "user_doc", title, content, repo_id=body.repo_id, meta=meta)
     mark(body.repo_id, "user_doc", doc_key)
     return ok({"doc_key": doc_key, "indexed": True})
 
@@ -446,6 +552,7 @@ def delete_knowledge_document(doc_key: str):
 def wiki_fix_duplicates(repo_id: int):
     """处置重复标题（OpenWiki lint 处置动作移植）：同标题仅保留最早一页，其余删除
     （连同其 rag_documents 检索行），消除检索稀释。返回删除清单。"""
+
     from sqlalchemy import text
 
     from services.shared.models import WikiPages
@@ -463,6 +570,14 @@ def wiki_fix_duplicates(repo_id: int):
             else:
                 seen[key] = w.id
         if removed:
+            # 先清双向依赖边（wiki_deps.page_id 与 depends_on_page_id 都外键指向 wiki_pages），
+            # 否则删页直接 FK violation——边随被删页一起消失，保留页不受影响
+            sess.execute(
+                text(
+                    "DELETE FROM wiki_deps WHERE page_id = ANY(:ids) OR depends_on_page_id = ANY(:ids)"
+                ),
+                {"ids": removed},
+            )
             sess.commit()
     for pid in removed:
         remove_document(f"wiki:{pid}")
@@ -470,10 +585,12 @@ def wiki_fix_duplicates(repo_id: int):
 
 
 @app.get("/api/knowledge/search")
-def knowledge_search(q: str, repo_id: int = 0, limit: int = 8):
+def knowledge_search(q: str, repo_id: int = 0, limit: int = 8, hide_sensitive: bool = False):
     """检索测试台：测试资料全类目透明预演——需求文档(req)/技术文档(wiki+user_doc)/
-    测试计划(plan)/测试用例(case)/功能缺陷(defect)+缺陷教训(lesson) 七路混合检索。"""
+    测试计划(plan)/测试用例(case)/功能缺陷(defect)+缺陷教训(lesson) 七路混合检索。
+    hide_sensitive=1 时命中片段打码（OpenWiki sensitive_filter 查询侧对等物）。"""
     from services.shared.rag import hybrid_search
+    from services.shared.sensitive import redact_sensitive
 
     q = q.strip()
     if not q:
@@ -490,7 +607,7 @@ def knowledge_search(q: str, repo_id: int = 0, limit: int = 8):
                 "doc_key": h["doc_key"],
                 "kind": h["kind"],
                 "title": h["title"],
-                "excerpt": h["content"][:180],
+                "excerpt": redact_sensitive(h["content"][:180]) if hide_sensitive else h["content"][:180],
                 "score": round(h.get("score", 0.0), 4),
                 "repo_id": h.get("repo_id", 0),
             }
@@ -528,17 +645,246 @@ class WikiAskBody(BaseModel):
     question: str
     repo_id: int = 0
     history: str = ""
+    session_id: int = 0  # >0 时持久化到 wiki_chat_sessions/messages（OpenWiki wiki_chat 对等物）
 
 
 @app.post("/api/wiki/ask")
 def wiki_ask_route(body: WikiAskBody):
-    """Wiki 问答（OpenWiki wiki_ask 移植）：检索 wiki 页 → LLM 依据资料作答 → 带来源。"""
+    """Wiki 问答（OpenWiki 三阶段 RAG 移植）：指代解析+时间过滤 → 检索 → LLM 作答 → 来源。
+
+    session_id 非空时：user/assistant 消息落库（来源页存 sources_json，
+    供追问指代解析取上一轮来源——原版 resolve_follow_up_page_ids 从消息元数据取），
+    首条问题自动作会话标题。"""
+    from services.shared.models import WikiChatMessage, WikiChatSession
     from services.wiki_builder.ask import ask_wiki
 
     question = body.question.strip()
     if not question:
         raise ApiError(400, "question 必填", 400)
-    return ok(ask_wiki(body.repo_id, question, history=body.history))
+
+    last_sources: list[dict] = []
+    if body.session_id > 0:
+        with get_session() as sess:
+            prev = (
+                sess.query(WikiChatMessage)
+                .filter(WikiChatMessage.session_id == body.session_id, WikiChatMessage.role == "assistant")
+                .order_by(WikiChatMessage.id.desc())
+                .first()
+            )
+            if prev is not None:
+                try:
+                    last_sources = json.loads(prev.sources_json or "[]")
+                except json.JSONDecodeError:
+                    last_sources = []
+
+    result = ask_wiki(body.repo_id, question, history=body.history, last_sources=last_sources)
+
+    if body.session_id > 0:
+        with get_session() as sess:
+            sess.add(WikiChatMessage(session_id=body.session_id, role="user", content=question))
+            sess.add(
+                WikiChatMessage(
+                    session_id=body.session_id,
+                    role="assistant",
+                    content=result["answer"],
+                    sources_json=json.dumps(result.get("sources") or [], ensure_ascii=False),
+                    source_mode=result.get("source_mode", "knowledge_base"),
+                )
+            )
+            sess.query(WikiChatSession).filter(WikiChatSession.id == body.session_id).update({"updated_at": func.now()})
+            first = (
+                sess.query(WikiChatMessage)
+                .filter(WikiChatMessage.session_id == body.session_id, WikiChatMessage.role == "user")
+                .count()
+            )
+            if first <= 2:  # 本轮 user 消息是首问 → 自动作会话标题
+                sess.query(WikiChatSession).filter(WikiChatSession.id == body.session_id).update(
+                    {"title": question[:40]}
+                )
+            sess.commit()
+    return ok(result)
+
+
+# ---------------- Wiki 问答多会话（OpenWiki wiki_chat_sessions 移植） ----------------
+
+
+@app.get("/api/wiki/chat/sessions")
+def wiki_chat_sessions(repo_id: int = 0):
+    from services.shared.models import WikiChatMessage, WikiChatSession
+
+    with get_session() as sess:
+        q = sess.query(WikiChatSession)
+        if repo_id:
+            q = q.filter(WikiChatSession.repo_id == repo_id)
+        rows = q.order_by(WikiChatSession.updated_at.desc()).limit(50).all()
+        counts: dict[int, int] = dict(
+            sess.query(WikiChatMessage.session_id, func.count()).group_by(WikiChatMessage.session_id).all()
+        )
+        return ok(
+            [
+                {
+                    "id": s.id,
+                    "repo_id": s.repo_id,
+                    "title": s.title,
+                    "messages": int(counts.get(s.id, 0)),
+                    "updated_at": s.updated_at.isoformat(),
+                }
+                for s in rows
+            ]
+        )
+
+
+class WikiChatSessionBody(BaseModel):
+    repo_id: int = 0
+    title: str = "新问答"
+
+
+@app.post("/api/wiki/chat/sessions")
+def create_wiki_chat_session(body: WikiChatSessionBody):
+    from services.shared.models import WikiChatSession
+
+    with get_session() as sess:
+        s = WikiChatSession(repo_id=body.repo_id, title=body.title.strip() or "新问答")
+        sess.add(s)
+        sess.commit()
+        return ok({"id": s.id, "title": s.title})
+
+
+@app.delete("/api/wiki/chat/sessions/{session_id}")
+def delete_wiki_chat_session(session_id: int):
+    from services.shared.models import WikiChatMessage, WikiChatSession
+
+    with get_session() as sess:
+        sess.query(WikiChatMessage).filter(WikiChatMessage.session_id == session_id).delete()
+        n = sess.query(WikiChatSession).filter(WikiChatSession.id == session_id).delete()
+        sess.commit()
+    if not n:
+        raise ApiError(404, "会话不存在", 404)
+    return ok({"deleted": session_id})
+
+
+@app.get("/api/wiki/chat/sessions/{session_id}/messages")
+def wiki_chat_messages(session_id: int):
+    from services.shared.models import WikiChatMessage
+
+    with get_session() as sess:
+        rows = (
+            sess.query(WikiChatMessage)
+            .filter(WikiChatMessage.session_id == session_id)
+            .order_by(WikiChatMessage.id)
+            .limit(200)
+            .all()
+        )
+        return ok(
+            [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "content": m.content,
+                    "sources": json.loads(m.sources_json or "[]"),
+                    "source_mode": m.source_mode,
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in rows
+            ]
+        )
+
+
+# ---------------- 知识洞察报告（OpenWiki 注意力雷达的对等物） ----------------
+# 雷达分析"你最近在关注什么"；知识洞察分析"知识库缺什么/哪里会误导生成"——
+# 统计层确定性计算（页/文档/问答/体检），LLM 只做归纳，失败时降级返回纯统计。
+
+_INSIGHTS_CACHE: dict[int, tuple[float, dict]] = {}
+_INSIGHTS_TTL = 300.0
+
+
+@app.get("/api/wiki/insights")
+def wiki_insights(repo_id: int):
+    """知识洞察（OpenWiki attention 雷达移植·知识库版）：板块化报告——
+    总览 / 知识缺口（无来源问答=检索不中的真实问题）/ 过期风险 / 关注焦点 / 行动建议。"""
+    import time as _time
+
+    from services.shared.models import WikiChatMessage, WikiChatSession, WikiPages
+    from services.wiki_builder.analytics import lint_repo, related_map
+
+    cached = _INSIGHTS_CACHE.get(repo_id)
+    if cached and _time.time() - cached[0] < _INSIGHTS_TTL:
+        return ok(cached[1])
+
+    with get_session() as sess:
+        pages = sess.query(WikiPages).filter(WikiPages.repo_id == repo_id).all()
+        modules = [m for (m,) in sess.query(WikiPages.module).filter(WikiPages.repo_id == repo_id).distinct().all()]
+        sessions = sess.query(WikiChatSession).filter(WikiChatSession.repo_id == repo_id).all()
+        session_ids = [s.id for s in sessions]
+        msgs = (
+            sess.query(WikiChatMessage)
+            .filter(WikiChatMessage.session_id.in_(session_ids), WikiChatMessage.role == "assistant")
+            .all()
+            if session_ids
+            else []
+        )
+        from sqlalchemy import text as _text
+
+        doc_count = sess.execute(
+            _text("SELECT count(*) FROM rag_documents WHERE kind='user_doc' AND repo_id=:r"), {"r": repo_id}
+        ).scalar() or 0
+
+    related = related_map(
+        [{"id": w.id, "title": w.title, "text": f"{w.title}\n{(w.content_md or '')[:2000]}"} for w in pages]
+    )
+    lint = lint_repo(
+        [
+            {"id": w.id, "title": w.title, "level": w.level, "module": w.module, "stale": w.stale, "len": len(w.content_md or "")}
+            for w in pages
+        ],
+        [m for m in modules if m],
+        related,
+    )
+
+    # 知识缺口：no_data 问答 = 用户问了、知识库答不上 → 检索盲区的真实信号
+    gaps = [m.content for m in msgs if m.source_mode == "no_data"][-10:]
+    focus_questions = [m.content for m in msgs if m.source_mode == "knowledge_base"][-10:]
+    level_dist: dict[str, int] = {}
+    for w in pages:
+        level_dist[w.level] = level_dist.get(w.level, 0) + 1
+
+    stats = {
+        "repo_id": repo_id,
+        "pages": len(pages),
+        "stale": sum(1 for w in pages if w.stale),
+        "level_dist": level_dist,
+        "doc_count": int(doc_count),
+        "qa_sessions": len(sessions),
+        "qa_answers": len(msgs),
+        "qa_no_data": len(gaps),
+        "lint_findings": len(lint["findings"]),
+        "lint_top": [f["title"] for f in lint["findings"][:5]],
+        "gap_questions": gaps,
+        "recent_questions": focus_questions,
+    }
+
+    report: dict = {"stats": stats, "insights": None, "insights_error": ""}
+    if stats["pages"] or stats["qa_answers"]:
+        try:
+            from services.shared.llm import chat_once
+
+            prompt = (
+                "你是知识库运营分析师。依据以下 TestForge 知识库统计，输出 JSON 板块（全部中文）：\n"
+                '{"summary": "两句话总览", "coverage_gaps": ["知识盲区，每条一句话"],'
+                ' "stale_risks": ["过期/质量风险"], "focus_topics": ["用户关注焦点"],'
+                ' "actions": ["可执行建议，按优先级"]}\n'
+                "注意：qa_no_data 问题代表检索盲区（用户问了但知识库答不上），是最重要的缺口信号。\n\n"
+                f"【统计】{json.dumps(stats, ensure_ascii=False)}"
+            )
+            raw = chat_once(prompt, system="只输出 JSON。", role="query").strip()
+            raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+            m = re.search(r"\{.*\}", raw, re.S)
+            report["insights"] = json.loads(m.group(0) if m else raw)
+        except Exception as exc:  # noqa: BLE001
+            report["insights_error"] = f"LLM 洞察生成失败（统计仍可用）：{exc}"
+
+    _INSIGHTS_CACHE[repo_id] = (_time.time(), report)
+    return ok(report)
 
 
 @app.get("/api/wiki/{page_id}")
@@ -562,9 +908,27 @@ def get_wiki_page(page_id: int):
         )
 
 
+# ---------------- Wiki 编译锁（OpenWiki acquire_compile_lock 移植） ----------------
+# 手动重建 / pull / webhook 后台重建并发时会重复跑 gRPC 重建 + 双写 rag 索引；
+# per-repo 互斥锁，非阻塞获取，拿不到直接报 409 / 跳过。
+
+_WIKI_REBUILD_LOCKS: dict[int, threading.Lock] = {}
+_WIKI_REBUILD_LOCKS_GUARD = threading.Lock()
+
+
+def _wiki_rebuild_lock(repo_id: int) -> threading.Lock:
+    with _WIKI_REBUILD_LOCKS_GUARD:
+        lock = _WIKI_REBUILD_LOCKS.get(repo_id)
+        if lock is None:
+            lock = threading.Lock()
+            _WIKI_REBUILD_LOCKS[repo_id] = lock
+        return lock
+
+
 @app.post("/api/wiki/rebuild")
 async def rebuild_wiki(request: Request):
-    """一键重建：body {repo_id, full?}。full=true 全量重编译并清 stale。"""
+    """一键重建：body {repo_id, full?}。full=true 全量重编译并清 stale。
+    同仓库已有重建在进行时返回 409（编译锁）。"""
 
     body = await request.json()
     repo_id = int(body.get("repo_id") or 0)
@@ -573,14 +937,20 @@ async def rebuild_wiki(request: Request):
         repo = sess.get(Repos, repo_id)
         if repo is None:
             raise ApiError(404, "repo 不存在", 404)
-    res = grpc_call(
-        "wiki-builder",
-        GRPC_PORTS["wiki-builder"],
-        "WikiBuilder",
-        "Rebuild",
-        {"repo_id": repo_id, "from_rev": "" if full else repo.head_rev, "to_rev": repo.head_rev, "changed_files": [] if full else ["__stale__"]},
-        timeout=120,
-    )
+    lock = _wiki_rebuild_lock(repo_id)
+    if not lock.acquire(blocking=False):
+        raise ApiError(409, "该仓库 Wiki 正在重建中，请稍候（编译锁）", 409)
+    try:
+        res = grpc_call(
+            "wiki-builder",
+            GRPC_PORTS["wiki-builder"],
+            "WikiBuilder",
+            "Rebuild",
+            {"repo_id": repo_id, "from_rev": "" if full else repo.head_rev, "to_rev": repo.head_rev, "changed_files": [] if full else ["__stale__"]},
+            timeout=120,
+        )
+    finally:
+        lock.release()
     return ok(res)
 
 
@@ -659,13 +1029,19 @@ def pull_repo(repo_id: int):
 
 
 def _spawn_wiki_rebuild(repo_id: int, source: str) -> None:
-    """后台重建受影响 Wiki 页（仅 stale 页），失败不阻塞调用方。"""
+    """后台重建受影响 Wiki 页（仅 stale 页），失败不阻塞调用方。
+    编译锁被占（如手动重建进行中）时跳过本次，不排队堆积。"""
     from services.shared.trace import emit
 
     tid = new_trace_id()
     set_trace_id(tid)
 
     def _run() -> None:
+        lock = _wiki_rebuild_lock(repo_id)
+        if not lock.acquire(blocking=False):
+            emit("wiki", source, f"{source} 触发 Wiki 重建跳过 repo={repo_id}：已有重建在进行（编译锁）", trace_id=tid)
+            set_trace_id("-")
+            return
         try:
             with get_session() as sess:
                 repo = sess.get(Repos, repo_id)
@@ -682,6 +1058,7 @@ def _spawn_wiki_rebuild(repo_id: int, source: str) -> None:
         except Exception as exc:  # noqa: BLE001
             emit("wiki", source, f"{source} 触发 Wiki 重建失败 repo={repo_id}: {exc}", trace_id=tid)
         finally:
+            lock.release()
             set_trace_id("-")
 
     threading.Thread(target=_run, daemon=True).start()
@@ -1123,8 +1500,16 @@ from gateway import auth_routes as _auth_routes  # noqa: E402, F401
 from gateway import contracts as _contracts  # noqa: E402, F401
 from gateway import graph as _graph  # noqa: E402, F401
 from gateway import knowledge as _knowledge  # noqa: E402, F401
+from gateway import knowledge_assets as _knowledge_assets  # noqa: E402, F401  入口②：知识资产统一上传
+from gateway import lightrag_api as _lightrag_routes  # noqa: E402, F401  LightRAG 全量移植路由
 from gateway import plans as _plans  # noqa: E402, F401
+from gateway import repo_upload as _repo_upload  # noqa: E402, F401  入口①：上传代码包建仓
 from gateway import requirements as _requirements  # noqa: E402, F401
+from gateway import wiki_extra as _wiki_extra  # noqa: E402, F401
+
+app.include_router(_wiki_extra.router)
+app.include_router(_repo_upload.router)
+app.include_router(_knowledge_assets.router)
 
 if __name__ == "__main__":
     import uvicorn

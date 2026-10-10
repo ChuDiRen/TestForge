@@ -127,3 +127,62 @@ def test_mcp_tool_call_roundtrip(monkeypatch, capsys):
     kg = json.loads(replies[1]["result"]["content"][0]["text"])
     assert kg["mode"] == "mix"
     assert replies[2]["error"]["code"] == -32601
+
+
+def test_fix_duplicates_cleans_wiki_deps():
+    """回归：一键去重删页前必须清 wiki_deps 双向依赖边（page_id / depends_on_page_id 双外键），
+    否则触发 wiki_deps_depends_on_page_id_fkey FK violation（线上已炸过）。"""
+    import uuid
+
+    from services.shared.db import get_session
+    from services.shared.models import Repos, WikiDeps, WikiPages
+
+    marker = uuid.uuid4().hex[:8]
+    with get_session() as sess:
+        repo = Repos(url=f"https://example.com/dup-{marker}.git", branch="main", status="已接入")
+        sess.add(repo)
+        sess.flush()
+        rid = repo.id
+        keep_dup = WikiPages(repo_id=rid, level="function", title="函数 dup", content_md="keep oldest")
+        drop_dup = WikiPages(repo_id=rid, level="function", title="函数 dup", content_md="drop later")
+        other = WikiPages(repo_id=rid, level="function", title=f"函数 other-{marker}", content_md="unique")
+        sess.add_all([keep_dup, drop_dup, other])
+        sess.flush()
+        # 双向边：被删页的出边 + 保留页指向被删页的入边（后者正是线上 FK 炸点）
+        sess.add(WikiDeps(page_id=drop_dup.id, depends_on_page_id=other.id))
+        sess.add(WikiDeps(page_id=other.id, depends_on_page_id=drop_dup.id))
+        sess.commit()
+        ids = {"keep": keep_dup.id, "drop": drop_dup.id, "other": other.id}
+
+    try:
+        from gateway.main import wiki_fix_duplicates
+
+        res = wiki_fix_duplicates(rid)
+        data = res["data"]
+        assert ids["drop"] in data["removed"]
+        assert data["kept"] >= 2, "同标题保留最早一页 + 唯一标题页"
+        with get_session() as sess:
+            alive = {p.id for p in sess.query(WikiPages).filter(WikiPages.repo_id == rid).all()}
+            assert ids["drop"] not in alive and {ids["keep"], ids["other"]} <= alive
+            edges = sess.query(WikiDeps).filter(
+                (WikiDeps.page_id == ids["drop"]) | (WikiDeps.depends_on_page_id == ids["drop"])
+            ).count()
+            assert edges == 0, "指向被删页的双向依赖边必须一并清理"
+    finally:
+        from sqlalchemy import text
+
+        from services.shared.rag import remove_document
+
+        with get_session() as sess:
+            sess.execute(
+                text(
+                    "DELETE FROM wiki_deps WHERE page_id IN (SELECT id FROM wiki_pages WHERE repo_id=:r) "
+                    "OR depends_on_page_id IN (SELECT id FROM wiki_pages WHERE repo_id=:r)"
+                ),
+                {"r": rid},
+            )
+            sess.execute(text("DELETE FROM wiki_pages WHERE repo_id=:r"), {"r": rid})
+            sess.execute(text("DELETE FROM repos WHERE id=:r"), {"r": rid})
+            sess.commit()
+        for pid in ids.values():
+            remove_document(f"wiki:{pid}")

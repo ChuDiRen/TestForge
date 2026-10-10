@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>原型 · 入口① 仓库接入（上传代码包）</title>
+<style>
+  :root{--bg:#f7f7f5;--panel:#fff;--line:#e6e8ea;--ink:#1f2328;--ink2:#57606a;--ink3:#8b949e;--acc:#2fb3a4;--acc-soft:rgba(47,179,164,.12)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:28px}
+  .wrap{max-width:980px;margin:0 auto}
+  .page-title{font-size:19px;font-weight:700}
+  .page-sub{color:var(--ink2);font-size:13px;margin:2px 0 18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:14px}
+  .card h3{font-size:14px;margin-bottom:12px}
+  .tabs{display:flex;gap:22px;border-bottom:1px solid var(--line);margin-bottom:16px}
+  .tab{padding:8px 2px;color:var(--ink2);cursor:pointer;font-size:14px}
+  .tab.on{color:var(--acc);font-weight:600;border-bottom:2px solid var(--acc);margin-bottom:-1px}
+  .info{background:var(--acc-soft);border:1px solid rgba(47,179,164,.3);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--ink2);margin-bottom:14px}
+  .dragger{border:1.5px dashed #cfd6da;border-radius:10px;padding:34px;text-align:center;background:#fafbfb}
+  .dragger b{color:var(--acc)}
+  .dragger .icon{font-size:30px;margin-bottom:8px}
+  .row{display:flex;gap:10px;align-items:center;margin-top:14px}
+  .input{border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:13px;width:280px;background:#fff}
+  .btn{background:var(--acc);border:none;color:#fff;border-radius:6px;padding:7px 18px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .btn.ghost{background:#fff;color:var(--ink2);border:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--ink3);font-weight:500}
+  .tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500}
+  .tag.g{background:rgba(21,128,61,.12);color:#15803d}
+  .tag.up{background:rgba(180,83,9,.12);color:#b45309}
+  .steps{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}
+  .step{background:#f3f4f5;border:1px solid var(--line);border-radius:6px;padding:3px 10px;font-size:12px;color:var(--ink2)}
+  .next{background:var(--acc-soft);border:1px solid rgba(47,179,164,.3);border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13.5px}
+  .next a{color:var(--acc);font-weight:600;text-decoration:none;margin-right:14px}
+  .muted{color:var(--ink3);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">仓库接入</div>
+  <div class="page-sub">Git URL 一键接入，或直接上传代码压缩包——两条路都自动产出：函数索引 · 调用图谱 · 影响面 · Wiki</div>
+
+  <div class="next">✅ 仓库 #3「payment-svc」已接入——索引与 Wiki 编译在后台进行<a href="#">查看代码图谱</a><a href="#">查看 Wiki</a><a href="#">去录入需求</a></div>
+
+  <div class="card">
+    <div class="tabs">
+      <div class="tab">远程 Git URL</div>
+      <div class="tab on">上传代码包（zip）</div>
+    </div>
+    <div class="info">上传 zip 压缩包：服务端安全解压（路径穿越防护 · 200MB 上限 · 自动排除 node_modules/.git/构建产物）→ tree-sitter 索引 → 调用图谱 → Wiki 编译。同名包重新上传 = 更新图谱。</div>
+    <div class="dragger">
+      <div class="icon">📦</div>
+      点击或拖拽 zip 压缩包到此处<br>
+      <span style="font-size:12.5px;color:var(--ink3)">单文件 ≤ 200MB · 解压后 ≤ 20000 文件 · 支持 .zip</span>
+    </div>
+    <div class="row">
+      <span style="font-size:13px;color:var(--ink2)">仓库名称</span>
+      <input class="input" value="payment-svc">
+      <button class="btn">上传并生成知识图谱</button>
+      <span class="muted" style="margin-top:0">已选择 payment-svc.zip（48.2 MB）</span>
+    </div>
+    <div class="steps">
+      <span class="step">1. 代码包解压: payment-svc</span>
+      <span class="step">2. tree-sitter 索引: 214 函数</span>
+      <span class="step">3. 索引原子发布: 214 函数 / 512 新调用边</span>
+      <span class="step">4. 函数检索索引 214 条</span>
+      <span class="step">5. 影响面预计算 214 函数 · 聚类 9 域</span>
+      <span class="step">6. wiki 重建: 236 页</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>仓库列表</h3>
+    <table>
+      <tr><th>ID</th><th>URL / 来源</th><th>分支</th><th>HEAD</th><th>状态</th><th>最近拉取</th><th>操作</th></tr>
+      <tr>
+        <td>3</td><td>upload://payment-svc <span class="tag up">代码包</span></td><td>main</td><td>upload-9f3ab2c1</td>
+        <td><span class="tag g">已接入</span></td><td>2026-10-10 15:42:10</td><td><button class="btn ghost" style="padding:3px 12px;font-size:12px">重新上传</button></td>
+      </tr>
+      <tr>
+        <td>2</td><td>https://github.com/ChuDiRen/TestForge.git</td><td>main</td><td>c2d3295a</td>
+        <td><span class="tag g">已接入</span></td><td>2026-10-10 09:18:44</td><td><button class="btn ghost" style="padding:3px 12px;font-size:12px">拉取</button></td>
+      </tr>
+    </table>
+    <div class="muted">「代码包」来源的仓库没有远端，操作列显示「重新上传」（重传同名包 = 全量重建图谱）；「拉取」仅对 Git 仓库可用。</div>
+  </div>
+</div>
+</body>
+</html>

@@ -6,7 +6,7 @@ UV := uv
 FRONTEND_PORT ?= 5173
 GATEWAY_PORT ?= 8000
 
-.PHONY: help install proto dev up down restart test lint fmt demo-m0 demo-m1 demo-m2 demo-m3 demo-m4 demo-m5 seed clean stack-up stack-down mcp analyze rag-eval kg-build
+.PHONY: help install proto dev up down restart test lint fmt demo-m0 demo-m1 demo-m2 demo-m3 demo-m4 demo-m5 seed clean stack-up stack-down mcp analyze rag-eval kg-build kg-rebuild-vdb kg-clean-cache kg-repair kg-communities
 
 help:
 	@echo "make install   安装依赖（backend: uv sync + frontend: pnpm install）"
@@ -78,6 +78,18 @@ rag-eval:
 
 kg-build:
 	cd backend && $(UV) run python scripts/kg_build.py
+
+kg-rebuild-vdb:
+	cd backend && $(UV) run python scripts/kg_rebuild_vdb.py
+
+kg-clean-cache:
+	cd backend && $(UV) run python scripts/kg_clean_cache.py
+
+kg-repair:
+	cd backend && $(UV) run python scripts/kg_repair.py
+
+kg-communities:
+	cd backend && $(UV) run python -c "from services.shared.db import init_db; init_db(); from services.shared.kg_communities import build_communities; print(build_communities())"
 
 demo-m0:
 	cd backend && $(UV) run python scripts/demo_m0.py

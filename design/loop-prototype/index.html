@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>TestForge 知识资产闭环 · 总览与取舍</title>
+<style>
+  :root{
+    --bg:#f7f7f5; --panel:#ffffff; --line:#e6e8ea; --ink:#1f2328; --ink2:#57606a; --ink3:#8b949e;
+    --acc:#2fb3a4; --acc-soft:rgba(47,179,164,.12); --violet:#7c3aed; --amber:#b45309; --red:#c93a2e; --blue:#2563eb;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.65 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:32px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:22px;margin-bottom:4px}
+  .sub{color:var(--ink2);margin-bottom:24px}
+  .grid{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 22px}
+  .card h2{font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500}
+  svg{display:block;width:100%;height:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink3);font-weight:500;white-space:nowrap}
+  td b{font-weight:600}
+  .muted{color:var(--ink3);font-size:12px}
+  .pill{display:inline-block;padding:2px 10px;border-radius:6px;font-size:12px;font-weight:600;margin-right:6px}
+  .pill.do{background:rgba(21,128,61,.12);color:#15803d}
+  .pill.skip{background:rgba(201,58,46,.1);color:var(--red)}
+  .pill.ahead{background:rgba(37,99,235,.1);color:var(--blue)}
+  ul{padding-left:18px}
+  li{margin:3px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TestForge 知识资产闭环 · 总览</h1>
+  <div class="sub">两个入口 → 一条知识脊柱 → 测试业务消费 → 缺陷回流。参照 GitNexus / LightRAG / OpenWiki 取舍落地（2026-10-10）。</div>
+
+  <div class="card" style="margin-bottom:16px">
+    <h2>闭环全景</h2>
+    <svg viewBox="0 0 1120 430" font-family="inherit">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+        </marker>
+        <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#2fb3a4"/>
+        </marker>
+      </defs>
+      <!-- 入口1 -->
+      <g>
+        <rect x="20" y="40" width="200" height="86" rx="10" fill="#fff" stroke="#2fb3a4" stroke-width="1.5"/>
+        <text x="36" y="66" font-size="14" font-weight="700" fill="#1f2328">入口 ① 代码</text>
+        <text x="36" y="88" font-size="12" fill="#57606a">Git URL ／ 上传 zip 包</text>
+        <text x="36" y="108" font-size="12" fill="#8b949e">安全解压 → tree-sitter</text>
+      </g>
+      <!-- 入口2 -->
+      <g>
+        <rect x="20" y="180" width="200" height="104" rx="10" fill="#fff" stroke="#2fb3a4" stroke-width="1.5"/>
+        <text x="36" y="206" font-size="14" font-weight="700" fill="#1f2328">入口 ② 知识资产</text>
+        <text x="36" y="228" font-size="12" fill="#57606a">需求文档 · 技术文档</text>
+        <text x="36" y="248" font-size="12" fill="#57606a">测试方案 · 历史缺陷</text>
+        <text x="36" y="268" font-size="12" fill="#8b949e">解析 → 门卫 → 双写</text>
+      </g>
+      <!-- 知识脊柱 -->
+      <rect x="300" y="30" width="250" height="380" rx="12" fill="rgba(47,179,164,.07)" stroke="#2fb3a4" stroke-dasharray="5 4"/>
+      <text x="316" y="56" font-size="14" font-weight="700" fill="#0d7d72">知识脊柱（统一检索表 + KG）</text>
+      <g font-size="12.5" fill="#1f2328">
+        <rect x="318" y="72" width="214" height="34" rx="7" fill="#fff" stroke="#e6e8ea"/><text x="330" y="94">rag_documents · 7 类 kind</text>
+        <rect x="318" y="114" width="214" height="34" rx="7" fill="#fff" stroke="#e6e8ea"/><text x="330" y="136">向量 + 全文混合检索（RRF）</text>
+        <rect x="318" y="156" width="214" height="34" rx="7" fill="#fff" stroke="#e6e8ea"/><text x="330" y="178">LightRAG KG：实体/关系/社区</text>
+        <rect x="318" y="198" width="214" height="34" rx="7" fill="#fff" stroke="#e6e8ea"/><text x="330" y="220">代码图谱：函数/调用/影响面</text>
+        <rect x="318" y="240" width="214" height="34" rx="7" fill="#fff" stroke="#e6e8ea"/><text x="330" y="262">Wiki 编译（OpenWiki 移植）</text>
+        <rect x="318" y="282" width="214" height="34" rx="7" fill="#fff" stroke="#e6e8ea"/><text x="330" y="304">三道门卫：敏感·评估·反幻觉</text>
+        <rect x="318" y="324" width="214" height="34" rx="7" fill="#fff" stroke="#e6e8ea"/><text x="330" y="346">确定性建边（AI 只写内容）</text>
+      </g>
+      <!-- 消费 -->
+      <g>
+        <rect x="640" y="52" width="210" height="70" rx="10" fill="#fff" stroke="#e6e8ea"/>
+        <text x="656" y="78" font-size="13.5" font-weight="700">测试用例生成</text>
+        <text x="656" y="100" font-size="12" fill="#57606a">六路上下文（code&gt;契约&gt;知识）</text>
+      </g>
+      <g>
+        <rect x="640" y="160" width="210" height="70" rx="10" fill="#fff" stroke="#e6e8ea"/>
+        <text x="656" y="186" font-size="13.5" font-weight="700">沙箱执行验证</text>
+        <text x="656" y="208" font-size="12" fill="#57606a">修复循环 ≤3 轮</text>
+      </g>
+      <g>
+        <rect x="640" y="268" width="210" height="70" rx="10" fill="#fff" stroke="#e6e8ea"/>
+        <text x="656" y="294" font-size="13.5" font-weight="700">问答 / 检索实验室</text>
+        <text x="656" y="316" font-size="12" fill="#57606a">六模式 + 引用溯源</text>
+      </g>
+      <!-- 回流 -->
+      <g>
+        <rect x="920" y="160" width="180" height="110" rx="10" fill="#fff" stroke="#c93a2e" stroke-width="1.5"/>
+        <text x="936" y="188" font-size="13.5" font-weight="700" fill="#c93a2e">缺陷回流</text>
+        <text x="936" y="210" font-size="12" fill="#57606a">失败→defect kind 索引</text>
+        <text x="936" y="230" font-size="12" fill="#57606a">关闭→lesson 教训沉淀</text>
+        <text x="936" y="250" font-size="12" fill="#57606a">历史缺陷批量导入</text>
+      </g>
+      <!-- 边 -->
+      <line x1="220" y1="83" x2="298" y2="83" stroke="#2fb3a4" stroke-width="1.6" marker-end="url(#arA)"/>
+      <line x1="220" y1="232" x2="298" y2="232" stroke="#2fb3a4" stroke-width="1.6" marker-end="url(#arA)"/>
+      <line x1="550" y1="87" x2="638" y2="87" stroke="#8b949e" stroke-width="1.4" marker-end="url(#ar)"/>
+      <line x1="550" y1="195" x2="638" y2="195" stroke="#8b949e" stroke-width="1.4" marker-end="url(#ar)"/>
+      <line x1="550" y1="303" x2="638" y2="303" stroke="#8b949e" stroke-width="1.4" marker-end="url(#ar)"/>
+      <line x1="850" y1="87" x2="918" y2="175" stroke="#8b949e" stroke-width="1.4" marker-end="url(#ar)"/>
+      <line x1="850" y1="195" x2="918" y2="200" stroke="#8b949e" stroke-width="1.4" marker-end="url(#ar)"/>
+      <path d="M 920 250 C 700 400 470 420 430 412" fill="none" stroke="#c93a2e" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="640" y="404" font-size="12.5" fill="#c93a2e">回流：同模块生成时 bugs 路自动召回（越挫越准）</text>
+    </svg>
+  </div>
+
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="card">
+      <h2><span class="pill do">落地</span>入口 ① 代码 → 图谱</h2>
+      <ul>
+        <li><b>POST /api/repos/upload</b>：zip 上传 → 安全解压（zip-slip 防护 / 大小与成员数上限 / 排除目录清单）→ 复用注册流水线：tree-sitter 索引 → 调用图 → 影响面/聚类 → Wiki 编译</li>
+        <li>同名重传 = <b>更新图谱</b>（upload:// 无远端，pull 引导重传）</li>
+        <li>前端仓库接入页双 Tab：Git URL ｜ 上传代码包</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2><span class="pill do">落地</span>入口 ② 知识资产中心</h2>
+      <ul>
+        <li>四类统一上传：<b>需求文档 / 技术文档 / 测试方案 / 历史缺陷</b>（pdf·docx·md·txt·csv·xlsx）</li>
+        <li>解析 → <b>敏感扫描</b>（修复 kg 管线二进制文档不扫的缺口）→ 评估门卫 → 双写：rag kind 行（即时可检索）+ LightRAG KG 管线（进图谱）</li>
+        <li>历史缺陷走<b>结构化表 + 摘要索引</b>（LightRAG ainsert_custom_kg 取舍：真相放 defects 表，KG 只做投影，不逐行走 LLM）</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>三仓库取舍结论（源码级分析）</h2>
+    <table>
+      <tr><th style="width:110px">仓库</th><th>为这两个入口抄什么</th><th>为什么不抄</th></tr>
+      <tr>
+        <td><b>GitNexus</b><div class="muted">PolyForm NC 禁商用<br>只借设计不碰代码</div></td>
+        <td><span class="pill do">抄</span>zip 通道三件安全栏（名称消毒/root 困定/路径穿越防护）+ 上传前过滤思想；job 式进度协议形状；边 confidence+reason（后续档）</td>
+        <td><span class="pill skip">不抄</span>任何代码（License）；浏览器逐文件 multipart 上传 2 万文件（桌面场景产物）；LadybugDB 嵌入库（多租户平台 PG 是对的）；Spring/COBOL overlay</td>
+      </tr>
+      <tr>
+        <td><b>LightRAG</b></td>
+        <td><span class="pill do">抄</span>统一走异步 KG 管线 + kind 双写（不按 kind 拆 workspace——会打碎图谱与社区）；结构化缺陷「表+投影」姿势；观测四件套列后续档</td>
+        <td><span class="pill skip">不抄</span>单实例绑一个 workspace 的多租户方式（多实例部署不适合单体平台）；csv 原文直接 chunk→抽取当唯一表示（行级抽取贵且丢聚合）</td>
+      </tr>
+      <tr>
+        <td><b>OpenWiki</b></td>
+        <td><span class="pill do">保</span>三信任机制已移植并继续生效：评估门卫 / 反幻觉（无 source 不入库）/ 确定性建边；lint 增加覆盖盲区规则列后续档</td>
+        <td><span class="pill skip">不搬</span>剪贴板轮询/OCR/周报（桌面语义）；Jina Reader 外发（企业测试文档不许出网）</td>
+      </tr>
+    </table>
+    <div style="margin-top:10px" class="muted">
+      <span class="pill ahead">已超越</span>TestForge 相对三个原版的共同优势：知识直接进测试生成闭环（生成→执行→缺陷→回流自动召回）、服务端智能体带沙箱、七类 kind 统一检索表 + LightRAG 六模式并存。
+    </div>
+  </div>
+
+  <div class="muted" style="margin-top:14px">原型明细：<a href="entry1-code-upload.html">入口① 仓库接入（上传代码包）</a> · <a href="entry2-knowledge-assets.html">入口② 知识资产中心</a></div>
+</div>
+</body>
+</html>

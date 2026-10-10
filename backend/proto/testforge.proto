@@ -52,6 +52,21 @@ message RepoSpec {
   bool webhook = 4;
 }
 
+// 上传代码包接入（网关负责安全解压，repo-svc 只管索引流水线）
+message RepoUploadSpec {
+  string name = 1;
+  string path = 2;
+  string branch = 3;
+}
+
+message RepoUploadRes {
+  RepoInfo repo = 1;
+  repeated string steps = 2;
+  int32 functions = 3;
+  int32 call_edges = 4;
+  int32 wiki_pages = 5;
+}
+
 message RepoInfo {
   int64 id = 1;
   string url = 2;
@@ -312,6 +327,7 @@ message ExitCheck {
 service RepoSvc {
   rpc Ping(PingReq) returns (PongRes);
   rpc Register(RepoSpec) returns (RepoInfo);
+  rpc RegisterUpload(RepoUploadSpec) returns (RepoUploadRes);
   rpc Pull(PullReq) returns (PullRes);
   rpc ListFunctions(PageQuery) returns (stream FunctionCard);
 }

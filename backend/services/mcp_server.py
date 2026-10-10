@@ -167,13 +167,15 @@ def _tool_defs() -> list[dict]:
         },
         {
             "name": "knowledge_query",
-            "description": "文档知识图谱双层检索：local（实体级）/ global（主题级）/ mix 融合",
+            "description": "文档知识图谱检索（LightRAG 六模式）：naive（原文）/ local（实体级）/ global（主题级）/ hybrid / mix 融合（默认）",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
-                    "mode": {"type": "string", "enum": ["local", "global", "mix"]},
+                    "mode": {"type": "string", "enum": ["naive", "local", "global", "hybrid", "mix"]},
                     "repo_id": {"type": "integer"},
+                    "workspace": {"type": "string", "description": "LightRAG 工作区（文档管线摄入的文档所在区）"},
+                    "top_k": {"type": "integer", "description": "每路召回条数（默认 8）"},
                 },
                 "required": ["query"],
             },
@@ -326,6 +328,19 @@ def _call_tool(name: str, args: dict) -> str:
         )
 
     if name == "knowledge_query":
+        workspace = str(args.get("workspace") or "")
+        if workspace or (args.get("mode") in ("naive", "hybrid")):
+            # v2 引擎：工作区文档 / naive / hybrid 模式走六模式引擎
+            from services.shared.kg_query import kg_search
+
+            res = kg_search(
+                args["query"],
+                mode=args.get("mode") or "mix",
+                repo_id=int(args.get("repo_id") or 0),
+                workspace=workspace,
+                top_k=min(int(args.get("top_k") or 8), 30),
+            )
+            return json.dumps({k: v for k, v in res.items() if k not in ("contexts", "timings")}, ensure_ascii=False)
         from services.shared.docgraph import kg_query
 
         res = kg_query(int(args.get("repo_id") or 0), args["query"], mode=args.get("mode") or "mix")
