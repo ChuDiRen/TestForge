@@ -31,7 +31,8 @@ export function StatCard({
   footer?: ReactNode
 }) {
   return (
-    <Card className="tf-stat-card tf-lift" styles={{ body: { padding: '18px 20px' } }}>
+    // height 100%：同行卡片高度对齐（有无 footer 都与最高的那张持平）
+    <Card className="tf-stat-card tf-lift" style={{ height: '100%' }} styles={{ body: { padding: '18px 20px' } }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         <div
           className="tf-stat-chip"

@@ -23,8 +23,12 @@ SYSTEM_PROMPT = (
     "2. 覆盖 normal/boundary/exception/permission 四类，共 4~8 条；\n"
     "3. 每条只含 id/title/category/covers/input/patches——不要编造期望值，"
     "期望值将由系统对真实代码执行捕获；\n"
-    "4. input 必须是 JSON 可序列化的 kwargs 字面量；patches 仅在依赖外部模块时使用；\n"
-    "5. 最终回复必须只包含一个 JSON 对象："
+    "4. input 必须是 JSON 可序列化的 kwargs 字面量；\n"
+    "5. patches 打桩铁律：仅当被测函数依赖外部 I/O 边界（数据库会话/网络客户端/LLM 调用/"
+    "文件系统/消息队列）时才打桩，且 patch 的是【被测模块导入的那个外部依赖名】；"
+    "严禁 patch 被测函数自身，严禁 patch 被测模块内定义的业务函数/类——被测业务逻辑必须"
+    "以真实代码执行；纯计算函数（无外部依赖）patches 必须为空数组；单条用例不超过 4 个 patch；\n"
+    "6. 最终回复必须只包含一个 JSON 对象："
     '{"target": "...", "module": "...", "cases": [{"id": "TC-001", ...}]}，不要多余文本。'
 )
 

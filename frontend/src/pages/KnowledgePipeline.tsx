@@ -1,15 +1,7 @@
 import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useState } from 'react'
-import { Button, Card, Drawer, Empty, Input, Popconfirm, Progress, Select, Space, Table, Tag, Tooltip, Upload, message } from 'antd'
-import {
-  CloudUploadOutlined,
-  DeleteOutlined,
-  DownloadOutlined,
-  FileTextOutlined,
-  InboxOutlined,
-  NodeIndexOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons'
+import { Alert, Button, Card, Drawer, Empty, Input, Popconfirm, Progress, Select, Space, Table, Tag, Tooltip, Upload, message } from 'antd'
+import { DeleteOutlined, DownloadOutlined, FileTextOutlined, InboxOutlined, NodeIndexOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { downloadB64, get, post, uploadKgDoc } from '@/service'
 import { useIsMobile } from '@/hooks'
@@ -26,6 +18,7 @@ interface KgDoc {
   relations: number
   content_chars: number
   filename: string
+  source: string
   updated_at: string | null
 }
 interface KgChunk {
@@ -41,6 +34,13 @@ const STATUS_META: Record<string, { color: string; zh: string; en: string }> = {
   processing: { color: 'processing', zh: '处理中', en: 'Processing' },
   ok: { color: 'success', zh: '完成', en: 'Done' },
   failed: { color: 'error', zh: '失败', en: 'Failed' },
+}
+
+/** 自动来源（wiki 编译 / kg/build 全量同步）与手动上传在管线里统一展示 */
+const AUTO_SOURCE_META: Record<string, { color: string; zh: string; en: string }> = {
+  'auto:wiki': { color: 'geekblue', zh: 'Wiki 自动', en: 'Wiki auto' },
+  'auto:defect': { color: 'red', zh: '缺陷自动', en: 'Defect auto' },
+  'auto:requirement': { color: 'orange', zh: '需求自动', en: 'Req auto' },
 }
 
 /** 文档管线（LightRAG WebUI Documents 对齐）：文件上传 → 异步分块/抽取/建图 → 状态轮询 → 删除重建。 */
@@ -123,13 +123,17 @@ export function KnowledgePipeline({ embedded = false }: { embedded?: boolean } =
       {!embedded && <PageHeader title={t.pipeline.title} subtitle={t.pipeline.subtitle} />}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space wrap size={12}>
-          <Upload.Dragger {...uploadProps} style={{ width: isMobile ? '100%' : 420, padding: '12px 16px' }}>
-            <p style={{ margin: 0 }}>
-              <InboxOutlined style={{ fontSize: 26, color: 'var(--tf-primary)' }} />
-            </p>
-            <p style={{ margin: '6px 0 0', fontWeight: 500 }}>{t.pipeline.dropTitle}</p>
-            <p style={{ margin: 0, fontSize: 12, color: 'var(--tf-ink-3)' }}>{t.pipeline.dropHint}</p>
-          </Upload.Dragger>
+          {embedded ? (
+            <Alert type="info" showIcon style={{ flex: 1, minWidth: 320 }} message={t.pipeline.embeddedNotice} />
+          ) : (
+            <Upload.Dragger {...uploadProps} style={{ width: isMobile ? '100%' : 420, padding: '12px 16px' }}>
+              <p style={{ margin: 0 }}>
+                <InboxOutlined style={{ fontSize: 26, color: 'var(--tf-primary)' }} />
+              </p>
+              <p style={{ margin: '6px 0 0', fontWeight: 500 }}>{t.pipeline.dropTitle}</p>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--tf-ink-3)' }}>{t.pipeline.dropHint}</p>
+            </Upload.Dragger>
+          )}
           <div style={{ display: 'grid', gap: 8, fontSize: 12.5, color: 'var(--tf-ink-2)', maxWidth: 380 }}>
             <div>⚠️ {t.pipeline.warnKey}</div>
             <Space wrap>
@@ -193,19 +197,29 @@ export function KnowledgePipeline({ embedded = false }: { embedded?: boolean } =
               title: t.pipeline.docTitle,
               dataIndex: 'title',
               ellipsis: true,
-              render: (v: string, r: KgDoc) => (
-                <Space size={6}>
-                  <FileTextOutlined style={{ color: 'var(--tf-ink-3)' }} />
-                  <a style={{ fontWeight: 500 }} onClick={() => setChunkDoc(r)}>
-                    {v || r.doc_key}
-                  </a>
-                  {r.filename && (
-                    <Tooltip title={r.filename}>
-                      <Tag style={{ fontSize: 11 }}>{r.filename.split('.').pop()?.toUpperCase()}</Tag>
-                    </Tooltip>
-                  )}
-                </Space>
-              ),
+              render: (v: string, r: KgDoc) => {
+                const auto = AUTO_SOURCE_META[r.source]
+                return (
+                  <Space size={6}>
+                    <FileTextOutlined style={{ color: 'var(--tf-ink-3)' }} />
+                    <a style={{ fontWeight: 500 }} onClick={() => setChunkDoc(r)}>
+                      {v || r.doc_key}
+                    </a>
+                    {auto && (
+                      <Tooltip title={`由 ${auto[lang]} 同步进管线——删除请用本行操作，重新编译会自动重建`}>
+                        <Tag color={auto.color} style={{ fontSize: 11 }}>
+                          {auto[lang]}
+                        </Tag>
+                      </Tooltip>
+                    )}
+                    {r.filename && (
+                      <Tooltip title={r.filename}>
+                        <Tag style={{ fontSize: 11 }}>{r.filename.split('.').pop()?.toUpperCase()}</Tag>
+                      </Tooltip>
+                    )}
+                  </Space>
+                )
+              },
             },
             {
               title: t.pipeline.status,

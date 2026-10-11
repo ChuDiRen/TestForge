@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     # 本地仓库检出根目录
     repo_root: str = "data/repos"
 
+    # 对象存储（S3/MinIO）：持久层真源，本地磁盘降级为工作缓存。
+    # s3_endpoint 为空 = 功能关闭，一切回退纯本地行为。三类数据分桶隔离。
+    s3_endpoint: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_secure: bool = False
+    s3_bucket_repos: str = "testforge-repos"
+    s3_bucket_assets: str = "testforge-assets"
+    s3_bucket_artifacts: str = "testforge-artifacts"
+
     # 任务队列：应用进程内 worker 并发数
     job_workers: int = 2
 
@@ -120,7 +130,8 @@ class Settings(BaseSettings):
     ollama_compat: bool = True
     ollama_model_name: str = "testforge-kg"
     ollama_api_key: str = ""
-    doc_pipeline_workers: int = 1  # 文档摄入后台线程数（pending/processing 状态机）
+    doc_pipeline_workers: int = 3  # 文档摄入后台线程数（多文档并行抽取；合并步有进程内锁串行化）
+    llm_extract_concurrency: int = 4  # 单文档 chunk 级抽取并发数（chunk 间零依赖，瓶颈在 LLM 往返）
 
 
 @lru_cache

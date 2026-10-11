@@ -106,6 +106,23 @@ def prune_runs(keep: int | None = None) -> int:
         return len(oldest_ids)
 
 
+def _archive_case_scripts(gen_code: str, cases: list[dict], suite_cases: list[dict]) -> None:
+    """用例脚本入对象存储（best-effort）：cases/{case_code}/script.py，DB 仍是查询真源。"""
+    from app.core.config import get_settings
+    from app.core.objectstore import get_objectstore, safe_key_part
+
+    store = get_objectstore()
+    if not store.enabled:
+        return
+    bucket = get_settings().s3_bucket_artifacts
+    for c, sc in zip(cases, suite_cases):
+        src = str(sc.get("code_file") or "")
+        if not src:
+            continue
+        code = f"CASE-{gen_code[-6:]}-{c['code']}"
+        store.put_bytes(bucket, f"cases/{safe_key_part(code)}/script.py", src.encode("utf-8"))
+
+
 def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_req: str, trace_id: str) -> None:
     set_trace_id(trace_id)
     try:
@@ -122,7 +139,8 @@ def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_re
             min_cases=9,
             repair=True,
         ):
-            _event(gen_code, "stage" if ev.get("stage") != "result" else "result", ev.get("stage", ""), ev.get("message", ""), ev.get("payload_json", ""), float(ev.get("progress", 0)))
+            # 统一以 kind=stage 转发；kind=result 只留给闭环结束事件（SSE 终止信号）
+            _event(gen_code, "stage", ev.get("stage", ""), ev.get("message", ""), ev.get("payload_json", ""), float(ev.get("progress", 0)))
             if ev.get("stage") == "result":
                 final = json.loads(ev.get("payload_json") or "{}")
         if not final:
@@ -265,6 +283,7 @@ def run_pipeline(gen_code: str, repo_id: int, target: str, layer: str, source_re
                 g.status = "done"
             sess.commit()
 
+        _archive_case_scripts(gen_code, cases, suite_cases)
         prune_runs()
 
         result_payload = json.dumps(

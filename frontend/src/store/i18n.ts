@@ -36,6 +36,10 @@ const dict = {
       zh: '支持 pdf / docx / txt / md / csv · 多文件 · 自动分块抽取建图',
       en: 'pdf / docx / txt / md / csv · multi-file · auto chunk & extract',
     },
+    embeddedNotice: {
+      zh: '文档上传已收拢到「资产库」Tab（含门卫与检索索引）——本页只做图谱运维：处理状态 / 分块预览 / 社区构建 / 图谱导出。',
+      en: 'Uploads live in the Assets tab (with guards & retrieval indexing) — this page is KG ops only: status / chunks / communities / export.',
+    },
     warnKey: {
       zh: '抽取调用 LLM（llm_cache 缓存去重）：未配置 LLM_API_KEY 时文档会停在 failed 状态并给出原因。',
       en: 'Extraction calls LLM (dedup via llm_cache): without LLM_API_KEY docs fail with the reason attached.',
@@ -47,7 +51,7 @@ const dict = {
     inflight: { zh: '{n} 篇在途', en: '{n} in flight' },
     allStatus: { zh: '全部状态', en: 'All statuses' },
     search: { zh: '搜索标题', en: 'Search title' },
-    empty: { zh: '还没有管线文档——上传 PRD/设计文档/笔记，自动进知识图谱', en: 'No documents yet — upload PRDs/design docs/notes to build the KG' },
+    empty: { zh: '暂无管线文档——到「资产库」上传后自动进图谱', en: 'No documents yet — upload via the Assets tab to build the KG' },
     docTitle: { zh: '文档', en: 'Document' },
     status: { zh: '状态', en: 'Status' },
     progress: { zh: '产出', en: 'Output' },
@@ -64,10 +68,10 @@ const dict = {
     noChunks: { zh: '暂无分块（文档可能仍在处理中）', en: 'No chunks yet (still processing?)' },
   },
   lab: {
-    title: { zh: '检索实验室', en: 'Retrieval Lab' },
+    title: { zh: '知识问答', en: 'Knowledge Q&A' },
     subtitle: {
-      zh: 'LightRAG 六模式检索对照台：双层关键词召回 → token 预算 → rerank → 流式生成（带引用溯源）',
-      en: 'LightRAG 6-mode retrieval bench: dual-level keywords → token budgets → rerank → streaming answer with citations',
+      zh: '图谱增强问答：六模式检索（实体/关系/社区/原文）→ rerank → 流式回答（带引用溯源）',
+      en: 'Graph-enhanced Q&A: 6-mode retrieval (entities/relations/communities/chunks) → rerank → streaming answer with citations',
     },
     queryPh: { zh: '输入问题，如：支付回调怎么保证幂等？', en: 'Ask a question, e.g. how is payment callback made idempotent?' },
     mode: { zh: '模式', en: 'Mode' },
@@ -116,8 +120,8 @@ const dict = {
     maxNodes: { zh: '节点上限', en: 'Max nodes' },
     typeAll: { zh: '全部类型', en: 'All types' },
     empty: {
-      zh: '图谱为空——到「知识资产」上传文档（图谱管线 Tab 可看处理进度）或跑 kg-build',
-      en: 'Empty graph — upload documents in Knowledge Assets (see the Pipeline tab) or run kg-build first',
+      zh: '图谱为空——到「知识资产 → 资产库」上传文档（图谱运维 Tab 可看处理进度）或跑 kg-build',
+      en: 'Empty graph — upload documents in Knowledge Assets (see the Ops tab) or run kg-build first',
     },
     sources: { zh: '来源数', en: 'sources' },
     degree: { zh: '度数', en: 'degree' },

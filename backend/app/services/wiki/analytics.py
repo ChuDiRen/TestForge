@@ -1,8 +1,9 @@
 """Wiki 分析层（OpenWiki 特性移植，2026-10）：
 
-- related_map: 页面 TF-IDF 余弦互链——对齐 OpenWiki ``link_pages_by_shared_tags``
-  （IDF=ln((N+1)/(df+1))、阈值 0.3、每页 top-K 邻居）；中文按二元组切词，
-  确定性计算，零 LLM 依赖。
+- related_map: 页面互链——对齐 OpenWiki ``link_pages_by_shared_tags`` 的推荐用途。
+  内核（2026-10 Phase2.5）按 embedding 后端分流：神经向量后端（openai）走真语义
+  余弦，与 rag.hybrid_search 同一语义空间；local hash 词袋后端保留 TF-IDF——实测
+  纯词袋余弦在长页面上饱和（全库 0.9+ 无区分度），IDF 判别力必须保留。
 - lint_repo: Wiki 健康体检——对齐 OpenWiki lint 的 finding 结构
   （stale / 超短页 / 重复标题 / 孤儿页 / 模块覆盖缺口），severity 三档。
 """
@@ -35,6 +36,47 @@ def related_map(pages: list[dict], top_k: int = _RELATED_TOP_K, threshold: float
     n = len(pages)
     if n < 2:
         return {}
+    from app.services.knowledge import embedding as emb
+
+    if emb.backend() != "local":
+        return _embed_related(pages, top_k, threshold)
+    return _tfidf_related(pages, top_k, threshold)
+
+
+def _embed_related(pages: list[dict], top_k: int, threshold: float) -> dict[int, list[dict]]:
+    """神经向量后端：真语义余弦（与混合检索同一 embedding 空间）。"""
+    from app.services.knowledge import embedding as emb
+
+    ids = [p["id"] for p in pages]
+    title_of = {p["id"]: p.get("title", "") for p in pages}
+    vecs = [emb.embed(f"{p.get('title', '')} {p.get('title', '')} {p.get('text', '')}"[:8000]) for p in pages]
+
+    pairs: dict[int, list[tuple[int, float]]] = {}
+    try:
+        import numpy as np
+
+        m = np.asarray(vecs, dtype="float32")
+        m /= np.linalg.norm(m, axis=1, keepdims=True) + 1e-9
+        sim = m @ m.T
+        for i, pid in enumerate(ids):
+            pairs[pid] = [(int(j), float(sim[i][j])) for j in np.argsort(-sim[i])[: top_k * 3]]
+    except ImportError:  # noqa: BLE001  无 numpy 纯 python 兜底（wiki 页量级 O(n²) 可承受）
+        for i, pid in enumerate(ids):
+            scored = [(j, sum(a * b for a, b in zip(vecs[i], vecs[j]))) for j in range(len(ids)) if j != i]
+            scored.sort(key=lambda x: -x[1])
+            pairs[pid] = scored[: top_k * 3]
+
+    out: dict[int, list[dict]] = {}
+    for pid, cand in pairs.items():
+        out[pid] = [
+            {"id": ids[j], "title": title_of[ids[j]], "score": round(s, 4)} for j, s in cand if j != pid and s >= threshold
+        ][:top_k]
+    return out
+
+
+def _tfidf_related(pages: list[dict], top_k: int, threshold: float) -> dict[int, list[dict]]:
+    """local 后端：TF-IDF 余弦（IDF 压掉全库共有 token，词袋 hash 余弦做不到）。"""
+    n = len(pages)
     docs: list[tuple[int, str, dict[str, float]]] = []
     df: dict[str, int] = defaultdict(int)
     for p in pages:

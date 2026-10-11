@@ -34,14 +34,12 @@ export function RepoAdd() {
   const qc = useQueryClient()
   const [form] = Form.useForm()
   const repos = useQuery({ queryKey: ['repos'], queryFn: () => get<RepoRow[]>('/api/repos'), refetchInterval: 8000 })
-  const [steps, setSteps] = useState<Record<number, string[]>>({})
   const [nextStep, setNextStep] = useState<string | null>(null)
   const [zipFile, setZipFile] = useState<File | null>(null)
   const [zipName, setZipName] = useState('')
 
-  const afterRegistered = (id: number, stepsList: string[]) => {
+  const afterRegistered = (id: number) => {
     qc.invalidateQueries({ queryKey: ['repos'] })
-    setSteps((s) => ({ ...s, [id]: stepsList }))
     setNextStep(`仓库 #${id} 已接入——索引与 Wiki 编译在后台进行，任务完成后即可生成用例`)
   }
 
@@ -50,7 +48,7 @@ export function RepoAdd() {
     onSuccess: (r) => {
       message.success(`仓库 #${r.id} 已接入`)
       form.resetFields()
-      afterRegistered(r.id, r.steps ?? [])
+      afterRegistered(r.id)
     },
   })
   const uploadZip = useMutation({
@@ -59,16 +57,15 @@ export function RepoAdd() {
       message.success(`代码包已接入：${r.functions} 函数 / ${r.call_edges} 调用边 / Wiki ${r.wiki_pages} 页`)
       setZipFile(null)
       setZipName('')
-      afterRegistered(r.id, r.steps ?? [])
+      afterRegistered(r.id)
     },
     onError: (e: any) => message.error(e.message),
   })
   const pull = useMutation({
     mutationFn: (id: number) => post<any>(`/api/repos/${id}/pull`),
-    onSuccess: (r) => {
+    onSuccess: () => {
       message.success('拉取完成')
       qc.invalidateQueries({ queryKey: ['repos'] })
-      setSteps((s) => ({ ...s, [r.id!]: r.steps ?? [] }))
     },
     onError: (e: any) => message.error(e.message),
   })
@@ -216,17 +213,6 @@ export function RepoAdd() {
             },
           ]}
         />
-        {Object.entries(steps).map(([id, st]) =>
-          st.length ? (
-            <Card key={id} size="small" title={`仓库 #${id} 流水线`} style={{ marginTop: 12 }}>
-              {st.map((s, i) => (
-                <Tag key={i} style={{ marginBottom: 4 }}>
-                  {i + 1}. {s}
-                </Tag>
-              ))}
-            </Card>
-          ) : null,
-        )}
       </Card>
     </div>
   )

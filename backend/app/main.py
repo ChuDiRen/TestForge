@@ -427,7 +427,9 @@ def list_knowledge_documents(repo_id: int = 0, db: Session = Depends(get_db)):
     from app.services.knowledge.rag import ensure_rag_documents_table
 
     ensure_rag_documents_table()
-    sql = "SELECT doc_key, repo_id, title, LENGTH(content) AS chars, meta, updated_at FROM rag_documents WHERE kind = 'user_doc'"
+    # 需求（req）/测试方案（plan）与知识文档同属检索语料——此前只列 user_doc，资产页上传的
+    # PRD、测试方案在「已入库知识文档」里凭空消失（用户当成上传失败反复重传）
+    sql = "SELECT doc_key, repo_id, title, LENGTH(content) AS chars, meta, updated_at, kind FROM rag_documents WHERE kind IN ('user_doc', 'req', 'plan')"
     params: dict = {}
     if repo_id:
         sql += " AND repo_id = :rid"
@@ -451,9 +453,13 @@ def list_knowledge_documents(repo_id: int = 0, db: Session = Depends(get_db)):
                 "title": r[2],
                 "chars": int(r[3] or 0),
                 "updated_at": r[5].isoformat() if r[5] else None,
+                "kind": r[6] or "user_doc",
                 "source": _meta_of(r[4]).get("source", ""),
                 "source_url": _meta_of(r[4]).get("source_url", ""),
+                "object_key": _meta_of(r[4]).get("object_key", ""),
                 "sources_count": len(_meta_of(r[4]).get("sources") or []),
+                "req_code": _meta_of(r[4]).get("req_code", ""),
+                "req_status": _meta_of(r[4]).get("status", ""),
             }
             for r in rows
         ]
@@ -534,12 +540,185 @@ def create_knowledge_document(body: KnowledgeDocBody):
     return ok({"doc_key": doc_key, "indexed": True})
 
 
+@app.get("/api/knowledge/documents/paged")
+def paged_knowledge_documents(
+    kind: str = "", q: str = "", repo_id: int = 0, page: int = 1, page_size: int = 15, db: Session = Depends(get_db)
+):
+    """知识工作台全量条目表：文档级 kind 全集（排除 kg_chunk/kg_community 碎片行），分页+筛选。"""
+    from sqlalchemy import text as sql_text
+
+    from app.services.knowledge.rag import ensure_rag_documents_table
+
+    ensure_rag_documents_table()
+    doc_kinds = ("user_doc", "req", "plan", "defect", "wiki", "case", "lesson", "kg_doc")
+    where, params = ["kind = ANY(:ks)"], {"ks": list(doc_kinds)}
+    if kind:
+        if kind not in doc_kinds:
+            raise ApiError(400, f"kind 只支持 {'/'.join(doc_kinds)}", 400)
+        where.append("kind = :kind")
+        params["kind"] = kind
+    if q.strip():
+        where.append("title ILIKE :q")
+        params["q"] = f"%{q.strip()}%"
+    if repo_id:
+        where.append("repo_id = :rid")
+        params["rid"] = repo_id
+    cond = " WHERE " + " AND ".join(where)
+    total = db.execute(sql_text(f"SELECT COUNT(*) FROM rag_documents{cond}"), params).scalar() or 0
+    lim = min(100, max(1, page_size))
+    params["lim"], params["off"] = lim, (max(1, page) - 1) * lim
+    rows = db.execute(
+        sql_text(
+            f"SELECT doc_key, repo_id, title, kind, LENGTH(content) AS chars, meta, updated_at"
+            f" FROM rag_documents{cond} ORDER BY updated_at DESC LIMIT :lim OFFSET :off"
+        ),
+        params,
+    ).all()
+
+    def _meta(raw) -> dict:  # type: ignore[no-untyped-def]
+        if isinstance(raw, dict):
+            return raw
+        try:
+            return json.loads(raw or "{}")
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    return ok(
+        {
+            "items": [
+                {
+                    "doc_key": r[0],
+                    "repo_id": r[1],
+                    "title": r[2],
+                    "kind": r[3] or "user_doc",
+                    "chars": int(r[4] or 0),
+                    "source": _meta(r[5]).get("source", ""),
+                    "object_key": _meta(r[5]).get("object_key", ""),
+                    "updated_at": r[6].isoformat() if r[6] else None,
+                }
+                for r in rows
+            ],
+            "total": int(total),
+        }
+    )
+
+
+@app.get("/api/knowledge/workbench")
+def knowledge_workbench(db: Session = Depends(get_db)):
+    """知识工作台聚合首屏：闭环总览 + 图谱规模 + 管线状态 + 最近问答，一个接口喂满。"""
+    from sqlalchemy import func
+    from sqlalchemy import text as sql_text
+
+    from app.models import Cases, Defects, Functions, KgEntity, KgRelation, Requirements, WikiChatMessage, WikiPages
+    from app.services.knowledge.doc_pipeline import settings_all
+    from app.services.knowledge.rag import ensure_rag_documents_table
+
+    ensure_rag_documents_table()
+    kinds = {k: int(n) for k, n in db.execute(sql_text("SELECT kind, COUNT(*) FROM rag_documents GROUP BY kind"), {}).all()}
+
+    def _count(model, *conds):  # type: ignore[no-untyped-def]
+        query = db.query(func.count(model.id))
+        for c in conds:
+            query = query.filter(c)
+        return int(query.scalar() or 0)
+
+    summary = {
+        **{k: kinds.get(k, 0) for k in ("req", "user_doc", "plan", "defect", "lesson", "wiki", "case")},
+        "requirements": _count(Requirements),
+        "cases": _count(Cases),
+        "wiki_pages": _count(WikiPages),
+        "functions": _count(Functions),
+        "defects_total": _count(Defects),
+        "defects_open": _count(Defects, Defects.status != "已关闭"),
+    }
+    kg = {
+        "entities": _count(KgEntity),
+        "relations": _count(KgRelation),
+        "communities": kinds.get("kg_community", 0),
+        "dirty": any(v == "1" for k, v in settings_all().items() if k.startswith("communities_dirty:")),
+    }
+    by_status = {
+        s: int(n) for s, n in db.execute(sql_text("SELECT status, COUNT(*) FROM doc_status WHERE kind = 'kg_doc' GROUP BY status"), {}).all()
+    }
+    recent_pipeline = [
+        {"title": (json.loads(r[2] or "{}").get("title") or r[1]), "status": r[0], "workspace": r[3], "updated_at": r[4].isoformat() if r[4] else None}
+        for r in db.execute(
+            sql_text(
+                "SELECT status, doc_key, detail, workspace, updated_at FROM doc_status WHERE kind = 'kg_doc'"
+                " ORDER BY updated_at DESC LIMIT 6"
+            ),
+            {},
+        ).all()
+    ]
+    recent_qa = [
+        {"content": (m.content or "")[:80], "session_id": m.session_id, "created_at": m.created_at.isoformat() if m.created_at else None}
+        for m in db.query(WikiChatMessage).filter(WikiChatMessage.role == "user").order_by(WikiChatMessage.id.desc()).limit(8).all()
+    ]
+    return ok({"summary": summary, "kg": kg, "pipeline": {"by_status": by_status, "recent": recent_pipeline}, "recent_qa": recent_qa})
+
+
+@app.get("/api/knowledge/assets/download")
+def download_knowledge_asset(object_key: str):
+    """资产原件下载（对象存储 best-effort：未启用/不存在报 404，前端据此隐藏按钮）。"""
+    from urllib.parse import quote
+
+    from fastapi.responses import Response
+
+    from app.core.config import get_settings
+    from app.core.objectstore import get_objectstore
+
+    key = (object_key or "").strip()
+    if not key.startswith("assets/") or ".." in key:
+        raise ApiError(400, "object_key 非法", 400)
+    store = get_objectstore()
+    if not store.enabled:
+        raise ApiError(404, "对象存储未启用", 404)
+    data = store.get_bytes(get_settings().s3_bucket_assets, key)
+    if data is None:
+        raise ApiError(404, "原件不存在", 404)
+    filename = key.rsplit("/", 1)[-1]
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
 @app.post("/api/knowledge/documents/delete")
-def delete_knowledge_document(doc_key: str):
+def delete_knowledge_document(doc_key: str, db: Session = Depends(get_db)):
+    """删除资产库文档：检索行 + 图谱侧贡献一并撤除。
+    图谱侧 doc_key 由 workspace+标题确定性派生（doc_key_for），此处重算后调
+    doc_pipeline.delete_document（撤 chunk + remove_source 重建图谱贡献）；
+    粘贴/URL 导入没进图谱管线，重算 miss 静默跳过（best-effort，历史数据同样覆盖）。"""
+    from sqlalchemy import text as sql_text
+
     from app.services.knowledge.rag import remove_document
 
+    row = db.execute(
+        sql_text("SELECT repo_id, title, kind, meta FROM rag_documents WHERE doc_key = :k"),
+        {"k": doc_key},
+    ).first()
     remove_document(doc_key)
-    return ok({"deleted": doc_key})
+    kg_removed = False
+    if row is not None and row[2] in ("user_doc", "plan", "req"):
+        repo_id, title, kind = int(row[0] or 0), str(row[1] or ""), row[2]
+        if kind == "req":
+            try:
+                meta = json.loads(row[3] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                meta = {}
+            code = str(meta.get("req_code") or "")
+            title = f"需求 {code} {title}".strip()
+        ws = f"repo:{repo_id}" if repo_id else "default"
+        from app.services.knowledge.doc_pipeline import delete_document as kg_delete
+        from app.services.knowledge.doc_pipeline import doc_key_for
+
+        try:
+            kg_delete(doc_key_for(ws, title))
+            kg_removed = True
+        except LookupError:
+            pass  # 未进图谱（粘贴/URL 导入）或已删过——静默
+    return ok({"deleted": doc_key, "kg_doc_removed": kg_removed})
 
 
 @app.post("/api/wiki/lint/fix-duplicates")
@@ -821,6 +1000,33 @@ def wiki_insights(repo_id: int, db: Session = Depends(get_db)):
     for w in pages:
         level_dist[w.level] = level_dist.get(w.level, 0) + 1
 
+    # KG 维度（Phase2.6）：图谱覆盖盲区 = 有模块页但该页贡献 0 实体（文档太薄/抽取失败
+    # 的确定性信号）；社区漂移 = 图谱更新后社区报告未重建（doc_pipeline 置 dirty 标记）
+    from app.models import KgCommunity, KgEntity, KgRelation
+    from app.services.knowledge.doc_pipeline import doc_key_for, settings_get
+
+    ws = f"repo:{repo_id}"
+    kg_rows = db.query(KgEntity.source_refs).filter((KgEntity.workspace == ws) | ((KgEntity.workspace == "") & (KgEntity.repo_id == repo_id))).all()
+    contrib: dict[str, int] = {}
+    for (refs_raw,) in kg_rows:
+        try:
+            refs = json.loads(refs_raw or "[]")
+        except json.JSONDecodeError:
+            continue
+        for r in refs:
+            contrib[str(r)] = contrib.get(str(r), 0) + 1
+    module_page_dk = {doc_key_for(ws, w.title): w.module for w in pages if w.level == "module" and w.module}
+    kg_gaps = sorted({m for dk, m in module_page_dk.items() if contrib.get(dk, 0) == 0})
+    kg_rel_scope = (KgRelation.workspace == ws) | ((KgRelation.workspace == "") & (KgRelation.repo_id == repo_id))
+    kg_comm_scope = (KgCommunity.workspace == ws) | ((KgCommunity.workspace == "") & (KgCommunity.repo_id == repo_id))
+    kg_stats = {
+        "kg_entities": len(kg_rows),
+        "kg_relations": int(db.query(func.count()).select_from(KgRelation).filter(kg_rel_scope).scalar() or 0),
+        "kg_communities": int(db.query(func.count()).select_from(KgCommunity).filter(kg_comm_scope).scalar() or 0),
+        "kg_dirty": settings_get(f"communities_dirty:{ws}", "0") == "1",
+        "kg_gaps": kg_gaps,
+    }
+
     stats = {
         "repo_id": repo_id,
         "pages": len(pages),
@@ -834,6 +1040,7 @@ def wiki_insights(repo_id: int, db: Session = Depends(get_db)):
         "lint_top": [f["title"] for f in lint["findings"][:5]],
         "gap_questions": gaps,
         "recent_questions": focus_questions,
+        **kg_stats,
     }
 
     report: dict = {"stats": stats, "insights": None, "insights_error": ""}
@@ -846,7 +1053,9 @@ def wiki_insights(repo_id: int, db: Session = Depends(get_db)):
                 '{"summary": "两句话总览", "coverage_gaps": ["知识盲区，每条一句话"],'
                 ' "stale_risks": ["过期/质量风险"], "focus_topics": ["用户关注焦点"],'
                 ' "actions": ["可执行建议，按优先级"]}\n'
-                "注意：qa_no_data 问题代表检索盲区（用户问了但知识库答不上），是最重要的缺口信号。\n\n"
+                "注意：qa_no_data 问题代表检索盲区（用户问了但知识库答不上），是最重要的缺口信号；"
+                "kg_gaps 是有 Wiki 模块页但图谱没抽到任何实体的模块（文档太薄或抽取失败），"
+                "kg_dirty=1 表示图谱更新过、社区报告待重建。\n\n"
                 f"【统计】{json.dumps(stats, ensure_ascii=False)}"
             )
             raw = chat_once(prompt, system="只输出 JSON。", role="query").strip()
@@ -876,6 +1085,34 @@ def get_wiki_page(page_id: int, db: Session = Depends(get_db)):
             "stale": w.stale,
         }
     )
+
+
+@app.get("/api/wiki/{page_id}/entities")
+def wiki_page_entities(page_id: int, db: Session = Depends(get_db)):
+    """本页贡献的图谱实体（Phase3 图谱导航合一）：页 doc_key 反查 KgEntity.source_refs。
+
+    doc_key 只由 workspace+标题派生（doc_pipeline.doc_key_for），无需依赖状态行；
+    LIKE 前缀定位 + Python 精确成员校验（16 位 hash 同长字段，误配概率可忽略但仍校验）。"""
+    from app.models import KgEntity
+    from app.services.knowledge.doc_pipeline import doc_key_for
+
+    w = crud_wiki_pages.get(db, page_id)
+    if w is None:
+        raise ApiError(404, "页面不存在", 404)
+    dk = doc_key_for(f"repo:{w.repo_id}", w.title)
+    rows = db.query(KgEntity.name, KgEntity.etype, KgEntity.description, KgEntity.source_refs, KgEntity.workspace).filter(
+        KgEntity.source_refs.like(f"%{dk}%")
+    ).all()
+    out = []
+    for name, etype, desc, refs_raw, ws in rows:
+        try:
+            refs = json.loads(refs_raw or "[]")
+        except json.JSONDecodeError:
+            continue
+        if dk in refs:
+            out.append({"name": name, "etype": etype, "description": (desc or "")[:160], "workspace": ws})
+    out.sort(key=lambda x: x["name"])
+    return ok(out)
 
 
 # ---------------- Wiki 编译锁（OpenWiki acquire_compile_lock 移植） ----------------

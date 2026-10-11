@@ -5,19 +5,44 @@ import uuid
 
 
 def test_parse_json_tolerates_fences_and_noise():
-    from app.services.knowledge.docgraph import _parse_json
+    # 构建引擎唯一化（doc_pipeline 合并）后，容错解析独立在 kg_extract.parse_json
+    from app.services.knowledge.kg_extract import parse_json
 
-    assert _parse_json('```json\n{"entities": []}\n```') == {"entities": []}
-    assert _parse_json('前置说明 {"entities": [{"name": "x"}]} 后缀') == {"entities": [{"name": "x"}]}
-    assert _parse_json("not json at all") == {}
-    assert _parse_json('{"broken": ') == {}
+    assert parse_json('```json\n{"entities": []}\n```') == {"entities": []}
+    assert parse_json('前置说明 {"entities": [{"name": "x"}]} 后缀') == {"entities": [{"name": "x"}]}
+    assert parse_json("not json at all") == {}
+    assert parse_json('{"broken": ') == {}
 
 
-def test_doc_hash_stable():
-    from app.services.knowledge.docgraph import _doc_hash
+def test_doc_content_hash_stable():
+    """内容 hash 语义（原 _doc_hash，已内联进 submit_document）：同内容重提交短路，
+    内容变更重新入队且 hash 跟随变化。"""
+    import hashlib
+    import uuid
 
-    assert _doc_hash("t", "c") == _doc_hash("t", "c")
-    assert _doc_hash("t", "c") != _doc_hash("t", "c2")
+    from app.db.session import get_session, init_db
+    from app.models import DocStatus
+    from app.services.knowledge.doc_pipeline import submit_document
+
+    init_db()
+    ws = f"smoke-{uuid.uuid4().hex[:8]}"
+    title = "hash 稳定性测试"
+    try:
+        r1 = submit_document(ws, title, "内容 v1")
+        assert r1["status"] in ("pending", "processing") and not r1.get("skipped")
+        r2 = submit_document(ws, title, "内容 v1")
+        assert r2.get("skipped") and r2["doc_key"] == r1["doc_key"], "同内容重提交应短路零成本"
+        r3 = submit_document(ws, title, "内容 v2 变更")
+        assert not r3.get("skipped"), "内容变更应重新入队"
+        with get_session() as sess:
+            row = sess.query(DocStatus).filter(DocStatus.doc_key == r1["doc_key"]).first()
+            assert row is not None
+            expected = hashlib.md5(f"{title}\n内容 v2 变更".encode("utf-8")).hexdigest()
+            assert row.content_hash == expected, "hash 口径：md5(title\\ncontent)"
+    finally:
+        with get_session() as sess:
+            sess.query(DocStatus).filter(DocStatus.workspace == ws).delete(synchronize_session=False)
+            sess.commit()
 
 
 def test_apply_extraction_merge_votes_weights_and_selective_delete():

@@ -17,11 +17,41 @@ log = logging.getLogger("runner-svc")
 MAX_REPAIR_ROUNDS = 3
 
 
+def _archive_run_artifacts(run_code: str, ws: Path, filename: str) -> None:
+    """执行产物入对象存储（best-effort）：最终测试脚本 + 报告 + 覆盖率。"""
+    from app.core.config import get_settings
+    from app.core.objectstore import get_objectstore, safe_key_part
+
+    store = get_objectstore()
+    if not store.enabled:
+        return
+    bucket = get_settings().s3_bucket_artifacts
+    base = f"runs/{safe_key_part(run_code)}"
+    try:
+        store.put_bytes(bucket, f"{base}/{safe_key_part(filename)}", (ws / "tests" / filename).read_bytes())
+        for name in ("report.xml", "coverage.json"):
+            f = ws / name
+            if f.exists():
+                store.put_bytes(bucket, f"{base}/{name}", f.read_bytes())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("run artifacts archive failed: %s", exc)
+
+
 def _repo_checkout(repo_id: int) -> Path:
     with get_session() as sess:
         repo = sess.get(Repos, repo_id) if repo_id else None
         if repo is not None and repo.local_path:
-            return Path(repo.local_path)
+            checkout = Path(repo.local_path)
+            if not checkout.exists() and repo.head_rev:
+                # 本地缓存丢失：沙箱执行前从对象存储快照还原（best-effort，失败走原有报错路径）
+                from app.core.config import get_settings
+                from app.core.objectstore import get_objectstore, safe_key_part
+
+                store = get_objectstore()
+                key = f"repos/{repo.id}/{safe_key_part(repo.head_rev)}/snapshot.tar.gz"
+                if store.restore_dir(checkout, get_settings().s3_bucket_repos, key):
+                    log.info("run checkout restored from objectstore: %s", checkout)
+            return checkout
     # 未注册仓库时退回 fixtures/sample-repo（demo 直跑）
     return Path("fixtures/sample-repo")
 
@@ -64,6 +94,7 @@ def execute_suite(run_code: str, cases: list[dict], source_code: str, repo_id: i
         timeline.append({"round": rounds, "status": res.status, "pass": f"{res.pass_count}/{res.pass_total}", "mode": res.mode, "regenerated": bool(src)})
 
     cost = int(time.time() - t0)
+    _archive_run_artifacts(run_code, ws, filename)
     emit(
         "执行",
         "runner-svc",

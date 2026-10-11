@@ -5,6 +5,9 @@
   → 逐 chunk 抽取+gleaning（llm_cache 键控）→ 三阶段合并（kg_merge.apply_extraction）
   → 社区标记 dirty（下次构建时生效）
 
+优先级队列：手动上传/资产入库 priority=0（交互等待，插队先跑），自动联动
+（wiki 编译/kg/build 全量同步）priority=10 批量垫底——背景任务再大也不挡用户。
+
 状态落 doc_status(kind=kg_doc, workspace)，前端轮询 /api/kg/documents（分页/过滤）。
 删除文档：撤 chunk + kg_merge.remove_source（从剩余抽取重建图谱，不重跑 LLM）。
 启动恢复：应用 lifespan 调 recover_and_start()，崩溃遗留的 pending/processing 重新入队。
@@ -14,6 +17,7 @@ LLM Key 未配置：入队与状态机照常工作，抽取步显式 failed（�
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import logging
 import queue
@@ -26,9 +30,13 @@ from app.models import DocStatus, KgSetting
 log = logging.getLogger("shared.doc_pipeline")
 
 _kind = "kg_doc"
-_queue: "queue.Queue[str]" = queue.Queue()
+_queue: "queue.PriorityQueue[tuple[int, int, str]]" = queue.PriorityQueue()
+_seq = itertools.count()
 _workers: list[threading.Thread] = []
 _started = False
+# apply_extraction 是 SELECT-then-INSERT 非原子 upsert，多 worker 并发合并同名实体会重复插入
+# → 进程内锁串行化「合并」步（LLM 抽取——真正的耗时大头——仍然多文档并行）
+_merge_lock = threading.Lock()
 
 
 def settings_get(key: str, default: str = "") -> str:
@@ -70,8 +78,21 @@ def doc_key_for(workspace: str, title: str) -> str:
     return f"kgdoc:{workspace}:" + hashlib.sha1(f"{workspace}:{title}".encode()).hexdigest()[:16]
 
 
-def submit_document(workspace: str, title: str, content: str, repo_id: int = 0, filename: str = "", parser: str = "native") -> dict:
-    """入队一份文档（同步登记 pending，抽取等重活全部异步）。返回 {doc_key, status}。"""
+def submit_document(
+    workspace: str,
+    title: str,
+    content: str,
+    repo_id: int = 0,
+    filename: str = "",
+    parser: str = "native",
+    source: str = "manual",
+    priority: int = 0,
+) -> dict:
+    """入队一份文档（同步登记 pending，抽取等重活全部异步）。返回 {doc_key, status}。
+
+    内容未变且已 ok/pending/processing 的文档直接短路返回（自动联动场景高频重提交，
+    避免重复烧 LLM）。source 标记来源；priority 小者先跑：手动上传 0，自动联动 10。
+    """
     title = title.strip()
     if not title:
         raise ValueError("文档标题必填")
@@ -84,10 +105,16 @@ def submit_document(workspace: str, title: str, content: str, repo_id: int = 0, 
             .first()
         )
         if existing is not None:
+            # hash 相同且不在失败态 → 无需重复入队（ok=已处理过；pending/processing=在途同内容）
+            if existing.content_hash == h and existing.status in ("ok", "pending", "processing"):
+                return {"doc_key": dk, "status": existing.status, "skipped": True}
             existing.status = "pending"
             existing.error = ""
             existing.content_hash = h
-            existing.detail = json.dumps({"title": title, "content": content, "filename": filename, "parser": parser, "workspace": workspace}, ensure_ascii=False)
+            existing.detail = json.dumps(
+                {"title": title, "content": content, "filename": filename, "parser": parser, "workspace": workspace, "source": source},
+                ensure_ascii=False,
+            )
         else:
             sess.add(
                 DocStatus(
@@ -96,13 +123,16 @@ def submit_document(workspace: str, title: str, content: str, repo_id: int = 0, 
                     kind=_kind,
                     doc_key=dk,
                     status="pending",
-                    detail=json.dumps({"title": title, "content": content, "filename": filename, "parser": parser, "workspace": workspace}, ensure_ascii=False),
+                    detail=json.dumps(
+                        {"title": title, "content": content, "filename": filename, "parser": parser, "workspace": workspace, "source": source},
+                        ensure_ascii=False,
+                    ),
                     content_hash=h,
                 )
             )
         sess.commit()
     ensure_started()
-    _queue.put(dk)
+    _queue.put((priority, next(_seq), dk))
     return {"doc_key": dk, "status": "pending"}
 
 
@@ -146,7 +176,10 @@ def _process(doc_key: str) -> None:
         detail = json.loads(row.detail or "{}")
         workspace, repo_id, h = row.workspace, row.repo_id, row.content_hash
         row.updated_at = datetime.now()
-        sess.commit()
+        try:
+            sess.commit()
+        except Exception:  # noqa: BLE001  行已被删除/并发重置（重复入队、孤儿清理竞态）→ 放弃本轮
+            return
     title = detail.get("title", "")
     try:
         content = detail.get("content", "")
@@ -177,17 +210,19 @@ def _process(doc_key: str) -> None:
         _replace_chunks(workspace, repo_id, doc_key, chunks)
 
         # 抽取 + gleaning + 合并（llm_cache 键控：未变 chunk 零成本）
+        # 抽取多 worker 并行；合并步进程内锁串行化（非原子 upsert，见 _merge_lock 注释）
         extraction = extract_document(chunks, title, gleaning=gleaning)
-        merge_stats = apply_extraction(
-            repo_id,
-            workspace,
-            source_ref=doc_key,
-            doc_title=title,
-            extraction=extraction,
-            content_hash=h,
-            chunk_count=len(chunks),
-            gleaning_rounds=extraction.get("gleaning_rounds", 0),
-        )
+        with _merge_lock:
+            merge_stats = apply_extraction(
+                repo_id,
+                workspace,
+                source_ref=doc_key,
+                doc_title=title,
+                extraction=extraction,
+                content_hash=h,
+                chunk_count=len(chunks),
+                gleaning_rounds=extraction.get("gleaning_rounds", 0),
+            )
 
         with get_session() as sess:
             row = sess.query(DocStatus).filter(DocStatus.kind == _kind, DocStatus.doc_key == doc_key).first()
@@ -240,7 +275,7 @@ def _replace_chunks(workspace: str, repo_id: int, doc_key: str, chunks: list[dic
 
 
 def recover_and_start() -> int:
-    """启动恢复：pending/processing 重新入队；拉起 worker 线程。返回 worker 数。"""
+    """启动恢复：pending/processing 重新入队（按原来源定优先级）；拉起 worker 线程。返回 worker 数。"""
     global _started
     ensure_started()
     with get_session() as sess:
@@ -249,11 +284,12 @@ def recover_and_start() -> int:
             .filter(DocStatus.kind == _kind, DocStatus.status.in_(("pending", "processing")))
             .all()
         )
-        keys = [r.doc_key for r in stuck]
-    for k in keys:
-        _queue.put(k)
-    if keys:
-        log.info("doc pipeline recovered %d in-flight document(s)", len(keys))
+    for r in stuck:
+        detail = json.loads(r.detail or "{}")
+        pri = 10 if str(detail.get("source", "")).startswith("auto:") else 0
+        _queue.put((pri, next(_seq), r.doc_key))
+    if stuck:
+        log.info("doc pipeline recovered %d in-flight document(s)", len(stuck))
     return len(_workers)
 
 
@@ -275,7 +311,7 @@ def ensure_started() -> None:
 
 def _worker_loop() -> None:
     while True:
-        dk = _queue.get()
+        _pri, _seq_no, dk = _queue.get()
         try:
             _process(dk)
         except Exception as exc:  # noqa: BLE001  worker 不因单文档异常死亡
@@ -322,11 +358,34 @@ def list_documents(repo_id: int = 0, workspace: str = "", status: str = "", q: s
                 "relations": detail.get("relations", 0),
                 "content_chars": detail.get("content_chars", 0),
                 "filename": detail.get("filename", ""),
+                "source": detail.get("source", "manual"),
                 "content_hash": r.content_hash,
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             }
         )
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def purge_auto_orphans(workspace: str, live_doc_keys: set[str], source_prefix: str = "auto:") -> int:
+    """清理自动来源的孤儿图谱文档：源已消失（wiki 页被 GC/缺陷被删）但抽取记录还在。
+
+    只动 source 前缀匹配的自动文档，用户手动上传的不受影响。返回清理数。
+    """
+    removed = 0
+    with get_session() as sess:
+        rows = sess.query(DocStatus).filter(DocStatus.workspace == workspace, DocStatus.kind == _kind).all()
+        stale_keys = []
+        for r in rows:
+            detail = json.loads(r.detail or "{}")
+            if str(detail.get("source", "")).startswith(source_prefix) and r.doc_key not in live_doc_keys:
+                stale_keys.append(r.doc_key)
+    for dk in stale_keys:
+        try:
+            delete_document(dk)
+            removed += 1
+        except LookupError:
+            pass
+    return removed
 
 
 def track(doc_key: str) -> dict | None:

@@ -15,7 +15,41 @@ from tree_sitter_language_pack import get_language, get_parser
 
 log = logging.getLogger("repo-svc.treesitter")
 
-_SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", ".tox", "build", "dist", ".pytest_cache", "target", "vendor", "bin", "obj"}
+# 基础设施排除集：依赖 / 构建产物 / VCS / IDE 元数据——任何项目里都不算源码
+SKIP_DIRS = {
+    ".git", ".svn", ".hg", ".idea", ".vscode",
+    ".venv", "venv", "__pycache__", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "node_modules", "build", "dist", "target", "out", "coverage", ".next", ".gradle", ".mvn",
+    "vendor", "bin", "obj", ".terraform",
+}
+
+# 非源码目录：测试与夹具 / 文档 / 脚手架脚本 / 迁移 / CI / 原型实验代码。
+# wiki 与代码图谱只基于产品源码构建，这些目录不进函数索引。
+# 这些词作为产品代码包段名的情况极少，允许任意深度匹配。
+NON_SOURCE_DIRS = {
+    # 测试与夹具
+    "tests", "test", "testing", "__tests__", "spec", "specs", "e2e", "cypress",
+    "fixtures", "fixture", "testdata", "mocks", "__mocks__",
+    # 文档
+    "docs", "doc",
+    # 脚手架脚本 / 迁移
+    "scripts", "script", "migrations", "alembic",
+    # CI
+    "ci", ".github", ".gitlab", ".circleci",
+    # 原型与实验 / 基准测试
+    "prototype", "prototypes", "benchmark", "benchmarks",
+}
+
+# 碰撞敏感的非源码目录：这些词常出现在正常代码包路径里（Java 的 com/demo、Go 的 pkg/docker），
+# 只在仓库根及其一级分组（docs/、backend/tests 这类位置）匹配，深路径不误杀。
+NON_SOURCE_SHALLOW_DIRS = {
+    "examples", "example", "samples", "sample", "demo", "demos", "tutorials",
+    "tools", "sandbox", "playground", "poc",
+    "deploy", "deployment", "deployments", "docker", "k8s", "kubernetes",
+}
+
+# 索引遍历总排除集（基础设施 ∪ 非源码任意深度集）
+_SKIP_DIRS = SKIP_DIRS | NON_SOURCE_DIRS
 
 # 扩展名 → 语言（tree-sitter-language-pack 语言名）
 EXT_TO_LANG: dict[str, str] = {
@@ -296,13 +330,25 @@ def _card(node, src: bytes, module: str, path: Path, root: Path, lang: str, cfg:
     )
 
 
+def is_skipped_path(rel_path: str | Path) -> bool:
+    """仓库内相对路径命中排除目录即 True（全量遍历 / 增量索引 / 存量清理共用语义）。
+
+    入参必须是仓库相对路径：绝对路径里可能恰好含 test/docs 等常见词，逐层级判定会误杀整仓。
+    深度规则：基础设施 ∪ 非源码低碰撞词任意深度；碰撞敏感词只看仓库根及其一级分组。
+    """
+    parts = Path(rel_path).parts
+    if any(part in _SKIP_DIRS for part in parts):
+        return True
+    return any(part in NON_SOURCE_SHALLOW_DIRS for part in parts[:2])
+
+
 def index_repo(root: Path) -> list[FnCard]:
-    """遍历仓库全部受支持语言源文件。"""
+    """遍历仓库全部受支持语言源文件（基础设施与非源码目录在遍历期剪枝）。"""
     cards: list[FnCard] = []
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in EXT_TO_LANG:
             continue
-        if any(part in _SKIP_DIRS for part in path.parts):
+        if is_skipped_path(path.relative_to(root)):
             continue
         cards.extend(parse_file(path, root))
     return cards

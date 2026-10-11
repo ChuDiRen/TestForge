@@ -80,15 +80,16 @@ def _submit_kg(workspace: str, title: str, text: str, repo_id: int) -> str:
         return ""
 
 
-def _ingest_doc_asset(kind: str, title: str, text: str, repo_id: int, filename: str) -> dict:
+def _ingest_doc_asset(kind: str, title: str, text: str, repo_id: int, filename: str, object_key: str = "") -> dict:
     """需求文档/技术文档/测试方案共用：门卫 → rag kind 行 → kg 管线。"""
     from app.api.requirements import ingest_one
 
     if kind == "req_doc":
         # 需求走四步管线（可测性评分即 OpenWiki 评估门卫的需求版，不再重复 LLM 评估）
-        res = ingest_one(title, text, repo_id=repo_id, source="upload")
+        # upsert：同名同仓库重传 PRD = 更新原需求单（重解析），不再堆积重复 REQ
+        res = ingest_one(title, text, repo_id=repo_id, source="upload", upsert=True)
         _submit_kg(f"repo:{repo_id}" if repo_id else "default", f"需求 {res['code']} {title}", text, repo_id)
-        return {"req_code": res["code"], "status": res["status"], "testability": res["testability"]}
+        return {"req_code": res["code"], "status": res["status"], "testability": res["testability"], "updated": bool(res.get("updated"))}
 
     _assess_guard(title, text)
     digest = hashlib.sha1(f"{repo_id}:{title}".encode()).hexdigest()[:16]
@@ -96,12 +97,12 @@ def _ingest_doc_asset(kind: str, title: str, text: str, repo_id: int, filename: 
         doc_key, rag_kind = "userdoc:" + digest, "user_doc"
     else:  # test_plan
         doc_key, rag_kind = "plan:upload:" + digest, "plan"
-    _index_asset(doc_key, rag_kind, title, text, repo_id, kind, filename)
+    _index_asset(doc_key, rag_kind, title, text, repo_id, kind, filename, object_key=object_key)
     kg_key = _submit_kg(f"repo:{repo_id}" if repo_id else "default", title, text, repo_id)
     return {"doc_key": doc_key, "kg_doc_key": kg_key, "indexed": True}
 
 
-def _index_asset(doc_key: str, rag_kind: str, title: str, text: str, repo_id: int, asset_kind: str, filename: str) -> None:
+def _index_asset(doc_key: str, rag_kind: str, title: str, text: str, repo_id: int, asset_kind: str, filename: str, object_key: str = "") -> None:
     from app.services.knowledge.docstatus import mark
     from app.services.knowledge.rag import ensure_rag_documents_table, index_document
 
@@ -112,7 +113,7 @@ def _index_asset(doc_key: str, rag_kind: str, title: str, text: str, repo_id: in
         title,
         text,
         repo_id=repo_id,
-        meta={"source": "asset-upload", "asset_kind": asset_kind, "filename": filename},
+        meta={"source": "asset-upload", "asset_kind": asset_kind, "filename": filename, "object_key": object_key},
     )
     mark(repo_id, rag_kind, doc_key)
 
@@ -135,13 +136,25 @@ async def upload_knowledge_asset(request: Request):
     if not data:
         raise ApiError(400, "上传文件为空", 400)
 
+    # 原始文件入对象存储（best-effort）：解析只留文本，原件（pdf/docx/xlsx）此前会丢
+    from app.core.config import get_settings
+    from app.core.objectstore import content_digest, get_objectstore, safe_key_part
+
+    store = get_objectstore()
+    scope = f"repo-{repo_id}" if repo_id else "global"
+    asset_key = store.put_bytes(
+        get_settings().s3_bucket_assets,
+        f"assets/{scope}/{safe_key_part(kind)}/{content_digest(data)}/{safe_key_part(filename)}",
+        data,
+    )
+
     suffix = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
     if kind == "defect":
         if suffix not in DEFECT_SUFFIXES:
             raise ApiError(422, f"历史缺陷仅支持 {'/'.join(DEFECT_SUFFIXES)}（首行为表头）", 422)
         rows = _parse_defect_rows(filename, data)
         imported, codes = _import_defects(rows, repo_id, filename)
-        return ok({"kind": kind, "imported": imported, "defect_codes": codes[:50], "filename": filename})
+        return ok({"kind": kind, "imported": imported, "defect_codes": codes[:50], "filename": filename, "object_key": asset_key})
 
     if suffix not in DOC_SUFFIXES:
         raise ApiError(422, f"不支持的文件类型 {suffix or '(无后缀)'}（支持 txt/md/rst/csv/pdf/docx）", 422)
@@ -159,8 +172,8 @@ async def upload_knowledge_asset(request: Request):
 
     # 敏感门卫对解析后全文生效（含 pdf/docx，补齐 kg 管线只扫文本类的缺口）
     _sensitive_guard(title, text)
-    res = _ingest_doc_asset(kind, title, text, repo_id, filename)
-    return ok({"kind": kind, "title": title, "chars": len(text), "filename": filename, **res})
+    res = _ingest_doc_asset(kind, title, text, repo_id, filename, object_key=asset_key)
+    return ok({"kind": kind, "title": title, "chars": len(text), "filename": filename, "object_key": asset_key, **res})
 
 
 @router.get("/api/knowledge/assets/summary")

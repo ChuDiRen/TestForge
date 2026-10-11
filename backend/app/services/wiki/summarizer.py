@@ -30,7 +30,7 @@ def render_repo_page(repo_name: str, cards: list[FnCard], extra: str = "") -> st
     return "\n".join(lines) + "\n"
 
 
-def render_module_page(module: str, cards: list[FnCard]) -> str:
+def render_module_page(module: str, cards: list[FnCard], risk_lines: list[str] | None = None) -> str:
     lines = [
         f"# 模块页 · {module}",
         "",
@@ -44,7 +44,13 @@ def render_module_page(module: str, cards: list[FnCard]) -> str:
             continue
         brief = (c.docstring or "").strip().splitlines()[0][:80] if c.docstring else "（无 docstring）"
         lines.append(f"- `{c.name}{c.signature}` — {brief}")
-    lines += ["", "## 已知风险点", "", "- （由历史缺陷关联自动补充，见缺陷管理）", ""]
+    # 已知风险点（Phase1.3）：调用方传入的真实缺陷聚合行（service 层确定性查询，无 LLM）；
+    # 空列表=该模块确实没有未关闭缺陷，不再是占位假句
+    lines += ["", "## 已知风险点", ""]
+    lines.extend(f"- {r}" for r in (risk_lines or []))
+    if not risk_lines:
+        lines.append("- （暂无未关闭缺陷关联到本模块）")
+    lines.append("")
     return "\n".join(lines)
 
 

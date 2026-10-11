@@ -160,16 +160,20 @@
 | GET | `/api/contracts/{contract_id}/diffs` | diff 历史（from_v/to_v/breaking/changes） | 🟢 |
 | POST | `/api/regenerate` | 定向重生成 `{repo_id*, target_function*, case_ids[]?, reason?}` | 🔴 |
 
-### 2.11 缺陷闭环（6）
+### 2.11 缺陷闭环（10）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| POST | `/api/defects/create` | 建缺陷 `{run_id?\|origin_run, case_codes[]?, req_code?, trace_id?, reason?}` | 🔴 |
-| GET | `/api/defects` | 缺陷列表（≤200） | 🟢 |
+| POST | `/api/defects/create` | 建缺陷 `{run_id?\|origin_run, case_codes[]?, req_code?, trace_id?, reason?}`；同源复现自动在旧缺陷留痕 | 🔴 |
+| GET | `/api/defects` | 缺陷列表（≤200，含结案原因/优先级/修复版本/重复指向/评论数/updated_at） | 🟢 |
+| GET | `/api/defects/workflow` | 状态转换图（`{from_status\|null, to_status, require_comment}`，数据驱动可改表调流程） | 🟢 |
 | GET | `/api/defects/{defect_id}/suggestion` | 查看修复建议 | 🟢 |
 | POST | `/api/defects/{defect_id}/suggest` | AI 生成根因分析+修复建议（缓存落库；LLM 不可用 503） | 🔴 |
-| POST | `/api/defects/{defect_id}/regression` | 定向回归（过→自动关闭/败→重开） | 🔴 |
-| POST | `/api/defects/{defect_id}/status` | 生命周期流转 `{status*, actor?}`；关闭时沉淀 lesson 入知识库 | 🔴 |
+| POST | `/api/defects/{defect_id}/regression` | 定向回归（过→自动关闭结案=已修复 / 败→重开；全程落活动+系统评论） | 🔴 |
+| POST | `/api/defects/{defect_id}/status` | 通用流转更新 `{status?, resolution?, priority?, assignee?, fix_version?, dupe_of?, comment?, actor?, expected_updated_at?}`；服务端按转换图校验（require_comment 边/关闭必填结案原因/重开清空结案/重复链扁平化防环）+ updated_at 乐观锁（不匹配 409）；返回字段级 `changes {字段:[旧,新]}`；关闭沉淀 lesson 入知识库 | 🔴 |
+| GET | `/api/defects/{defect_id}/comments` | 评论流（normal/system/ai/dupe 分型） | 🟢 |
+| POST | `/api/defects/{defect_id}/comments` | 发评论 `{body*, actor?}` | 🔴 |
+| GET | `/api/defects/{defect_id}/history` | 字段级变更日志（who/field/旧值→新值） | 🟢 |
 
 ### 2.12 迭代计划 / 报告（4）
 
@@ -222,7 +226,7 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| POST | `/api/kg/build` | 构建文档图谱（wiki+缺陷+需求→实体/关系） | 🔴 |
+| POST | `/api/kg/build` | 图谱全量同步（wiki+缺陷+需求→统一异步管线入队，hash 短路增量；wiki 重建亦自动联动） | 🔴 |
 | GET | `/api/kg/query` | 图谱双层检索（q*, mode=local/global/mix, limit=6） | 🟢 |
 | GET | `/api/kg/stats` | 图谱规模统计 | 🟢 |
 | GET | `/api/knowledge/status` | 摄入健康视图（kind×status + 最近失败） | 🟢 |

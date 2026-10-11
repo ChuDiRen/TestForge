@@ -8,9 +8,35 @@ from app.core.trace import emit
 from app.db.session import get_session
 from app.models import CallEdges, Functions, Repos
 from app.services.repo import gitops
-from app.services.repo.indexer import index_repo, is_supported_file, parse_file
+from app.services.repo.indexer import index_repo, is_skipped_path, is_supported_file, parse_file
 
 log = logging.getLogger("repo-svc")
+
+
+def _snapshot_repo(repo_id: int, local_path, rev: str, steps: list[str]) -> None:
+    """检出目录快照入对象存储（best-effort，MinIO 缺席只跳过）。"""
+    from app.core.config import get_settings
+    from app.core.objectstore import get_objectstore, safe_key_part
+
+    store = get_objectstore()
+    if not store.enabled:
+        return
+    key = f"repos/{repo_id}/{safe_key_part(rev)}/snapshot.tar.gz"
+    saved = store.snapshot_dir(local_path, get_settings().s3_bucket_repos, key)
+    if saved:
+        steps.append(f"源码快照入对象存储: {saved}")
+
+
+def _restore_repo(repo_id: int, dest, head_rev: str) -> bool:
+    """本地检出缓存丢失时从对象存储还原（键按 head_rev 定位）。"""
+    from app.core.config import get_settings
+    from app.core.objectstore import get_objectstore, safe_key_part
+
+    store = get_objectstore()
+    if not store.enabled or not head_rev:
+        return False
+    key = f"repos/{repo_id}/{safe_key_part(head_rev)}/snapshot.tar.gz"
+    return store.restore_dir(dest, get_settings().s3_bucket_repos, key)
 
 
 def register(url: str, branch: str, credential_ref: str, webhook: bool) -> dict:
@@ -36,6 +62,7 @@ def register(url: str, branch: str, credential_ref: str, webhook: bool) -> dict:
             r.last_pull = datetime.now()
             r.head_rev = rev
             sess.commit()
+        _snapshot_repo(repo_id, local_path, rev, steps)
         emit("仓库", "repo-svc", f"仓库接入成功 id={repo_id} url={url}", trace_id=tid, extra={"steps": " > ".join(steps)})
     except Exception as exc:  # noqa: BLE001
         with get_session() as sess:
@@ -81,6 +108,7 @@ def register_upload(name: str, path: str, branch: str) -> dict:
             r.last_pull = datetime.now()
             r.head_rev = rev
             sess.commit()
+        _snapshot_repo(repo_id, dest, rev, steps)
         emit("仓库", "repo-svc", f"代码包接入成功 id={repo_id} name={name}", trace_id=tid, extra={"steps": " > ".join(steps)})
     except Exception as exc:  # noqa: BLE001
         with get_session() as sess:
@@ -114,9 +142,13 @@ def pull(repo_id: int) -> dict:
         from_rev = repo.head_rev
         url = repo.url
     dest = Path(local_path)
-    if not dest.exists():
-        raise FileNotFoundError(f"local repo missing: {dest}")
     steps: list[str] = []
+    if not dest.exists():
+        # 本地缓存丢失（清盘/换机）：先试对象存储快照还原，无快照才报缺失
+        if _restore_repo(repo_id, dest, from_rev or ""):
+            steps.append(f"本地检出缺失，已从对象存储还原 @ {(from_rev or '')[:8]}")
+        else:
+            raise FileNotFoundError(f"local repo missing: {dest}")
     rev = gitops.pull(dest)
     steps.append(f"git pull --ff-only ok @ {rev[:8]}")
     changed = gitops.changed_files(dest, from_rev, rev)
@@ -132,6 +164,7 @@ def pull(repo_id: int) -> dict:
         r.head_rev = rev
         r.status = "已接入"
         sess.commit()
+    _snapshot_repo(repo_id, dest, rev, steps)
     emit("仓库", "repo-svc", f"仓库拉取 id={repo_id} rev={rev[:8]} 变更文件={len(changed)}", trace_id=tid)
     return {
         "id": repo_id,
@@ -144,6 +177,24 @@ def pull(repo_id: int) -> dict:
         "impact": counts.get("impact", {}),
         "steps": steps,
     }
+
+
+def _purge_skipped_rows(sess, repo_id: int, files: set[str] | None) -> int:  # type: ignore[no-untyped-def]
+    """下线被排除目录（非源码）的存量函数及其调用边。files=None 清历史全部，否则仅命中指定文件的。"""
+    rows = sess.query(Functions).filter(Functions.repo_id == repo_id).all()
+    if files is None:
+        hit = [f for f in rows if is_skipped_path(f.file)]
+    else:
+        hit = [f for f in rows if f.file in files and is_skipped_path(f.file)]
+    if not hit:
+        return 0
+    ids = [f.id for f in hit]
+    sess.query(CallEdges).filter(
+        CallEdges.caller_id.in_(ids) | CallEdges.callee_id.in_(ids)
+    ).delete(synchronize_session=False)
+    for f in hit:
+        sess.delete(f)
+    return len(hit)
 
 
 def _reindex(
@@ -167,7 +218,10 @@ def _reindex(
     changed_functions: list[str] = []
 
     if changed_files:
-        changed_src = [dest / f for f in changed_files if is_supported_file(f) and (dest / f).exists()]
+        changed_src = [
+            dest / f for f in changed_files
+            if is_supported_file(f) and not is_skipped_path(f) and (dest / f).exists()
+        ]
         cards = []
         for src_path in changed_src:
             cards.extend(parse_file(src_path, dest))
@@ -179,6 +233,11 @@ def _reindex(
     with get_session() as sess:
         try:
             old = {f.name: f for f in sess.query(Functions).filter(Functions.repo_id == repo_id).all()}
+            # 排除目录治理：非源码目录（测试/文档/脚本等）的存量函数连边下线
+            # （全量=清历史遗留；增量=本次变更文件落在排除集内的）
+            purged = _purge_skipped_rows(sess, repo_id, None if not changed_files else set(changed_files))
+            if purged:
+                steps.append(f"非源码目录存量函数下线: {purged}")
             if changed_files is not None and changed_files:
                 # 增量：仅处理变更文件下的函数
                 keep = {}

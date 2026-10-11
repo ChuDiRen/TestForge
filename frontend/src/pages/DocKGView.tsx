@@ -31,6 +31,16 @@ interface GraphData {
   focus?: string | null
 }
 
+/** 实体贡献源（/api/kg/entity/sources）：wiki 页可跳回 Wiki，需求跳需求页 */
+interface KgEntitySource {
+  type: string
+  id?: number
+  code?: string
+  title?: string
+  level?: string
+  doc_key?: string
+}
+
 const TYPE_COLORS: Record<string, string> = {
   module: '#2563eb',
   function: '#0d9488',
@@ -62,6 +72,22 @@ export function DocKGView() {
   const layoutRef = useRef<FA2Layout | null>(null)
   const themeModeRef = useRef(themeMode)
   themeModeRef.current = themeMode
+
+  // Wiki 页互跳入口（Phase3 图谱导航合一）：Wiki 页实体点击 → tf-kg-focus →
+  // 定位工作区并 focus 该实体展开邻居
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('tf-kg-focus')
+      if (raw) {
+        sessionStorage.removeItem('tf-kg-focus')
+        const { name, workspace: ws } = JSON.parse(raw) as { name?: string; workspace?: string }
+        if (ws) setWorkspace(ws)
+        if (name) setFocus(name)
+      }
+    } catch {
+      /* 坏数据忽略 */
+    }
+  }, [])
 
   const wsQ = useQuery({ queryKey: ['kg-workspaces'], queryFn: () => get<string[]>('/api/kg/workspaces') })
   const graphQ = useQuery({
@@ -194,6 +220,24 @@ export function DocKGView() {
   }
 
   const relsOfSelected = graphQ.data?.edges.filter((e) => e.source === selected?.id || e.target === selected?.id) ?? []
+
+  // 实体溯源（Phase3）：source_refs 反查贡献源，wiki 页可跳回、需求跳需求页
+  const sourcesQ = useQuery({
+    queryKey: ['kg-entity-sources', selected?.id, workspace],
+    queryFn: () =>
+      get<{ entity: { name: string; etype: string }; sources: KgEntitySource[] }>(
+        `/api/kg/entity/sources?name=${encodeURIComponent(selected!.id)}&workspace=${encodeURIComponent(workspace)}`,
+      ),
+    enabled: !!selected,
+  })
+  const openSource = (s: KgEntitySource) => {
+    if (s.type === 'wiki' && s.id) {
+      sessionStorage.setItem('tf-wiki-open', String(s.id))
+      window.dispatchEvent(new CustomEvent('tf-navigate', { detail: 'wiki' }))
+    } else if (s.type === 'requirement') {
+      window.dispatchEvent(new CustomEvent('tf-navigate', { detail: 'requirements' }))
+    }
+  }
 
   const doRename = async () => {
     if (!selected || !renameTo.trim() || renameTo === selected.id) return
@@ -384,6 +428,28 @@ export function DocKGView() {
                 { title: 'w', dataIndex: 'weight', width: 40, render: (v: number) => v.toFixed(0) },
               ]}
             />
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--tf-ink-3)', marginBottom: 6 }}>贡献来源（点击跳转 · 图谱 ↔ Wiki 互跳）</div>
+              {sourcesQ.isLoading ? (
+                <div style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>解析来源…</div>
+              ) : (sourcesQ.data?.sources ?? []).length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>—</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 4 }}>
+                  {sourcesQ.data!.sources.map((s, i) => (
+                    <Tag
+                      key={`${s.type}-${s.id ?? s.code ?? s.doc_key ?? i}`}
+                      color={s.type === 'wiki' ? 'geekblue' : s.type === 'requirement' ? 'orange' : 'default'}
+                      style={{ cursor: s.type === 'doc' ? 'default' : 'pointer', width: 'fit-content', maxWidth: '100%' }}
+                      onClick={() => openSource(s)}
+                    >
+                      {s.type === 'wiki' ? '📄 ' : s.type === 'requirement' ? '📋 ' : '📦 '}
+                      {s.title || s.code || s.doc_key}
+                    </Tag>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Drawer>

@@ -49,6 +49,13 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE cases ADD COLUMN IF NOT EXISTS stale BOOLEAN NOT NULL DEFAULT FALSE"))
         # defects.suggestion：AI 修复建议（DeepSeek 基于真实失败日志，2026-09 新增）
         conn.execute(text("ALTER TABLE defects ADD COLUMN IF NOT EXISTS suggestion TEXT NOT NULL DEFAULT ''"))
+        # 缺陷管理升级（2026-10，参照 Bugzilla/Jira）：结案原因/优先级/修复版本/重复指向/乐观锁时间戳
+        conn.execute(text("ALTER TABLE defects ADD COLUMN IF NOT EXISTS resolution VARCHAR(32) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE defects ADD COLUMN IF NOT EXISTS priority VARCHAR(8) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE defects ADD COLUMN IF NOT EXISTS fix_version VARCHAR(64) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE defects ADD COLUMN IF NOT EXISTS dupe_of VARCHAR(64) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE defects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NULL"))
+        conn.execute(text("UPDATE defects SET updated_at = created_at WHERE updated_at IS NULL"))
         # users.disabled：账号停用（2026-10 认证加固新增）
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change BOOLEAN NOT NULL DEFAULT FALSE"))
@@ -67,6 +74,30 @@ def init_db() -> None:
         # 退役旧兼容层：cases_embedding 旧向量表（rag_documents 全量接管）与 kg_relations.source_ref 旧列（source_refs 数组接管）
         conn.execute(text("DROP TABLE IF EXISTS cases_embedding"))
         conn.execute(text("ALTER TABLE kg_relations DROP COLUMN IF EXISTS source_ref"))
+        # 缺陷状态机种子（Bugzilla status_workflow 模式）：仅当表为空时灌默认转换图，
+        # 管理员后续直接改表调整流程，启动逻辑不覆盖。from_status 为空 = 建单初始转换。
+        _wf_seed = [
+            (None, "新建", False),
+            ("新建", "已确认", False),
+            ("新建", "已关闭", True),
+            ("已确认", "修复中", False),
+            ("已确认", "已关闭", True),
+            ("修复中", "待回归", False),
+            ("修复中", "已关闭", True),
+            ("待回归", "已关闭", True),
+            ("待回归", "修复中", True),  # 回归失败重开，需留原因
+            ("已关闭", "已确认", True),  # 重开需留原因
+        ]
+        _wf_count = conn.execute(text("SELECT COUNT(*) FROM defect_workflow")).scalar()
+        if not _wf_count:
+            for i, (frm, to, rc) in enumerate(_wf_seed):
+                conn.execute(
+                    text(
+                        "INSERT INTO defect_workflow (from_status, to_status, require_comment, sort, created_at) "
+                        "VALUES (:f, :t, :rc, :s, CURRENT_TIMESTAMP)"
+                    ),
+                    {"f": frm, "t": to, "rc": rc, "s": i},
+                )
     # 首启引导管理员账号（幂等：仅当 users 为空）
     from app.core.auth import bootstrap_admin
 

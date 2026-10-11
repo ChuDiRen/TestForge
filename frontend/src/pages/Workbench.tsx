@@ -190,8 +190,14 @@ export function Workbench() {
       es.addEventListener('result', (ev) => {
         const d = JSON.parse((ev as MessageEvent).data)
         setLogs((l) => [...l, `[result] ${d.message}`])
-        setResult(JSON.parse(d.payload_json || '{}'))
-        setGenId(gen.generation_id)
+        const payload = JSON.parse(d.payload_json || '{}')
+        if (payload.passed === undefined) {
+          // 管线失败事件无闭环数据：只报错，不渲染假成功
+          message.error(d.message || '生成管线失败')
+        } else {
+          setResult(payload)
+          setGenId(gen.generation_id)
+        }
         setStage(5)
         setRunning(false)
         es.close()

@@ -6,6 +6,8 @@ import logging
 import sys
 import time
 import uuid
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="-")
 
@@ -37,10 +39,17 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging(service: str, level: str = "INFO") -> None:
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
+    fmt = JsonFormatter()
+    stdout = logging.StreamHandler(sys.stdout)
+    stdout.setFormatter(fmt)
+    # 文件日志逐条落盘（FileHandler 每条记录 flush）：进程被 shell 重定向/缓冲坑害时日志仍可靠，
+    # 这是 uvicorn.log 停止增长事故的根治——不再依赖启动方式。
+    log_dir = Path(__file__).resolve().parents[2] / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    fileh = RotatingFileHandler(log_dir / "app.log", maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    fileh.setFormatter(fmt)
     root = logging.getLogger()
-    root.handlers = [handler]
+    root.handlers = [stdout, fileh]
     root.setLevel(level.upper())
     # 收敛 grpc/uvicorn 噪音
     for noisy in ("uvicorn.access", "uvicorn.error", "uvicorn"):

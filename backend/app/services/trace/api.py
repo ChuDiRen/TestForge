@@ -59,7 +59,9 @@ def query(trace_id: str = "", req_code: str = "", trace_type: str = "", limit: i
         ]
 
 
-def create_from_run(run_id: str, case_codes_json: str = "[]", req_code: str = "", trace_id: str = "", reason: str = "") -> dict:
+def create_from_run(
+    run_id: str, case_codes_json: str = "[]", req_code: str = "", trace_id: str = "", reason: str = "", title: str = ""
+) -> dict:
     """失败执行 → 自动建缺陷（四向关联），返回 {id, code, title, status, assignee}。"""
     from app.services.trace import defect_svc
 
@@ -73,8 +75,9 @@ def create_from_run(run_id: str, case_codes_json: str = "[]", req_code: str = ""
         req_code=req_code,
         trace_id=trace_id,
         reason=reason,
+        title=title,
     )
-    return {"id": res["id"], "code": res["code"], "title": f"run {run_id} 失败", "status": res["status"], "assignee": res["assignee"]}
+    return {"id": res["id"], "code": res["code"], "title": res["title"], "status": res["status"], "assignee": res["assignee"]}
 
 
 def trigger_regression(defect_id: int, trace_id: str = "") -> dict:

@@ -92,6 +92,9 @@ class CasePlan(BaseModel):
     module: str = ""
     layer: str = "ut"
     cases: list[PlannedCase]
+    # 被测函数是否时间依赖（探针实测：固定/真实时钟双跑不一致）。默认 True 保守渲染时钟 fixture；
+    # 探针验证时间无关后置 False——生成的测试文件不再出现 monkeypatch 时钟桩（mock 观感噪声）
+    time_dependent: bool = True
 
     @model_validator(mode="before")
     @classmethod

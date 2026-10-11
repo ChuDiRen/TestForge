@@ -21,6 +21,14 @@ interface WikiPageRow {
   updated_at: string
 }
 
+/** 问答来源：id>0 可跳 wiki 页；id=0 为知识图谱实体/关系（kind 以 kg_ 开头），仅展示 */
+interface AskSource {
+  id: number
+  title: string
+  score?: number
+  kind?: string
+}
+
 // level 徽章配色对齐互链图谱（WikiGraphView.LEVEL_COLORS）
 const LEVEL_META: Record<string, { label: string; color: string }> = {
   repo: { label: '仓库总览', color: '#24272b' },
@@ -122,6 +130,12 @@ export function Wiki() {
     queryFn: () => get<{ id: number; title: string; score: number }[]>(`/api/wiki/${detail!.id}/related`),
     enabled: !!detail,
   })
+  // 本页贡献的图谱实体（Phase3 图谱导航合一）：点击实体跳文档图谱并 focus
+  const entitiesQ = useQuery({
+    queryKey: ['wiki-page-entities', detail?.id],
+    queryFn: () => get<{ name: string; etype: string; description: string }[]>(`/api/wiki/${detail!.id}/entities`),
+    enabled: !!detail,
+  })
   const lintQ = useQuery({
     queryKey: ['wiki-lint', repoId],
     queryFn: () => get<{ findings: any[]; checked: { pages: number; modules: number } }>(`/api/wiki/lint?repo_id=${repoId}`),
@@ -133,6 +147,26 @@ export function Wiki() {
     if (row) setDetail(row)
     else if (typeof pid === 'string' && pid.startsWith('userdoc:')) message.info('问答沉淀的知识文档——在「知识文档」页管理')
   }
+
+  // 图谱页跳转入口（Phase3 互跳）：DocKGView 实体溯源点击 → tf-wiki-open → 定位打开对应页
+  const [pendingOpen, setPendingOpen] = useState(0)
+  useEffect(() => {
+    const pid = Number(sessionStorage.getItem('tf-wiki-open') || 0)
+    if (pid) {
+      sessionStorage.removeItem('tf-wiki-open')
+      setPendingOpen(pid)
+    }
+  }, [])
+  useEffect(() => {
+    if (pendingOpen && pages.data) {
+      const row = pages.data.find((p) => p.id === pendingOpen)
+      if (row) {
+        setRepoId(row.repo_id)
+        setDetail(row)
+      }
+      setPendingOpen(0)
+    }
+  }, [pendingOpen, pages.data])
 
   // 卡片视图：level 筛选 + 标题搜索 + 分页（全部在前端做，795 页无压力）
   const filtered = useMemo(() => {
@@ -169,7 +203,7 @@ export function Wiki() {
   const messagesQ = useQuery({
     queryKey: ['wiki-chat-messages', sessionId],
     queryFn: () =>
-      get<{ id: number; role: string; content: string; sources: { id: number; title: string }[]; source_mode: string }[]>(
+      get<{ id: number; role: string; content: string; sources: AskSource[]; source_mode: string }[]>(
         `/api/wiki/chat/sessions/${sessionId}/messages`,
       ),
     enabled: sessionId > 0,
@@ -191,7 +225,7 @@ export function Wiki() {
   })
   const saveAsk = useMutation({
     // 反幻觉门卫走服务端：kind_hint="qa" + sources 必填，后端 422 强制（不再只靠前端）
-    mutationFn: (m: { q: string; a: string; sources: { id: number; title: string }[] }) =>
+    mutationFn: (m: { q: string; a: string; sources: AskSource[] }) =>
       post('/api/knowledge/documents/create', {
         title: `问答：${m.q.slice(0, 40)}`,
         content: `${m.a}\n\n---\n来源页：${m.sources.map((s) => s.title).join('、')}`,
@@ -447,35 +481,71 @@ export function Wiki() {
           {lintQ.data.findings.length === 0 ? (
             <span style={{ fontSize: 13, color: 'var(--tf-ink-3)' }}>无发现——没有 stale/重复/孤儿页，模块覆盖完整。</span>
           ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {lintQ.data.findings.map((f: any, i: number) => (
-                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 13, flexWrap: 'wrap' }}>
-                  <Tag color={f.severity === 'critical' ? 'red' : f.severity === 'warning' ? 'orange' : 'blue'} style={{ flexShrink: 0 }}>
-                    {f.severity}
-                  </Tag>
-                  <span style={{ fontWeight: 600 }}>{f.title}</span>
-                  <span style={{ color: 'var(--tf-ink-3)' }}>{f.detail}</span>
-                  {/* 处置动作闭环：stale 直接可重建，不再只是提示 */}
-                  {f.type === 'stale' && (
-                    <Button size="small" type="link" style={{ padding: 0 }} loading={rebuild.isPending} onClick={() => rebuild.mutate(false)}>
-                      重建这批
-                    </Button>
-                  )}
-                  {f.type === 'duplicate' && (
-                    <Popconfirm title="同标题仅保留最早一页，其余连同检索索引一起删除，确定？" onConfirm={() => fixDup.mutate()}>
-                      <Button size="small" type="link" style={{ padding: 0 }} loading={fixDup.isPending}>
-                        一键去重
-                      </Button>
-                    </Popconfirm>
-                  )}
-                  {(f.page_ids ?? []).slice(0, 8).map((pid: number) => (
-                    <Tag key={pid} style={{ cursor: 'pointer' }} onClick={() => openPageById(pid)}>
-                      #{pid}
+            <Table
+              rowKey={(_, i) => String(i)}
+              size="small"
+              pagination={false}
+              dataSource={lintQ.data.findings as any[]}
+              columns={[
+                {
+                  title: '级别',
+                  dataIndex: 'severity',
+                  width: 80,
+                  render: (s: string) => (
+                    <Tag color={s === 'critical' ? 'red' : s === 'warning' ? 'orange' : 'blue'}>
+                      {s === 'critical' ? '严重' : s === 'warning' ? '警告' : '提示'}
                     </Tag>
-                  ))}
-                </div>
-              ))}
-            </div>
+                  ),
+                },
+                {
+                  title: '发现',
+                  dataIndex: 'title',
+                  width: 300,
+                  render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span>,
+                },
+                { title: '说明', dataIndex: 'detail', render: (v: string) => <span style={{ color: 'var(--tf-ink-3)' }}>{v}</span> },
+                {
+                  title: '涉及页面',
+                  dataIndex: 'page_ids',
+                  width: 320,
+                  render: (ids: number[] | undefined) =>
+                    ids?.length ? (
+                      <>
+                        {ids.slice(0, 8).map((pid) => (
+                          <Tag key={pid} style={{ cursor: 'pointer', marginBottom: 2 }} onClick={() => openPageById(pid)}>
+                            #{pid}
+                          </Tag>
+                        ))}
+                        {ids.length > 8 && <Tag style={{ marginBottom: 2 }}>+{ids.length - 8}</Tag>}
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--tf-ink-3)' }}>-</span>
+                    ),
+                },
+                {
+                  title: '操作',
+                  key: 'action',
+                  width: 100,
+                  render: (_, f: any) => (
+                    <>
+                      {/* 处置动作闭环：stale 直接可重建，不再只是提示 */}
+                      {f.type === 'stale' && (
+                        <Button size="small" type="link" style={{ padding: 0 }} loading={rebuild.isPending} onClick={() => rebuild.mutate(false)}>
+                          重建这批
+                        </Button>
+                      )}
+                      {f.type === 'duplicate' && (
+                        <Popconfirm title="同标题仅保留最早一页，其余连同检索索引一起删除，确定？" onConfirm={() => fixDup.mutate()}>
+                          <Button size="small" type="link" style={{ padding: 0 }} loading={fixDup.isPending}>
+                            一键去重
+                          </Button>
+                        </Popconfirm>
+                      )}
+                    </>
+                  ),
+                },
+              ]}
+            />
           )}
         </Card>
       )}
@@ -501,9 +571,30 @@ export function Wiki() {
               )}
             </Space>
             <Markdown>{detailQ.data.content_md}</Markdown>
+            {(entitiesQ.data ?? []).length > 0 && (
+              <div style={{ marginTop: 20, paddingTop: 12, borderTop: '1px solid var(--tf-line)' }}>
+                <span style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>本页贡献的知识图谱实体（点击在文档图谱中展开）</span>
+                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {entitiesQ.data!.map((e) => (
+                    <Tooltip key={e.name} title={e.description || e.etype}>
+                      <Tag
+                        color="purple"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => {
+                          sessionStorage.setItem('tf-kg-focus', JSON.stringify({ name: e.name, workspace: `repo:${detail!.repo_id}` }))
+                          window.dispatchEvent(new CustomEvent('tf-navigate', { detail: 'graph' }))
+                        }}
+                      >
+                        {e.name}
+                      </Tag>
+                    </Tooltip>
+                  ))}
+                </div>
+              </div>
+            )}
             {(relatedQ.data ?? []).length > 0 && (
               <div style={{ marginTop: 20, paddingTop: 12, borderTop: '1px solid var(--tf-line)' }}>
-                <span style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>相关页面（TF-IDF 互链推荐）</span>
+                <span style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>相关页面（语义互链推荐）</span>
                 <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {relatedQ.data!.map((r) => (
                     <Tag key={r.id} style={{ cursor: 'pointer' }} onClick={() => openPageById(r.id)}>
@@ -586,14 +677,22 @@ export function Wiki() {
                 {m.sources.length > 0 ? (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                     <span style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>来源：</span>
-                    {m.sources.map((s) => (
-                      <Tag key={s.id} style={{ cursor: 'pointer' }} onClick={() => openPageById(s.id)}>
-                        {s.title}
-                      </Tag>
-                    ))}
+                    {m.sources.map((s, i) =>
+                      s.id > 0 ? (
+                        <Tag key={`${s.id}-${i}`} style={{ cursor: 'pointer' }} onClick={() => openPageById(s.id)}>
+                          {s.title}
+                        </Tag>
+                      ) : (
+                        <Tooltip key={`kg-${i}`} title="知识图谱实体/关系——「知识图谱」页查看">
+                          <Tag color="purple" style={{ cursor: 'default' }}>
+                            ⊕ {s.title}
+                          </Tag>
+                        </Tooltip>
+                      ),
+                    )}
                     {savedIds.has(m.content) ? (
                       <Tag color="green">已存为知识文档</Tag>
-                    ) : (
+                    ) : m.sources.some((s) => s.id > 0) ? (
                       <Button
                         size="small"
                         type="link"
@@ -606,6 +705,10 @@ export function Wiki() {
                       >
                         存为知识文档
                       </Button>
+                    ) : (
+                      <Tooltip title="来源均为知识图谱实体/关系（无 wiki 来源页）——qa 存档的引用边锚定在 wiki 页上，此类回答不支持存档">
+                        <span style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>仅图谱来源——不可存档</span>
+                      </Tooltip>
                     )}
                   </div>
                 ) : (
@@ -668,6 +771,9 @@ export function Wiki() {
                 ['Wiki 页', insightsQ.data.stats.pages],
                 ['stale', insightsQ.data.stats.stale],
                 ['知识文档', insightsQ.data.stats.doc_count],
+                ['图谱实体', insightsQ.data.stats.kg_entities],
+                ['图谱关系', insightsQ.data.stats.kg_relations],
+                ['社区报告', insightsQ.data.stats.kg_communities],
                 ['问答次数', insightsQ.data.stats.qa_answers],
                 ['知识盲区提问', insightsQ.data.stats.qa_no_data],
                 ['体检发现', insightsQ.data.stats.lint_findings],
@@ -722,6 +828,21 @@ export function Wiki() {
                   ))}
                 </div>
               </div>
+            )}
+            {(insightsQ.data.stats.kg_gaps ?? []).length > 0 && (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>图谱盲区模块（有 Wiki 模块页但没抽出实体）</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {(insightsQ.data.stats.kg_gaps as string[]).map((m) => (
+                    <Tag key={m} color="red">
+                      {m}
+                    </Tag>
+                  ))}
+                </div>
+              </div>
+            )}
+            {insightsQ.data.stats.kg_dirty && (
+              <div style={{ fontSize: 12.5, color: '#ca8a04' }}>⚠ 图谱有更新、社区报告待重建——在「知识图谱」页执行社区构建消除漂移</div>
             )}
           </div>
         ) : null}

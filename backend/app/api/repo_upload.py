@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from fastapi import APIRouter, Request
 
 from app.api.envelope import ApiError, ok
+from app.services.repo.indexer import SKIP_DIRS
 
 router = APIRouter()
 
@@ -26,12 +27,10 @@ MAX_ZIP_BYTES = 200 * 1024 * 1024
 MAX_MEMBERS = 20_000
 MAX_TOTAL_UNCOMPRESSED = 1024 * 1024 * 1024
 
-# 枚举期剪枝：依赖/构建产物/IDE 目录不进索引（与 GitNexus upload-filter 同思路）
-EXCLUDED_DIRS = {
-    ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode",
-    ".next", "dist", "build", "target", "out", ".gradle", ".mvn", "vendor", ".tox", ".mypy_cache",
-    ".pytest_cache", ".ruff_cache", "coverage", ".terraform",
-}
+# 枚举期剪枝：与索引层同一份基础设施排除清单（依赖/构建产物/VCS/IDE）。
+# 非源码目录（测试/文档/脚本等）不在此剪——解压检出保持完整（AI 助手读源码、对象存储快照都要用），
+# 由索引层统一排除。
+EXCLUDED_DIRS = set(SKIP_DIRS)
 
 _SLUG_RE = re.compile(r"[^0-9A-Za-z._-]+")
 

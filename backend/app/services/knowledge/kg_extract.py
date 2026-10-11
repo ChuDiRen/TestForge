@@ -96,17 +96,22 @@ def glean_chunk(chunk_content: str, doc_title: str, first_round: dict, max_token
 
 
 def extract_document(chunks: list[dict], doc_title: str, gleaning: int = 1, max_tokens: int = 3500) -> dict:
-    """整文档抽取：逐 chunk 抽取 + gleaning，chunk 间合并（同名实体/同三元组关系在合并层去重）。
+    """整文档抽取：chunk 级「抽取+gleaning」链并发跑（chunks 间零依赖），chunk 间合并
+    （同名实体/同三元组关系在合并层去重）。
 
+    并发度取设置 llm_extract_concurrency（默认 4）；gleaning 是 chunk 内的串行追问，
+    跨 chunk 并行不改变语义；llm_cache 按内容键控，并发命中安全（同 prompt 双调用
+    最多双付一次，merge 幂等）。单 chunk 失败整体失败，与串行行为一致。
     返回 {entities, relations, chunk_count, gleaning_rounds}。
     """
-    all_ents: list[dict] = []
-    all_rels: list[dict] = []
-    rounds_used = 0
-    for ch in chunks:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.core.config import get_settings
+
+    def _one(ch: dict) -> tuple[list[dict], list[dict], int]:
         content = ch.get("content") or ""
         if not content.strip():
-            continue
+            return [], [], 0
         got = extract_chunk(content, doc_title, max_tokens)
         used_here = 0
         for _ in range(max(0, gleaning)):
@@ -116,9 +121,17 @@ def extract_document(chunks: list[dict], doc_title: str, gleaning: int = 1, max_
             got["entities"].extend(add["entities"])
             got["relations"].extend(add["relations"])
             used_here += 1
-        rounds_used = max(rounds_used, used_here)
-        all_ents.extend(got["entities"])
-        all_rels.extend(got["relations"])
+        return got["entities"], got["relations"], used_here
+
+    workers = max(1, get_settings().llm_extract_concurrency)
+    rounds_used = 0
+    all_ents: list[dict] = []
+    all_rels: list[dict] = []
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="kg-extract") as pool:
+        for ents_i, rels_i, used_i in pool.map(_one, chunks):
+            rounds_used = max(rounds_used, used_i)
+            all_ents.extend(ents_i)
+            all_rels.extend(rels_i)
 
     # chunk 间合并：实体按名（描述去重拼接），关系按 (src,dst,type) 三元组
     ents: dict[str, dict] = {}

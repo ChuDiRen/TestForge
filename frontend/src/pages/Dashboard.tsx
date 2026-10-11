@@ -1,24 +1,9 @@
-import { Button, Card, Col, Row, Space, Table, Tag, Typography } from 'antd'
+import { Button, Card, Col, Row, Space, Tag, Typography } from 'antd'
 import { ApartmentOutlined, BookOutlined, CheckCircleOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { get } from '@/service'
 import { PageHeader } from '@/components/PageHeader'
 import { StatCard } from '@/components/StatCard'
-
-interface ServiceStatus {
-  name: string
-  port: number
-  ok: boolean
-  db_ok: boolean
-  version?: string
-  error?: string
-}
-
-interface ServicesResp {
-  services: ServiceStatus[]
-  all_green: boolean
-  mode: 'mono' | 'micro'
-}
 
 interface Stats {
   repos: number
@@ -38,11 +23,6 @@ interface Stats {
 }
 
 export function Dashboard() {
-  const services = useQuery({
-    queryKey: ['services'],
-    queryFn: () => get<ServicesResp>('/api/system/services'),
-    refetchInterval: 15000,
-  })
   const stats = useQuery({ queryKey: ['stats'], queryFn: () => get<Stats>('/api/stats/summary') })
 
   const s = stats.data
@@ -67,7 +47,7 @@ export function Dashboard() {
 
   return (
     <div>
-      <PageHeader title="仪表盘" subtitle="平台运行全景 · 数据全部来自真实接口，15s 自动刷新服务状态" />
+      <PageHeader title="仪表盘" subtitle="平台运行全景 · 数据全部来自真实接口" />
       {empty ? (
         <Card style={{ marginBlockEnd: 16 }}>
           <Typography.Title level={4} style={{ marginBlockEnd: 4 }}>
@@ -162,54 +142,6 @@ export function Dashboard() {
           />
         </Col>
       </Row>
-
-      <Card
-        title={
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            服务状态
-            <Tag color={services.data?.mode === 'mono' ? 'blue' : 'orange'} style={{ fontWeight: 500 }}>
-              {services.data?.mode === 'micro' ? '微服务模式' : '单体模式 · 进程内模块'}
-            </Tag>
-          </span>
-        }
-        style={{ marginTop: 16 }}
-        extra={
-          services.data ? (
-            <Tag color={services.data.all_green ? 'green' : 'red'} style={{ fontWeight: 500 }}>
-              {services.data.all_green ? '全部 GREEN' : '存在 FAIL'}
-            </Tag>
-          ) : null
-        }
-      >
-        <Table<ServiceStatus>
-          rowKey="name"
-          size="small"
-          scroll={{ x: 620 }}
-          pagination={false}
-          loading={services.isLoading}
-          dataSource={services.data?.services ?? []}
-          columns={[
-            { title: '模块', dataIndex: 'name', render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
-            {
-              title: services.data?.mode === 'micro' ? '端口' : '部署形态',
-              dataIndex: 'port',
-              render: (port: number) => (services.data?.mode === 'micro' ? port : <Tag>同进程直调</Tag>),
-            },
-            {
-              title: '状态',
-              dataIndex: 'ok',
-              render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? 'UP' : 'DOWN'}</Tag>,
-            },
-            {
-              title: 'DB',
-              dataIndex: 'db_ok',
-              render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? 'OK' : 'FAIL'}</Tag>,
-            },
-            { title: '版本', dataIndex: 'version' },
-            { title: '错误', dataIndex: 'error', render: (e?: string) => e ?? '-' },
-          ]}
-        />
-      </Card>
     </div>
   )
 }

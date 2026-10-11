@@ -2,7 +2,9 @@
 
 Stage 0 预处理：追问指代解析（"第一个/最后一个" → 上轮来源页）+ 时间过滤
 （"本周/最近N天" → 检索窗口，time_filter.rs 移植）。
-Stage 1 检索：hybrid_search wiki 单类（向量+全文 RRF，比原版 FTS5+LLM 挑页更强）。
+Stage 1 检索：hybrid_search 跨类召回 wiki/图谱实体/关系/原文块（向量+全文 RRF），
+rerank 已配置时按 query↔doc 相关性重排；主题级问题（整体/架构/总览…）额外前置
+社区报告（LightRAG global 层的主题摘要用途，OpenWiki 没有的能力）。
 Stage 2 作答：资料组料 → LLM 依据资料回答 → 来源页引用；
 引用修补（infer_cited_titles，wiki.rs:617-715 移植）：LLM 忘列来源时按答案中的
 标题提及强度（『**标题**』/『来源：』行）反推补充。
@@ -20,6 +22,15 @@ from app.services.knowledge.rag import hybrid_search
 
 _MAX_PAGES = 6
 _PAGE_CHARS = 1500
+_COMMUNITY_LIMIT = 2
+
+# 主题级问题路由（Phase2.7）：问整体/架构/设计而非具体函数时，
+# 前置社区报告——图谱聚类出的主题域摘要，比逐页资料更贴合"俯瞰"类问题
+_TOPIC_RE = re.compile(r"整体|总览|全貌|全景|概况|概览|架构|体系|有哪些模块|模块有哪些|怎么设计|如何设计|设计思路|策略|主线|脉络|分几块|包含哪些")
+
+
+def _is_topic_question(question: str) -> bool:
+    return bool(_TOPIC_RE.search(question))
 
 _SYSTEM = (
     "你是 TestForge 代码知识库的问答助手。只依据【资料】回答问题；"
@@ -135,17 +146,35 @@ def ask_wiki(repo_id: int, question: str, history: str = "", last_sources: list[
 
     hits = hybrid_search(
         question,
-        kinds=("wiki",),
+        kinds=("wiki", "kg_entity", "kg_relation", "kg_chunk"),
         limit=_MAX_PAGES,
         repo_id=repo_id or 0,
         updated_after=after,
     )
+    # rerank（Phase1.2）：已配置 rerank_backend 时按 query↔doc 相关性重排候选；
+    # 未配置/失败恒等保序（kg_query._maybe_rerank 复用，检索链路零外部依赖不破）
+    from app.services.knowledge.kg_query import _maybe_rerank
+
+    hits = _maybe_rerank(question, hits, _MAX_PAGES)
+
+    # 主题级问题 → 社区报告前置（Phase2.7）：社区报告入 rag_documents(kind=kg_community)，
+    # 走同一混合检索；不占 _MAX_PAGES 名额，如同指代页。
+    # 作用域双兜底：社区可按 workspace（repo:N，repo_id=0）或按 repo_id（workspace=''）索引
+    community_hits: list[dict] = []
+    if _is_topic_question(question):
+        if repo_id:
+            community_hits = hybrid_search(question, kinds=("kg_community",), limit=_COMMUNITY_LIMIT, workspace=f"repo:{repo_id}")
+            if not community_hits:
+                community_hits = hybrid_search(question, kinds=("kg_community",), limit=_COMMUNITY_LIMIT, repo_id=repo_id)
+        else:
+            community_hits = hybrid_search(question, kinds=("kg_community",), limit=_COMMUNITY_LIMIT)
+
     # 指代页并入资料头部且不占检索名额
     seen_ids = {int(h["doc_key"].split(":", 1)[1]) for h in hits if str(h.get("doc_key", "")).startswith("wiki:")}
-    merged: list[dict] = []
+    merged: list[dict] = list(community_hits)
     for p in ref_pages:
         if p["id"] not in seen_ids:
-            merged.append({"doc_key": f"wiki:{p['id']}", "title": p["title"], "content": p["content"], "score": 1.0, "pinned": True})
+            merged.append({"doc_key": f"wiki:{p['id']}", "kind": "wiki", "title": p["title"], "content": p["content"], "score": 1.0, "pinned": True})
             seen_ids.add(p["id"])
     merged.extend(hits)
 
@@ -160,6 +189,7 @@ def ask_wiki(repo_id: int, question: str, history: str = "", last_sources: list[
     blocks = []
     sources = []
     for h in merged:
+        kind = str(h.get("kind", ""))
         page_id = 0
         if str(h.get("doc_key", "")).startswith("wiki:"):
             try:
@@ -167,8 +197,9 @@ def ask_wiki(repo_id: int, question: str, history: str = "", last_sources: list[
             except ValueError:
                 page_id = 0
         pin = "（追问指定页）" if h.get("pinned") else ""
-        sources.append({"id": page_id, "title": h.get("title", ""), "score": round(float(h.get("score", 0)), 4)})
-        blocks.append(f"【资料 · {h.get('title', '')}】{pin}\n{str(h.get('content', ''))[:_PAGE_CHARS]}")
+        label = {"kg_community": "主题报告"}.get(kind, "图谱" if kind.startswith("kg_") else "资料")
+        sources.append({"id": page_id, "title": h.get("title", ""), "score": round(float(h.get("score", 0)), 4), "kind": kind})
+        blocks.append(f"【{label} · {h.get('title', '')}】{pin}\n{str(h.get('content', ''))[:_PAGE_CHARS]}")
 
     q = f"{history}\n{question}".strip() if history else question
     prompt = "【资料】\n" + "\n\n".join(blocks) + f"\n\n【问题】{q}\n\n请依据资料回答；结尾用『来源：』列出引用的资料标题。"
@@ -178,7 +209,8 @@ def ask_wiki(repo_id: int, question: str, history: str = "", last_sources: list[
     unsourced = answer_mentions_unsourced_titles(answer, sources)
     return {
         "answer": answer,
-        "sources": [s for s in sources if s["id"]],
+        # id=0 = 知识图谱实体/关系（无 wiki 页可跳，前端渲染为图谱标签）
+        "sources": sources,
         "source_mode": "knowledge_base",
         "unsourced_mentions": unsourced,
         "time_filter_days": detect_time_range(question),

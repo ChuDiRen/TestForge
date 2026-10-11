@@ -5,6 +5,7 @@ import logging
 import uuid
 
 from fastapi import Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -16,8 +17,8 @@ from app.main import (
     get_session,
     ok,
 )
-from app.models import Cases, Defects, Iterations, Repos, Requirements, Runs
-from app.schemas.defects import DefectCreateIn, DefectStatusIn
+from app.models import Cases, Defects, DefectActivity, DefectComments, DefectWorkflow, Iterations, Repos, Requirements, Runs
+from app.schemas.defects import DefectCommentIn, DefectCreateIn, DefectUpdateIn
 from app.schemas.plans import PlanCreateIn
 
 log = logging.getLogger("app.api.loop")
@@ -38,6 +39,7 @@ async def create_defect(data: DefectCreateIn):
         req_code=body.get("req_code") or "",
         trace_id=body.get("trace_id") or "",
         reason=body.get("reason") or "人工报障",
+        title=body.get("title") or "",
     )
     return ok(res)
 
@@ -45,6 +47,9 @@ async def create_defect(data: DefectCreateIn):
 @app.get("/api/defects")
 def list_defects(db: Session = Depends(get_db)):
     rows = db.query(Defects).order_by(Defects.id.desc()).limit(200).all()
+    comment_counts = dict(
+        db.query(DefectComments.defect_id, func.count(DefectComments.id)).group_by(DefectComments.defect_id).all()
+    )
     return ok(
         [
             {
@@ -56,14 +61,81 @@ def list_defects(db: Session = Depends(get_db)):
                 "req_code": d.req_code,
                 "severity": d.severity,
                 "status": d.status,
+                "resolution": d.resolution or "",
+                "priority": d.priority or "",
+                "fix_version": d.fix_version or "",
+                "dupe_of": d.dupe_of or "",
                 "assignee": d.assignee,
                 "trace_id": d.trace_id,
                 "has_suggestion": bool(d.suggestion),
+                "comment_count": comment_counts.get(d.id, 0),
+                "detail": d.detail or "",
+                "updated_at": d.updated_at.isoformat() if d.updated_at else "",
                 "created_at": d.created_at.isoformat(),
             }
             for d in rows
         ]
     )
+
+
+@app.get("/api/defects/workflow")
+def get_defect_workflow(db: Session = Depends(get_db)):
+    """状态转换图（数据驱动）：前端据此渲染合法流转选项与看板拖拽校验。"""
+    rows = db.query(DefectWorkflow).order_by(DefectWorkflow.sort.asc(), DefectWorkflow.id.asc()).all()
+    return ok(
+        [
+            {"from_status": w.from_status, "to_status": w.to_status, "require_comment": bool(w.require_comment)}
+            for w in rows
+        ]
+    )
+
+
+@app.get("/api/defects/{defect_id}/history")
+def defect_history(defect_id: int, db: Session = Depends(get_db)):
+    """字段级变更日志（who/field/旧值→新值），Bugzilla bugs_activity 同构。"""
+    rows = (
+        db.query(DefectActivity)
+        .filter(DefectActivity.defect_id == defect_id)
+        .order_by(DefectActivity.id.asc())
+        .limit(300)
+        .all()
+    )
+    return ok(
+        [
+            {"actor": a.actor, "field": a.field, "old": a.old_value, "new": a.new_value, "at": a.created_at.isoformat()}
+            for a in rows
+        ]
+    )
+
+
+@app.get("/api/defects/{defect_id}/comments")
+def list_defect_comments(defect_id: int, db: Session = Depends(get_db)):
+    rows = (
+        db.query(DefectComments)
+        .filter(DefectComments.defect_id == defect_id)
+        .order_by(DefectComments.id.asc())
+        .limit(300)
+        .all()
+    )
+    return ok(
+        [{"id": c.id, "who": c.who, "body": c.body, "type": c.type, "at": c.created_at.isoformat()} for c in rows]
+    )
+
+
+@app.post("/api/defects/{defect_id}/comments")
+def add_defect_comment(defect_id: int, data: DefectCommentIn, db: Session = Depends(get_db)):
+    body = (data.body or "").strip()
+    if not body:
+        raise ApiError(1001, "评论不能为空")
+    d = db.get(Defects, defect_id)
+    if d is None:
+        raise ApiError(404, "缺陷不存在", 404)
+    actor = (data.actor or "qa").strip() or "qa"
+    c = DefectComments(defect_id=defect_id, who=actor, body=body, type="normal")
+    db.add(c)
+    db.commit()
+    emit("缺陷", actor, f"缺陷 {d.code} 新增评论（{len(body)} 字）", req_code=d.req_code)
+    return ok({"id": c.id, "who": c.who, "body": c.body, "type": c.type, "at": c.created_at.isoformat()})
 
 
 @app.get("/api/defects/{defect_id}/suggestion")
@@ -125,11 +197,16 @@ def suggest_defect_fix(defect_id: int):
 
 @app.post("/api/defects/{defect_id}/regression")
 def regression_defect(defect_id: int, db: Session = Depends(get_db)):
-    """自动回归：只重跑缺陷关联用例 → 通过自动关闭 / 失败重开。"""
+    """自动回归：只重跑缺陷关联用例 → 通过自动关闭（结案=已修复）/ 失败重开。"""
     d = crud_defects.get(db, defect_id)
     if d is None:
         raise ApiError(404, "缺陷不存在", 404)
-    crud_defects.update(db, db_obj=d, obj_in={"status": "修复中"})
+    if d.status != "修复中":
+        old_status = d.status
+        crud_defects.update(db, db_obj=d, obj_in={"status": "修复中"})
+        from app.services.trace.defect_svc import log_activity
+
+        log_activity(defect_id, "plan-svc", "状态", old_status, "修复中")
     from app.services.trace.api import trigger_regression
 
     res = trigger_regression(defect_id)
@@ -137,82 +214,24 @@ def regression_defect(defect_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/defects/{defect_id}/status")
-async def update_defect_status(defect_id: int, data: DefectStatusIn):
-    """生命周期流转：已确认/修复中/待回归/已关闭。
+async def update_defect_status(defect_id: int, data: DefectUpdateIn):
+    """通用流转更新（Jira transition screen 语义）：状态转换 + 伴随字段 + 评论一次提交。
 
-    关闭时沉淀缺陷教训（LightRAG 增量学习思路）：失败详情 + 已验证的修复建议写入
-    rag_documents(kind='lesson')，生成同函数用例时自动召回，同一个坑不踩第二遍。
+    服务端按 defect_workflow 转换图校验（require_comment 边 / 关闭必填结案原因 /
+    重开清空结案 / 重复指向扁平化防环），返回字段级 changes {字段: [旧值, 新值]}；
+    关闭时自动沉淀缺陷教训（kind='lesson'）入检索库。
     """
-    body = data.model_dump()
-    status = body.get("status") or ""
-    if status not in ("新建", "已确认", "修复中", "待回归", "已关闭"):
-        raise ApiError(1001, "非法状态")
-    with get_session() as sess:
-        d = sess.get(Defects, defect_id)
-        if d is None:
-            raise ApiError(404, "缺陷不存在", 404)
-        d.status = status
-        code, req = d.code, d.req_code
-        title, detail, suggestion, case_codes, severity = d.title, d.detail, d.suggestion, d.case_codes, d.severity
-        sess.commit()
-    emit("缺陷", body.get("actor") or "qa", f"缺陷 {code} → {status}", req_code=req)
-    lesson_note = ""
-    if status == "已关闭":
-        repo_id = 0
-        try:
-            from app.models import Requirements
+    from app.services.trace.defect_svc import DefectConflict, DefectTransitionError, update_defect
 
-            with get_session() as sess:
-                if req:
-                    row = sess.query(Requirements.repo_id).filter(Requirements.code == req).first()
-                    repo_id = int(row[0] or 0) if row and row[0] else 0
-                if not repo_id:
-                    # 历史需求/缺陷普遍缺 repo 关联：单仓库部署直接归属唯一仓库，
-                    # 多仓库且无法判定时才放弃沉淀（lesson 检索按 repo 精确过滤）
-                    repo_ids = [r[0] for r in sess.query(Repos.id).all()]
-                    if len(repo_ids) == 1:
-                        repo_id = int(repo_ids[0])
-        except Exception:  # noqa: BLE001
-            repo_id = 0
-        if repo_id:
-            try:
-                from app.services.knowledge.rag import ensure_rag_documents_table, index_document
-
-                content = (
-                    f"# 缺陷 {code}：{title}\n\n严重度：{severity}\n关联需求：{req or '-'}\n关联用例：{case_codes or '-'}\n\n"
-                    f"## 失败详情\n{detail[:1500]}\n\n## 修复建议（回归通过后关闭，已验证）\n{suggestion[:1500]}\n\n"
-                    f"生成该模块测试用例时应覆盖本缺陷对应的异常分支，避免回归。"
-                )
-                ensure_rag_documents_table()
-                index_document(
-                    f"lesson:defect:{code}",
-                    "lesson",
-                    f"缺陷教训 {code} {title}",
-                    content,
-                    repo_id=repo_id,
-                    meta={"source": "defect-closed", "defect_code": code, "req_code": req},
-                )
-                lesson_note = f"教训已沉淀（repo {repo_id}，生成时自动召回）"
-                emit("知识", "lesson", f"缺陷 {code} 关闭 → 教训入检索库", req_code=req)
-            except Exception as exc:  # noqa: BLE001
-                lesson_note = f"教训沉淀失败: {exc}"
-        # 缺陷本体索引同步刷新（状态/修复建议进语料）
-        if repo_id:
-            try:
-                from app.services.knowledge.rag import ensure_rag_documents_table, index_document
-
-                ensure_rag_documents_table()
-                index_document(
-                    f"defect:{code}",
-                    "defect",
-                    f"缺陷 {code} {title}",
-                    f"缺陷 {code}（{severity}，状态：{status}）\n关联需求：{req or '-'}\n关联用例：{case_codes or '-'}\n失败详情：{detail[:1000]}\n修复建议：{suggestion[:1200]}",
-                    repo_id=repo_id,
-                    meta={"source": "defect-status", "defect_code": code, "status": status, "severity": severity},
-                )
-            except Exception:  # noqa: BLE001
-                pass
-    return ok({"code": code, "status": status, "lesson": lesson_note})
+    try:
+        res = update_defect(defect_id, data.model_dump())
+    except KeyError as exc:
+        raise ApiError(404, "缺陷不存在", 404) from exc
+    except DefectTransitionError as exc:
+        raise ApiError(1001, str(exc)) from exc
+    except DefectConflict as exc:
+        raise ApiError(1002, str(exc), 409) from exc
+    return ok(res)
 
 
 # ---------------- 迭代计划（FR-10） ----------------

@@ -1,6 +1,6 @@
 """知识增强路由（本轮借鉴改造的统一入口）：
 
-- POST /api/kg/build           文档知识图谱构建/增量更新（wiki+缺陷+需求 → 实体/关系）
+- POST /api/kg/build           知识图谱全量同步（wiki+缺陷+需求 → 统一管线入队，hash 短路增量）
 - GET  /api/kg/query           双层检索（local/global/mix）
 - GET  /api/kg/stats           图谱规模
 - POST /api/repos/{id}/analyze 影响面 + 功能聚类重算（索引期预计算的按需入口）
@@ -25,7 +25,9 @@ from app.schemas.kg import KgBuildIn
 
 @app.post("/api/kg/build")
 async def kg_build(data: KgBuildIn, db: Session = Depends(get_db)):
-    """构建/增量更新文档知识图谱。body {repo_id?}（默认最新仓库）。未配 LLM Key 时逐文档记 failed。"""
+    """知识图谱全量同步：仓库内自动源（wiki 模块/仓库页+缺陷+需求）逐个入统一异步管线，
+    内容未变 hash 短路。返回 {docs_total, docs_queued, docs_skipped, docs_failed, docs_orphaned}，
+    处理进度看 /api/kg/documents。未配 LLM Key 时逐文档记 failed。"""
     body = data.model_dump()
     repo_id = int(body.get("repo_id") or 0)
     if repo_id:

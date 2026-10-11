@@ -24,11 +24,13 @@ TABLES = [
     "generations",
     "jobs",
     "trace_events",
+    "defect_comments",
+    "defect_activity",
+    "defect_workflow",
     "defects",
     "iterations",
     "runs",
     "cases",
-    "cases_embedding",
     "requirements",
     "contract_diffs",
     "contracts",
@@ -41,10 +43,19 @@ TABLES = [
     "rag_documents",
     "kg_entities",
     "kg_relations",
+    "kg_communities",
+    "kg_extractions",
+    "kg_settings",
     "doc_status",
     "fn_impacts",
     "fn_clusters",
     "llm_cache",
+    "embedding_cache",
+    # AI 助手 / Wiki 对话（业务数据，users 登录账号保留）
+    "chat_messages",
+    "chat_threads",
+    "wiki_chat_messages",
+    "wiki_chat_sessions",
 ]
 
 
@@ -64,13 +75,22 @@ def _rmtree_force(path: Path) -> None:
 def main() -> int:
     init_db()
     with get_session() as sess:
-        sess.execute(text(f"TRUNCATE TABLE {', '.join(TABLES)} RESTART IDENTITY CASCADE"))
+        existing = set(
+            sess.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            ).scalars()
+        )
+        targets = [t for t in TABLES if t in existing]
+        skipped = [t for t in TABLES if t not in existing]
+        if skipped:
+            print(f"[reset] 库中不存在的表（跳过）：{', '.join(skipped)}")
+        sess.execute(text(f"TRUNCATE TABLE {', '.join(targets)} RESTART IDENTITY CASCADE"))
         sess.commit()
-    for sub in ("runs", "repos"):
+    for sub in ("runs", "repos", "assistant_memory", "assistant_sandbox"):
         d = ROOT / "data" / sub
         if d.exists():
             _rmtree_force(d)
-    print(f"[reset] 已清空 {len(TABLES)} 张业务表 + data/runs + data/repos 检出缓存（users 登录账号保留）")
+    print(f"[reset] 已清空 {len(TABLES)} 张业务表 + data/runs, repos, assistant_memory, assistant_sandbox（users 登录账号保留）")
     with get_session() as sess:
         repos = sess.execute(text("SELECT count(*) FROM repos")).scalar()
         cases = sess.execute(text("SELECT count(*) FROM cases")).scalar()

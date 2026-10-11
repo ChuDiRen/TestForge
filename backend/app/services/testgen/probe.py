@@ -38,12 +38,14 @@ PROBE_PREFIX = "PROBE"
 FIXED_TS = 1700000000
 
 
-def _probe_script(module: str, fn: str, cases: list[dict]) -> str:
+def _probe_script(module: str, fn: str, cases: list[dict], fixed_clock: bool = True) -> str:
     """探针脚本：解包 input、按 patches 打桩（与 codegen 渲染的 monkeypatch 语义一致）。
 
     固定时钟（FIXED_TS）：时间依赖函数（token 过期/签名含时戳）的期望值必须与
     沙箱执行同钟才可重放；codegen 渲染的测试带同值 _tf_fixed_clock fixture。
+    fixed_clock=False 是时间依赖检测的对照跑（真实时钟）。
     """
+    clock_line = f"time.time = lambda: {FIXED_TS}.0  # 固定时钟，期望值可重放\n" if fixed_clock else ""
     return (
         "import importlib, json, sys, time\n"
         "import unittest.mock as _mock\n"
@@ -52,7 +54,7 @@ def _probe_script(module: str, fn: str, cases: list[dict]) -> str:
         "# 仓库重构后 Python 包在 backend/ 子目录下：两种布局都兼容\n"
         "if os.path.isdir('backend') and not os.path.exists(os.path.join('.', 'services')):\n"
         "    sys.path.insert(0, os.path.abspath('backend'))\n"
-        f"time.time = lambda: {FIXED_TS}.0  # 固定时钟，期望值可重放\n"
+        f"{clock_line}"
         f"{NORM_SRC}\n"
         f"from {module} import {fn}\n"
         f"CASES = {cases!r}\n"
@@ -85,9 +87,11 @@ def _probe_script(module: str, fn: str, cases: list[dict]) -> str:
     )
 
 
-def _run_probe(module: str, fn: str, cases: list[dict], checkout: Path, timeout: float = 90.0) -> list[dict] | None:
+def _run_probe(
+    module: str, fn: str, cases: list[dict], checkout: Path, timeout: float = 90.0, fixed_clock: bool = True
+) -> list[dict] | None:
     """在仓库检出处真实执行目标函数；返回每个用例的捕获结果（导入失败返回 None）。"""
-    script = _probe_script(module, fn, cases)
+    script = _probe_script(module, fn, cases, fixed_clock=fixed_clock)
     runs: list[list[dict]] = []
     for _ in range(2):  # 双跑：不一致 = 非确定性
         try:
@@ -145,6 +149,11 @@ def fill_probe_expectations(plan: CasePlan, repo_checkout: str | Path, overwrite
         note = "探针未产出（非确定性或导入失败），保留清单不造假"
         log.info("probe %s.%s: %s", module, fn, note)
         return plan, note
+
+    # 时间依赖检测（第三跑对照）：真实时钟结果与固定时钟不一致 → 渲染端需要时钟 fixture；
+    # 一致 → 函数时间无关，生成的测试文件不带任何 monkeypatch 时钟桩
+    real_clock = _run_probe(module, fn, probe_payload, Path(repo_checkout), fixed_clock=False)
+    plan.time_dependent = real_clock != result
 
     dropped: list[str] = []
     for case, r in zip(probe_cases, result):

@@ -16,11 +16,13 @@ import {
   FileDoneOutlined,
   FileSearchOutlined,
   FileTextOutlined,
+  FundOutlined,
+  MessageOutlined,
   NodeIndexOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
-  SearchOutlined,
   SettingOutlined,
+  TableOutlined,
   TeamOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
@@ -30,7 +32,9 @@ import { Dashboard } from '@/pages/Dashboard'
 import { Defects } from '@/pages/Defects'
 import { Jobs } from '@/pages/Jobs'
 import { KnowledgeDocs } from '@/pages/KnowledgeDocs'
+import { KnowledgeEval } from '@/pages/KnowledgeEval'
 import { KnowledgeGraphHub } from '@/pages/KnowledgeGraphHub'
+import { KnowledgeWorkbench } from '@/pages/KnowledgeWorkbench'
 import { Logs } from '@/pages/Traces'
 import { Map } from '@/pages/ServiceMap'
 import { OpenAccess } from '@/pages/OpenAccess'
@@ -38,7 +42,7 @@ import { Plans } from '@/pages/Plans'
 import { Quality } from '@/pages/Quality'
 import { RepoAdd } from '@/pages/RepoAdd'
 import { Requirements } from '@/pages/Requirements'
-import { RetrievalHub } from '@/pages/RetrievalHub'
+import { RetrievalLab } from '@/pages/RetrievalLab'
 import { Runs } from '@/pages/Runs'
 import { Settings } from '@/pages/Settings'
 import { Users } from '@/pages/Users'
@@ -55,12 +59,14 @@ export const VIEWS = [
   { key: 'cases', label: '用例库', icon: <DatabaseOutlined /> },
   { key: 'runs', label: '执行记录', icon: <ExperimentOutlined /> },
   { key: 'defects', label: '缺陷管理', icon: <BugOutlined /> },
-  // 知识资产（接入 → 编译 → 文档 → 图谱 → 检索质量）
+  // 知识中心（对齐企业知识库功能中心 IA）：工作台 → 文档 → Wiki → 图谱 → 问答 → 评估
   { key: 'repo-add', label: '仓库接入', icon: <CloudDownloadOutlined /> },
-  { key: 'wiki', label: '代码库 / Wiki', icon: <BookOutlined /> },
-  { key: 'knowledge-docs', label: '知识资产', icon: <FileTextOutlined /> },
+  { key: 'knowledge-workbench', label: '知识工作台', icon: <TableOutlined /> },
+  { key: 'knowledge-docs', label: '文档管理', icon: <FileTextOutlined /> },
+  { key: 'wiki', label: 'Wiki 知识库', icon: <BookOutlined /> },
   { key: 'graph', label: '知识图谱', icon: <ApartmentOutlined /> },
-  { key: 'retrieval', label: '检索中心', icon: <SearchOutlined /> },
+  { key: 'ask', label: '知识问答', icon: <MessageOutlined /> },
+  { key: 'eval', label: '评估与优化', icon: <FundOutlined /> },
   // 质量运营（横切视角）
   { key: 'quality', label: '需求质量流水线', icon: <SafetyCertificateOutlined /> },
   { key: 'map', label: '服务地图 / 契约', icon: <DeploymentUnitOutlined /> },
@@ -89,8 +95,13 @@ const MENU_GROUPS: MenuGroup[] = [
   { key: 'g-ai', label: 'AI 助手', icon: <RobotOutlined />, views: ['assistant'] },
   // 测试主线：需求 → 计划 → 生成 → 用例 → 执行 → 缺陷，一条旅程走完
   { key: 'g-flow', label: '测试流程', icon: <FileDoneOutlined />, views: ['requirements', 'plans', 'workbench', 'cases', 'runs', 'defects'] },
-  // 知识资产：接入 → 资产/管线 → 编译 → 图谱双视图 → 检索中心，知识生产链（5 项）
-  { key: 'g-knowledge', label: '知识资产', icon: <NodeIndexOutlined />, views: ['repo-add', 'knowledge-docs', 'wiki', 'graph', 'retrieval'] },
+  // 知识中心：接入 → 工作台 → 文档/Wiki/图谱 → 问答/评估，知识生产消费全链（7 项）
+  {
+    key: 'g-knowledge',
+    label: '知识中心',
+    icon: <NodeIndexOutlined />,
+    views: ['repo-add', 'knowledge-workbench', 'knowledge-docs', 'wiki', 'graph', 'ask', 'eval'],
+  },
   // 质量运营：横切视角（需求质量关 / 系统契约 / 作业 / 追溯）
   { key: 'g-quality', label: '质量运营', icon: <CheckCircleOutlined />, views: ['quality', 'map', 'jobs', 'logs'] },
   // 系统：开放接入对所有人可见，用户管理仅管理员（view 级 adminOnly 过滤）
@@ -118,7 +129,9 @@ export const VIEW_COMPONENTS: Record<ViewKey, () => ReactElement> = {
   defects: Defects,
   logs: Logs,
   quality: Quality,
-  retrieval: RetrievalHub,
+  ask: RetrievalLab,
+  eval: KnowledgeEval,
+  'knowledge-workbench': KnowledgeWorkbench,
   openaccess: OpenAccess,
   'knowledge-docs': KnowledgeDocs,
   settings: Settings,

@@ -1,7 +1,7 @@
 import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Popconfirm, Segmented, Space, Tabs, Tag, Tooltip, Upload, message } from 'antd'
-import { DeleteOutlined, FileTextOutlined, InboxOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons'
+import { DeleteOutlined, DownloadOutlined, FileTextOutlined, InboxOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { get, post, uploadKnowledgeAsset } from '@/service'
 import { repoName } from '@/utils'
@@ -14,9 +14,20 @@ interface KnowledgeDoc {
   title: string
   chars: number
   updated_at: string
+  kind: string
   source: string
   source_url: string
   sources_count: number
+  object_key: string
+  req_code?: string
+  req_status?: string
+}
+
+/** kind → 展示标签（与总览卡配色一致） */
+const KIND_TAG: Record<string, { label: string; color: string }> = {
+  user_doc: { label: '技术文档', color: 'cyan' },
+  req: { label: '需求文档', color: 'purple' },
+  plan: { label: '测试方案', color: 'gold' },
 }
 interface AssetSummary {
   kinds: Record<string, number>
@@ -58,8 +69,8 @@ const ASSET_TABS: { key: AssetKind; label: string; accept: string; hint: string 
   },
 ]
 
-/** 知识资产（入口②统一 Hub）：资产库（四类上传 + 管理）| 图谱管线（LightRAG 处理状态）。
- *  原先「文档管线」独立菜单与上传入口重复，收拢为本页 Tab；检索测试台移至「检索中心」。 */
+/** 知识资产（入口②统一 Hub）：资产库（四类上传 + 管理，全站唯一上传入口）| 图谱运维（LightRAG 处理状态）。
+ *  上传入口曾与图谱管线 Tab 重复且后者无门卫/不进检索库（用户上传后生成不引用），已收拢：管线上传框退役，本页 Tab 降级为纯运维视图。 */
 export function KnowledgeDocs() {
   const qc = useQueryClient()
   const isMobile = useIsMobile()
@@ -119,7 +130,7 @@ export function KnowledgeDocs() {
   const tab_ = ASSET_TABS.find((t) => t.key === assetKind)!
 
   const summarize = (r: Record<string, unknown>): string => {
-    if (r.req_code) return `REQ 已建立（可测性 ${Number(r.testability ?? 0).toFixed(0)}，${r.status}）`
+    if (r.req_code) return `REQ ${r.updated ? '已更新' : '已建立'}（可测性 ${Number(r.testability ?? 0).toFixed(0)}，${r.status}）`
     if (typeof r.imported === 'number') return `导入 ${r.imported} 条缺陷`
     return `已入库（${r.chars} 字）`
   }
@@ -260,51 +271,88 @@ export function KnowledgeDocs() {
         title={`已入库知识文档（${docsQ.data?.length ?? 0} 篇）`}
         size="small"
         extra={
-          <span style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>
-            技术文档同步进入图谱管线——「图谱管线」Tab 看处理状态，「知识图谱」页看实体关系
-          </span>
+          <span style={{ fontSize: 12, color: 'var(--tf-ink-3)' }}>技术文档同步进入图谱——「图谱运维」Tab 看处理状态，「知识图谱」页看实体关系</span>
         }
       >
         {(docsQ.data?.length ?? 0) === 0 ? (
           <Empty description="还没有知识文档——上传 PRD 片段、接口约定等，生成用例时会自动引用" style={{ margin: '24px 0' }} />
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
-            {docsQ.data!.map((d) => (
-              <div key={d.doc_key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                <FileTextOutlined style={{ color: 'var(--tf-ink-3)', flexShrink: 0 }} />
-                <span style={{ fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</span>
-                {d.source === 'qa-archive' && (
-                  <Tag color="purple" style={{ flexShrink: 0 }}>
-                    问答沉淀
+            {docsQ.data!.map((d) => {
+              const kindTag = KIND_TAG[d.kind] ?? KIND_TAG.user_doc
+              return (
+                <div key={d.doc_key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                  <FileTextOutlined style={{ color: 'var(--tf-ink-3)', flexShrink: 0 }} />
+                  <span style={{ fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</span>
+                  <Tag color={kindTag.color} style={{ flexShrink: 0 }}>
+                    {kindTag.label}
                   </Tag>
-                )}
-                {d.source === 'asset-upload' && (
-                  <Tag color="cyan" style={{ flexShrink: 0 }}>
-                    资产上传
-                  </Tag>
-                )}
-                {d.source === 'url-import' && (
-                  <Tooltip title={d.source_url}>
-                    <Tag color="blue" style={{ flexShrink: 0, cursor: 'default' }}>
-                      URL 导入
+                  {d.kind === 'req' && d.req_status && (
+                    <Tooltip title={`需求单 ${d.req_code || ''} 状态：${d.req_status}——评审走「需求」页`}>
+                      <Tag
+                        color={d.req_status === '待人审' ? 'orange' : d.req_status === '已打回' ? 'red' : 'green'}
+                        style={{ flexShrink: 0, cursor: 'default' }}
+                      >
+                        {d.req_status}
+                      </Tag>
+                    </Tooltip>
+                  )}
+                  {d.source === 'qa-archive' && (
+                    <Tag color="purple" style={{ flexShrink: 0 }}>
+                      问答沉淀
                     </Tag>
-                  </Tooltip>
-                )}
-                {d.sources_count > 0 && (
-                  <Tooltip title={`引用了 ${d.sources_count} 个 Wiki 来源页——互链图谱可看见 qa_reference 边`}>
-                    <Tag color="geekblue" style={{ flexShrink: 0 }}>
-                      引 {d.sources_count} 页
+                  )}
+                  {d.source === 'asset-upload' && (
+                    <Tag color="cyan" style={{ flexShrink: 0 }}>
+                      资产上传
                     </Tag>
-                  </Tooltip>
-                )}
-                <Tag style={{ flexShrink: 0 }}>{d.chars} 字</Tag>
-                <span style={{ color: 'var(--tf-ink-3)', fontSize: 12, flexShrink: 0 }}>{(d.updated_at || '').slice(0, 16).replace('T', ' ')}</span>
-                <span style={{ flex: 1 }} />
-                <Popconfirm title="从检索索引移除该文档？" onConfirm={() => delDoc.mutate(d.doc_key)}>
-                  <Button size="small" type="text" danger icon={<DeleteOutlined />} loading={delDoc.isPending && delDoc.variables === d.doc_key} />
-                </Popconfirm>
-              </div>
-            ))}
+                  )}
+                  {d.source === 'url-import' && (
+                    <Tooltip title={d.source_url}>
+                      <Tag color="blue" style={{ flexShrink: 0, cursor: 'default' }}>
+                        URL 导入
+                      </Tag>
+                    </Tooltip>
+                  )}
+                  {d.sources_count > 0 && (
+                    <Tooltip title={`引用了 ${d.sources_count} 个 Wiki 来源页——互链图谱可看见 qa_reference 边`}>
+                      <Tag color="geekblue" style={{ flexShrink: 0 }}>
+                        引 {d.sources_count} 页
+                      </Tag>
+                    </Tooltip>
+                  )}
+                  <Tag style={{ flexShrink: 0 }}>{d.chars} 字</Tag>
+                  <span style={{ color: 'var(--tf-ink-3)', fontSize: 12, flexShrink: 0 }}>{(d.updated_at || '').slice(0, 16).replace('T', ' ')}</span>
+                  <span style={{ flex: 1 }} />
+                  {d.object_key && (
+                    <Tooltip title="下载原件（对象存储）">
+                      <Button
+                        size="small"
+                        type="text"
+                        icon={<DownloadOutlined />}
+                        onClick={() => window.open(`/api/knowledge/assets/download?object_key=${encodeURIComponent(d.object_key)}`, '_blank')}
+                        style={{ flexShrink: 0 }}
+                      />
+                    </Tooltip>
+                  )}
+                  {d.kind === 'req' ? (
+                    <Tooltip title="需求文档由需求单托管——如需删除请到「需求」页处理，此处移除会造成检索与需求单脱钩">
+                      <Button size="small" type="text" disabled icon={<DeleteOutlined />} style={{ flexShrink: 0 }} />
+                    </Tooltip>
+                  ) : (
+                    <Popconfirm title="从检索索引移除该文档？" onConfirm={() => delDoc.mutate(d.doc_key)}>
+                      <Button
+                        size="small"
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        loading={delDoc.isPending && delDoc.variables === d.doc_key}
+                      />
+                    </Popconfirm>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </Card>
@@ -339,9 +387,9 @@ export function KnowledgeDocs() {
                 type="link"
                 size="small"
                 icon={<SearchOutlined />}
-                onClick={() => window.dispatchEvent(new CustomEvent('tf-navigate', { detail: 'retrieval' }))}
+                onClick={() => window.dispatchEvent(new CustomEvent('tf-navigate', { detail: 'ask' }))}
               >
-                去检索中心验证召回
+                去知识问答验证召回
               </Button>
             </span>
           }
@@ -353,7 +401,7 @@ export function KnowledgeDocs() {
         onChange={(k) => setTab(k as KnowledgeDocsTab)}
         items={[
           { key: 'assets', label: '资产库', children: assetsPane },
-          { key: 'pipeline', label: '图谱管线', children: <KnowledgePipeline embedded /> },
+          { key: 'pipeline', label: '图谱运维', children: <KnowledgePipeline embedded /> },
         ]}
       />
     </div>

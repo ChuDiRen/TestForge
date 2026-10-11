@@ -6,6 +6,9 @@ from app.models.chat_messages import ChatMessage
 from app.models.chat_threads import ChatThread
 from app.models.contract_diffs import ContractDiffs
 from app.models.contracts import Contracts
+from app.models.defect_activity import DefectActivity
+from app.models.defect_comments import DefectComments
+from app.models.defect_workflow import DefectWorkflow
 from app.models.defects import Defects
 from app.models.doc_status import DocStatus
 from app.models.embedding_cache import EmbeddingCache
@@ -44,6 +47,9 @@ __all__ = [
     "Cases",
     "Runs",
     "Defects",
+    "DefectActivity",
+    "DefectComments",
+    "DefectWorkflow",
     "Iterations",
     "TraceEvents",
     "Generations",

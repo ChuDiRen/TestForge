@@ -25,14 +25,30 @@ def _next_req_code(sess) -> str:  # type: ignore[no-untyped-def]
     return f"REQ-{n}"
 
 
-def ingest_one(title: str, text: str, repo_id: int = 0, source: str = "paste") -> dict:
-    """需求录入四步管线（建单 → 解析 → 评分定级 → 留痕），路由与 AI 助手写工具共用。"""
+def ingest_one(title: str, text: str, repo_id: int = 0, source: str = "paste", upsert: bool = False) -> dict:
+    """需求录入四步管线（建单 → 解析 → 评分定级 → 留痕），路由与 AI 助手写工具共用。
+
+    upsert=True（资产上传路径）：同名同仓库重传更新原需求单而非新建——只匹配
+    source='upload' 建立的单，手动录入的需求不受影响；解析管线与 RAG 索引对同 code 幂等。
+    """
     with get_session() as sess:
-        code = _next_req_code(sess)
-        req = Requirements(code=code, title=title, source=source, body=text, repo_id=repo_id or None, status="解析中", trace_id="")
-        sess.add(req)
+        req = None
+        if upsert:
+            q = sess.query(Requirements).filter(Requirements.title == title, Requirements.source == "upload")
+            q = q.filter(Requirements.repo_id == repo_id) if repo_id else q.filter(Requirements.repo_id.is_(None))
+            req = q.order_by(Requirements.id.desc()).first()
+        updated = req is not None
+        if req is None:
+            code = _next_req_code(sess)
+            req = Requirements(code=code, title=title, source=source, body=text, repo_id=repo_id or None, status="解析中", trace_id="")
+            sess.add(req)
+        else:
+            # 重传=内容更新：换正文、重置评审状态，走完整重解析
+            req.body = text
+            req.status = "解析中"
         sess.commit()
         rid = req.id
+        code = req.code
 
     from app.services.req.api import parse as req_parse
 
@@ -69,7 +85,7 @@ def ingest_one(title: str, text: str, repo_id: int = 0, source: str = "paste") -
         )
     except Exception:  # noqa: BLE001
         pass  # 索引失败不阻塞录入
-    return {"id": rid, "code": code, "status": status, "testability": score, "report": json.loads(req.parse_report)}
+    return {"id": rid, "code": code, "status": status, "testability": score, "updated": updated, "report": json.loads(req.parse_report)}
 
 
 @app.post("/api/requirements/ingest")

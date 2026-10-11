@@ -76,11 +76,23 @@ def guard(plan: CasePlan, fn: FnInfo) -> tuple[CasePlan, dict]:
             added.append(_type_case(plan, added, fn, p.name))
             checked.append(f"{p.name}:type-error")
 
+    # --- 打桩卫生：严禁 mock 被测函数本体。LLM 偶发给被测函数自身设计打桩——探针与
+    # 沙箱会连 mock 一起执行，期望值变成假函数输出，整条用例"没走真实业务代码"。 ---
+    stripped = 0
+    for c in plan.cases:
+        real = [p for p in c.patches if not (fn.module and p.module == fn.module and p.attr == fn.name)]
+        if len(real) != len(c.patches):
+            stripped += len(c.patches) - len(real)
+            c.patches = real
+    if stripped:
+        log.warning("guard 剔除 %d 处被测函数自打桩（mock 被测本体 = 用例造假）", stripped)
+
     report = {
         "checklist": GUARD_CATEGORIES(existing, needs_permission),
         "checked": checked,
         "added": [c.id for c in added],
         "categories_after": sorted(existing | {c.category for c in added}),
+        "stripped_patches": stripped,
     }
     plan.cases.extend(added)
     log.info("guard: + Detection class added=%s", report["added"])

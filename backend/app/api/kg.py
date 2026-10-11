@@ -267,6 +267,64 @@ def kg_entity_exists(name: str, repo_id: int = 0, workspace: str = ""):
     return ok(entity_exists(name, repo_id=repo_id, workspace=workspace))
 
 
+@app.get("/api/kg/entity/sources")
+def kg_entity_sources(name: str, repo_id: int = 0, workspace: str = ""):
+    """实体溯源（图谱导航合一）：source_refs（kg_doc doc_key 列表）反查贡献源。
+
+    wiki 页按标题重算 doc_key 匹配（doc_key 只由 workspace+标题派生，不依赖
+    detail.filename，历史文档也能溯源）；需求同口径；其余 doc_key（手动上传）
+    回退 DocStatus detail 标题展示。"""
+    from app.models import DocStatus, Requirements, WikiPages
+    from app.services.knowledge.doc_pipeline import doc_key_for
+
+    name = (name or "").strip()
+    if not name:
+        raise ApiError(400, "name 必填", 400)
+    with get_session() as sess:
+        q = sess.query(KgEntity).filter(KgEntity.name == name)
+        if workspace:
+            q = q.filter(KgEntity.workspace == workspace)
+        elif repo_id:
+            q = q.filter(KgEntity.repo_id == repo_id)
+        ent = q.first()
+        if ent is None:
+            raise ApiError(404, f"实体不存在: {name}", 404)
+        try:
+            refs = [str(r) for r in json.loads(ent.source_refs or "[]")]
+        except json.JSONDecodeError:
+            refs = []
+        ent_repo = ent.repo_id or repo_id
+        page_by_dk: dict[str, dict] = {}
+        req_by_dk: dict[str, dict] = {}
+        if ent_repo:
+            ws = ent.workspace or f"repo:{ent_repo}"
+            for p in sess.query(WikiPages).filter(WikiPages.repo_id == ent_repo).all():
+                page_by_dk[doc_key_for(ws, p.title)] = {"type": "wiki", "id": p.id, "title": p.title, "level": p.level}
+            for r in sess.query(Requirements).all():
+                req_by_dk[doc_key_for(ws, f"{r.code} {r.title}")] = {"type": "requirement", "code": r.code, "title": r.title}
+    sources: list[dict] = []
+    fallback_keys: list[str] = []
+    for dk in refs:
+        if dk in page_by_dk:
+            sources.append(page_by_dk[dk])
+        elif dk in req_by_dk:
+            sources.append(req_by_dk[dk])
+        else:
+            fallback_keys.append(dk)
+    if fallback_keys:
+        with get_session() as sess:
+            rows = sess.query(DocStatus).filter(DocStatus.kind == "kg_doc", DocStatus.doc_key.in_(fallback_keys)).all()
+            detail_of = {}
+            for row in rows:
+                try:
+                    detail_of[row.doc_key] = json.loads(row.detail or "{}")
+                except json.JSONDecodeError:
+                    detail_of[row.doc_key] = {}
+        for dk in fallback_keys:
+            sources.append({"type": "doc", "doc_key": dk, "title": detail_of.get(dk, {}).get("title") or dk})
+    return ok({"entity": {"name": ent.name, "etype": ent.etype, "description": ent.description, "workspace": ent.workspace}, "sources": sources})
+
+
 @app.patch("/api/kg/entity")
 async def kg_edit_entity(request: Request, data: KgEntityEditIn):
     _require_admin(request)
