@@ -161,6 +161,7 @@ def create_from_run(run_id: str, case_codes: list[str], req_code: str, trace_id:
         return {
             "id": defect.id,
             "code": defect.code,
+            "title": defect.title,
             "severity": severity,
             "assignee": defect.assignee,
             "status": defect.status,

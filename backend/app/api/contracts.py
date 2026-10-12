@@ -83,12 +83,15 @@ async def regenerate_affected(data: RegenerateAffectedIn):
         raise ApiError(1001, "repo_id 与 target_function 必填")
     from app.services.testgen.api import regenerate_affected
 
-    res = regenerate_affected(
-        repo_id=repo_id,
-        target_function=target,
-        reason=body.get("reason") or "contract-impact",
-        source_req=body.get("source_req") or "",
-    )
+    try:
+        res = regenerate_affected(
+            repo_id=repo_id,
+            target_function=target,
+            reason=body.get("reason") or "contract-impact",
+            source_req=body.get("source_req") or "",
+        )
+    except LookupError as exc:
+        raise ApiError(404, str(exc), 404) from exc
     return ok(res)
 
 

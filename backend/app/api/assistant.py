@@ -18,9 +18,9 @@ import json
 import re
 import time
 from collections.abc import AsyncGenerator, Callable
-from pathlib import Path
+from pathlib import Path as FilePath
 
-from fastapi import Request
+from fastapi import HTTPException, Path, Request
 from fastapi.responses import StreamingResponse
 from pydantic import SecretStr
 
@@ -119,7 +119,7 @@ def _tool_read(repo_id: int) -> Callable[[dict], dict]:
             repo = sess.get(Repos, repo_id)
         if repo is None or not repo.local_path:
             raise ValueError("仓库不存在或未检出")
-        root = Path(repo.local_path).resolve()
+        root = FilePath(repo.local_path).resolve()
         target = (root / rel).resolve()
         if not str(target).startswith(str(root)):
             raise ValueError("path 越界")
@@ -753,7 +753,7 @@ def _repo_fs_root(repo_id: int):
         repo = sess.get(Repos, repo_id)
     if repo is None or not repo.local_path:
         return None
-    p = Path(repo.local_path).resolve()
+    p = FilePath(repo.local_path).resolve()
     return str(p) if p.exists() else None
 
 
@@ -897,8 +897,14 @@ async def assistant_thread_create(data: AssistantThreadCreateIn):
         return ok({"id": t.id, "title": t.title, "repo_id": t.repo_id})
 
 
+@app.delete("/api/assistant/threads/create", include_in_schema=False)
+def assistant_thread_create_delete_rejected():  # type: ignore[no-untyped-def]
+    """DELETE /create 会被 /{thread_id} 吞成 422；显式回 405 指向 POST。"""
+    raise HTTPException(status_code=405, headers={"Allow": "POST"})
+
+
 @app.delete("/api/assistant/threads/{thread_id}")
-def assistant_thread_delete(thread_id: int):
+def assistant_thread_delete(thread_id: int = Path(le=2147483647)):
     with get_session() as sess:
         sess.query(ChatMessage).filter(ChatMessage.thread_id == thread_id).delete()
         n = sess.query(ChatThread).filter(ChatThread.id == thread_id).delete()
@@ -909,7 +915,7 @@ def assistant_thread_delete(thread_id: int):
 
 
 @app.get("/api/assistant/threads/{thread_id}/messages")
-def assistant_messages(thread_id: int):
+def assistant_messages(thread_id: int = Path(le=2147483647)):
     with get_session() as sess:
         if sess.get(ChatThread, thread_id) is None:
             raise ApiError(404, "会话不存在", 404)

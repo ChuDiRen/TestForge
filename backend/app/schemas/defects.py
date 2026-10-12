@@ -1,6 +1,8 @@
 """缺陷域 API 请求模型（建缺陷 / 通用流转更新 / 评论）。"""
 
-from pydantic import BaseModel
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field
 
 
 class DefectCreateIn(BaseModel):
@@ -19,11 +21,12 @@ class DefectUpdateIn(BaseModel):
     status 为空表示不改状态、只改字段；resolution 在转入"已关闭"时必填（服务端校验）；
     dupe_of 设置时服务端强制 resolution=重复 并把指向扁平化到重复链最终目标；
     expected_updated_at 为乐观锁基准（列表返回的 updated_at），不匹配返回 409。
+    状态/优先级/结案原因取值收进 schema；转换边本身由服务端按 defect_workflow 图校验。
     """
 
-    status: str = ""
-    resolution: str = ""
-    priority: str = ""  # P0 | P1 | P2 | P3
+    status: Literal["", "新建", "已确认", "修复中", "待回归", "已关闭"] = ""
+    resolution: Literal["", "已修复", "非缺陷", "重复", "无法复现", "暂缓"] = ""
+    priority: Literal["", "P0", "P1", "P2", "P3"] = ""
     assignee: str = ""
     fix_version: str = ""
     dupe_of: str = ""  # 目标缺陷编码 BUG-xxx
@@ -33,5 +36,5 @@ class DefectUpdateIn(BaseModel):
 
 
 class DefectCommentIn(BaseModel):
-    body: str
+    body: Annotated[str, Field(min_length=1)]
     actor: str = "qa"

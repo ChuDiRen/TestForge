@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 
-from fastapi import Depends
+from fastapi import Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -89,7 +89,7 @@ def ingest_one(title: str, text: str, repo_id: int = 0, source: str = "paste", u
 
 
 @app.post("/api/requirements/ingest")
-async def ingest_requirement(data: RequirementIngestIn):
+async def ingest_requirement(data: RequirementIngestIn, db: Session = Depends(get_db)):
     body = data.model_dump()
     title = (body.get("title") or "").strip()
     text = str(body.get("body") or "").strip()
@@ -97,6 +97,11 @@ async def ingest_requirement(data: RequirementIngestIn):
         raise ApiError(1001, "title 与 body 必填")
     repo_id = int(body.get("repo_id") or 0)
     source = body.get("source") or "paste"
+    if repo_id:
+        from app.models import Repos
+
+        if db.get(Repos, repo_id) is None:
+            raise ApiError(404, "repo 不存在", 404)
     return ok(ingest_one(title, text, repo_id, source))
 
 
@@ -218,7 +223,7 @@ def new_generation_threaded(payload: dict) -> dict:
 
 
 @app.get("/api/requirements/{req_code}/similar")
-def similar_for_requirement(req_code: str, limit: int = 5, db: Session = Depends(get_db)):
+def similar_for_requirement(req_code: str, limit: int = Query(5, ge=1, le=50), db: Session = Depends(get_db)):
     """相似用例 RAG 检索（需求文本 → 已入库用例 top-k）。"""
     from app.services.knowledge.rag import similar_cases
 

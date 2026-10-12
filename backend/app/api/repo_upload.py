@@ -16,7 +16,7 @@ import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 
 from app.api.envelope import ApiError, ok
 from app.services.repo.indexer import SKIP_DIRS
@@ -87,24 +87,20 @@ def _strip_single_root(planned: list[tuple[zipfile.ZipInfo, PurePosixPath]]) -> 
 
 
 @router.post("/api/repos/upload")
-async def upload_repo_zip(request: Request):
+async def upload_repo_zip(request: Request, file: UploadFile = File(...), name: str = Form(""), branch: str = Form("main")):
     """上传代码包（multipart zip）→ 安全解压 → RegisterUpload 全量流水线（同步返回 steps）。"""
     from app.api.auth import _require_admin
 
     _require_admin(request)
-    form = await request.form()
-    upload = form.get("file")
-    if upload is None or not hasattr(upload, "read"):
-        raise ApiError(400, "multipart 字段 file 必填（.zip 代码包）", 400)
-    filename = str(getattr(upload, "filename", "repo.zip"))
+    filename = str(file.filename or "repo.zip")
     if not filename.lower().endswith(".zip"):
         raise ApiError(422, "仅支持 .zip 代码包", 422)
-    data = await upload.read()
+    data = await file.read()
     if not data:
         raise ApiError(400, "上传文件为空", 400)
     if len(data) > MAX_ZIP_BYTES:
         raise ApiError(422, f"压缩包超过大小上限 {MAX_ZIP_BYTES // (1024 * 1024)}MB", 422)
-    name = str(form.get("name") or "").strip() or Path(filename).stem
+    name = (name or "").strip() or Path(filename).stem
     slug = sanitize_slug(name)
 
     try:
@@ -128,7 +124,7 @@ async def upload_repo_zip(request: Request):
 
     from app.services.repo.api import register_upload
 
-    res = register_upload(name=slug, path=str(dest_root), branch=str(form.get("branch") or "main"))
+    res = register_upload(name=slug, path=str(dest_root), branch=str(branch or "main"))
     repo = res.get("repo") or {}
     return ok(
         {

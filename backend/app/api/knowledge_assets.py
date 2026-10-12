@@ -20,7 +20,7 @@ import json
 import re
 import uuid
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 
 from app.api.envelope import ApiError, ok
 
@@ -119,20 +119,18 @@ def _index_asset(doc_key: str, rag_kind: str, title: str, text: str, repo_id: in
 
 
 @router.post("/api/knowledge/assets/upload")
-async def upload_knowledge_asset(request: Request):
+async def upload_knowledge_asset(
+    request: Request,
+    file: UploadFile = File(...),
+    kind: str = Form("", pattern=r"^(req_doc|tech_doc|test_plan|defect)$"),
+    repo_id: int = Form(0),
+    title: str = Form(""),
+):
     """统一资产上传（multipart）：file + kind(req_doc|tech_doc|test_plan|defect) + repo_id。"""
     _require_admin(request)
-    form = await request.form()
-    upload = form.get("file")
-    if upload is None or not hasattr(upload, "read"):
-        raise ApiError(400, "multipart 字段 file 必填", 400)
-    filename = str(getattr(upload, "filename", "doc.txt"))
-    kind = str(form.get("kind") or "").strip()
-    if kind not in ASSET_KINDS:
-        raise ApiError(400, f"kind 必须是 {'/'.join(ASSET_KINDS)}", 400)
-    repo_id = int(str(form.get("repo_id") or "0") or "0")
-    title_override = str(form.get("title") or "").strip()
-    data = await upload.read()
+    filename = str(file.filename or "doc.txt")
+    title_override = (title or "").strip()
+    data = await file.read()
     if not data:
         raise ApiError(400, "上传文件为空", 400)
 

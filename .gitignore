@@ -23,3 +23,13 @@ data/
 frontend/tsconfig.tsbuildinfo
 .postman_export/
 gui-test-screenshots/
+
+# schemathesis artifacts
+backend/.schemathesis/
+backend/.hypothesis/
+backend/schemathesis-report/
+backend/st-full-run.log
+backend/e2e_run.log
+backend/e2e_results.json
+backend/e2e_fixture_ids.json
+backend/uvicorn.log

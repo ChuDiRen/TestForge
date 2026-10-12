@@ -67,7 +67,8 @@ def register(url: str, branch: str, credential_ref: str, webhook: bool) -> dict:
     except Exception as exc:  # noqa: BLE001
         with get_session() as sess:
             r = sess.get(Repos, repo_id)
-            r.status = f"失败: {str(exc)[:80]}"
+            # status 列 varchar(32)：只存短语，错误全文走日志与 trace emit
+            r.status = "接入失败"
             sess.commit()
         emit("仓库", "repo-svc", f"仓库接入失败 id={repo_id}: {exc}", trace_id=tid)
         raise
@@ -113,7 +114,8 @@ def register_upload(name: str, path: str, branch: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         with get_session() as sess:
             r = sess.get(Repos, repo_id)
-            r.status = f"失败: {str(exc)[:80]}"
+            # status 列 varchar(32)：只存短语，错误全文走日志与 trace emit
+            r.status = "接入失败"
             sess.commit()
         emit("仓库", "repo-svc", f"代码包接入失败 id={repo_id}: {exc}", trace_id=tid)
         raise

@@ -1,10 +1,10 @@
 """契约域 API 请求模型（注册 / 影响分析 / 定向重生成）。"""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ContractCreateIn(BaseModel):
-    name: str = ""
+    name: str = Field(min_length=1)
     type: str = "rest"  # rest | grpc | ...
     provider_repo: str = ""
     version: str = "v1.0.0"
@@ -21,7 +21,8 @@ class ContractRegenerateIn(BaseModel):
 
 
 class RegenerateAffectedIn(BaseModel):
-    repo_id: int = 0
-    target_function: str = ""
+    # 契约影响面的定向重生成必须落在具体仓库（原路由层 400「repo_id 必填」）
+    repo_id: int = Field(strict=True, ge=1, le=2147483647)
+    target_function: str = Field(min_length=1)
     reason: str = "contract-impact"
     source_req: str = ""

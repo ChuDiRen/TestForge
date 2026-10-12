@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -45,13 +45,16 @@ async def kg_build(data: KgBuildIn, db: Session = Depends(get_db)):
 
 
 @app.get("/api/kg/query")
-def kg_query_route(q: str = "", mode: str = "mix", repo_id: int = 0, limit: int = 6):
+def kg_query_route(
+    q: str = Query(min_length=1),
+    mode: str = "mix",
+    repo_id: int = Query(0, ge=0, le=2147483647),
+    limit: int = Query(6, ge=1, le=20),
+):
     """知识图谱双层检索。mode: local（实体级）/ global（主题级）/ mix（默认融合）。"""
-    if not q.strip():
-        raise ApiError(1001, "q 必填")
     from app.services.knowledge.docgraph import kg_query
 
-    res = kg_query(repo_id, q, mode=mode if mode in ("local", "global", "mix") else "mix", limit=max(1, min(limit, 20)))
+    res = kg_query(repo_id, q, mode=mode if mode in ("local", "global", "mix") else "mix", limit=limit)
     return ok(res)
 
 

@@ -10,12 +10,14 @@ import re
 import threading
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
+from pathlib import Path as FilePath
 from typing import Any
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from sqlalchemy import Integer, func, select
+from sqlalchemy.exc import DataError as SADataError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -39,7 +41,7 @@ from app.models import (
 )
 from app.schemas.cases import CaseReviewIn, CaseUpdateIn
 from app.schemas.generations import GenerationBatchIn, GenerationCreateIn
-from app.schemas.knowledge import KnowledgeDocBody, WikiAskBody, WikiChatSessionBody
+from app.schemas.knowledge import KnowledgeDocBody, WikiAskBody, WikiChatSessionBody, WikiRebuildBody
 from app.schemas.repos import RepoCreateIn
 
 log = logging.getLogger("app")
@@ -143,7 +145,11 @@ async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyp
     （X-Renewed-Token 响应头，前端无感换新）。
     """
     path = request.url.path
-    if path.startswith("/api") and path not in ("/api/health", "/api/auth/login") and request.method != "OPTIONS":
+    if (
+        (path.startswith("/api") or path.startswith("/ollama"))
+        and path not in ("/api/health", "/api/auth/login")
+        and request.method != "OPTIONS"
+    ):
         token = ""
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
@@ -183,15 +189,101 @@ async def trace_middleware(request: Request, call_next):  # type: ignore[no-unty
     return response
 
 
+@app.middleware("http")
+async def allow_header_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """405 时按路径模式聚合在册路由的方法写 Allow。
+
+    Starlette 只用第一个部分匹配路由生成 Allow（如 GET /api/wiki/{page_id} 会把
+    同路径的 POST 挤掉）。口径与 OpenAPI 对齐：字面路径只报字面模板在册的方法，
+    参数化路径聚合全部在册匹配模板；include_in_schema=False 的影子路由不计入。
+    """
+    response = await call_next(request)
+    if response.status_code == 405:
+        path = request.url.path
+
+        def matching_routes() -> list:  # type: ignore[no-untyped-def]
+            out = []
+            for route in app.router.routes:
+                pattern = getattr(route, "path_regex", None)
+                if pattern is not None and pattern.match(path) and getattr(route, "include_in_schema", True):
+                    out.append(route)
+            return out
+
+        routes = matching_routes()
+        methods: set[str] = set()
+        exact = [r for r in routes if getattr(r, "path", None) == path]
+        for route in exact or routes:
+            methods.update(getattr(route, "methods", None) or ())
+        if methods:
+            response.headers["Allow"] = ", ".join(sorted(methods))
+    return response
+
+
 @app.exception_handler(ApiError)
 async def api_error_handler(request: Request, exc: ApiError):  # type: ignore[no-untyped-def]
     return err(exc.code, exc.message, exc.http_status)
+
+
+@app.exception_handler(SADataError)
+async def db_data_error_handler(request: Request, exc: SADataError):  # type: ignore[no-untyped-def]
+    """DB 层数据异常（NUL 字节 / 整数超 int4 / 负 LIMIT 等）→ 400：输入非法而非服务器错误。"""
+    log.warning("db data error: %s %s -> %s", request.method, request.url.path, str(exc).splitlines()[0][:200])
+    return err(400, "请求参数非法（类型/范围/非法字符）", 400)
 
 
 @app.exception_handler(Exception)
 async def unhandled_handler(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
     log.exception("unhandled: %s", exc)
     return err(500, f"internal error: {exc}", 500)
+
+
+# 常见错误响应的统一口径：401/403 来自网关中间件（/api/health 与 /api/auth/login 豁免），
+# 400/404 为业务拒绝，405/500 为兜底。OpenAPI 里不声明就会被契约测试当成未定义行为。
+_COMMON_ERROR_RESPONSES: dict[str, dict[str, str]] = {
+    "400": {"description": "请求参数非法"},
+    "401": {"description": "未登录或登录已过期"},
+    "403": {"description": "无权限或只读账号执行写操作"},
+    "404": {"description": "资源不存在"},
+    "405": {"description": "HTTP 方法不支持"},
+    "500": {"description": "服务器内部错误"},
+}
+_SSE_CONTENT_TYPES: dict[tuple[str, str], str] = {
+    ("GET", "/api/generations/{gen_code}/events"): "text/event-stream",
+    ("POST", "/api/kg/query/stream"): "text/event-stream",
+    ("POST", "/api/assistant/chat"): "text/event-stream",
+    ("POST", "/ollama/api/generate"): "application/x-ndjson",
+}
+
+
+def custom_openapi() -> dict:  # type: ignore[no-untyped-def]
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title, version=app.version, openapi_version=app.openapi_version, description=app.description, routes=app.routes
+    )
+    for path, ops in schema.get("paths", {}).items():
+        for method, op in ops.items():
+            if method not in ("get", "post", "put", "delete", "patch"):
+                continue
+            responses = op.setdefault("responses", {})
+            for code, item in _COMMON_ERROR_RESPONSES.items():
+                if path == "/api/health":
+                    continue
+                if path == "/api/auth/login" and code in ("403", "404"):
+                    continue
+                responses.setdefault(code, item)
+            if path.startswith("/api/auth/users"):
+                responses.setdefault("409", {"description": "状态冲突（用户名已存在/最后管理员保护等）"})
+            if path == "/api/auth/login":
+                responses.setdefault("429", {"description": "登录失败次数过多，被限速"})
+            sse = _SSE_CONTENT_TYPES.get((method.upper(), path))
+            if sse and "200" in responses:
+                responses["200"].setdefault("content", {}).setdefault(sse, {})
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi  # type: ignore[method-assign]
 
 
 # ---------------- 系统 ----------------
@@ -350,7 +442,7 @@ def wiki_lint(repo_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/wiki/graph")
-def wiki_graph(repo_id: int = 0, db: Session = Depends(get_db)):
+def wiki_graph(repo_id: int = Query(0, ge=0, le=2147483647), db: Session = Depends(get_db)):
     """Wiki 互链图谱数据（OpenWiki WikiGraphView 移植的配套接口）：
     页面为节点，TF-IDF 余弦相似（related_map，阈值 0.05 / 每页 top-6）为边；
     问答存档的知识文档（meta.sources 非空）作为 doc 节点入图，与来源 wiki 页
@@ -516,11 +608,7 @@ def create_knowledge_document(body: KnowledgeDocBody):
         raise ApiError(422, f"内容命中敏感信息（{'、'.join(hits)}），已拒绝入库——请脱敏后重试", 422)
 
     # 门卫②：问答存档必须有知识库来源（ai_only 禁止污染知识库）
-    clean_sources = [
-        {"id": int(s.get("id") or 0), "title": str(s.get("title") or "")}
-        for s in (body.sources or [])
-        if int(s.get("id") or 0) > 0
-    ]
+    clean_sources = [{"id": s.id, "title": s.title} for s in (body.sources or []) if s.id > 0]
     if body.kind_hint == "qa" and not clean_sources:
         raise ApiError(422, "该回答没有知识库来源支撑，禁止存入知识库（反幻觉门卫）", 422)
 
@@ -542,7 +630,12 @@ def create_knowledge_document(body: KnowledgeDocBody):
 
 @app.get("/api/knowledge/documents/paged")
 def paged_knowledge_documents(
-    kind: str = "", q: str = "", repo_id: int = 0, page: int = 1, page_size: int = 15, db: Session = Depends(get_db)
+    kind: str = Query("", pattern=r"^(|user_doc|req|plan|defect|wiki|case|lesson|kg_doc)$"),
+    q: str = "",
+    repo_id: int = Query(0, ge=0, le=2147483647),
+    page: int = Query(1, ge=1, le=100000),
+    page_size: int = Query(15, ge=1, le=200),
+    db: Session = Depends(get_db),
 ):
     """知识工作台全量条目表：文档级 kind 全集（排除 kg_chunk/kg_community 碎片行），分页+筛选。"""
     from sqlalchemy import text as sql_text
@@ -658,7 +751,7 @@ def knowledge_workbench(db: Session = Depends(get_db)):
 
 
 @app.get("/api/knowledge/assets/download")
-def download_knowledge_asset(object_key: str):
+def download_knowledge_asset(object_key: str = Query(pattern=r"^assets/")):
     """资产原件下载（对象存储 best-effort：未启用/不存在报 404，前端据此隐藏按钮）。"""
     from urllib.parse import quote
 
@@ -758,7 +851,7 @@ def wiki_fix_duplicates(repo_id: int):
 
 
 @app.get("/api/knowledge/search")
-def knowledge_search(q: str, repo_id: int = 0, limit: int = 8, hide_sensitive: bool = False):
+def knowledge_search(q: str = Query(min_length=1), repo_id: int = Query(0, ge=0, le=2147483647), limit: int = Query(8, ge=1, le=20), hide_sensitive: bool = False):
     """检索测试台：测试资料全类目透明预演——需求文档(req)/技术文档(wiki+user_doc)/
     测试计划(plan)/测试用例(case)/功能缺陷(defect)+缺陷教训(lesson) 七路混合检索。
     hide_sensitive=1 时命中片段打码（OpenWiki sensitive_filter 查询侧对等物）。"""
@@ -790,7 +883,7 @@ def knowledge_search(q: str, repo_id: int = 0, limit: int = 8, hide_sensitive: b
 
 
 @app.get("/api/wiki/{page_id}/related")
-def wiki_related(page_id: int, limit: int = 6, db: Session = Depends(get_db)):
+def wiki_related(page_id: int = Path(le=2147483647), limit: int = Query(6, ge=1, le=50), db: Session = Depends(get_db)):
     """相关页面（OpenWiki TF-IDF 互链移植）：同仓库页面按余弦相似度 top-K 推荐。"""
     from app.models import WikiPages
     from app.services.wiki.analytics import related_map
@@ -811,6 +904,18 @@ def wiki_related(page_id: int, limit: int = 6, db: Session = Depends(get_db)):
             if n["id"] != page_id
         ][:limit]
     )
+
+
+@app.get("/api/wiki/ask", include_in_schema=False)
+def wiki_ask_get_rejected():  # type: ignore[no-untyped-def]
+    """GET /api/wiki/ask 会被 /api/wiki/{page_id} 吞掉并因 int 解析失败回 422；显式回 405 指向 POST。"""
+    raise HTTPException(status_code=405, headers={"Allow": "POST"})
+
+
+@app.get("/api/wiki/rebuild", include_in_schema=False)
+def wiki_rebuild_get_rejected():  # type: ignore[no-untyped-def]
+    """同上：GET /api/wiki/rebuild 被 {page_id} 吞成 422；显式回 405 指向 POST。"""
+    raise HTTPException(status_code=405, headers={"Allow": "POST"})
 
 
 @app.post("/api/wiki/ask")
@@ -904,8 +1009,14 @@ def create_wiki_chat_session(body: WikiChatSessionBody, db: Session = Depends(ge
     return ok({"id": s.id, "title": s.title})
 
 
+@app.delete("/api/wiki/chat/sessions/create", include_in_schema=False)
+def wiki_chat_session_create_delete_rejected():  # type: ignore[no-untyped-def]
+    """DELETE /create 会被 /{session_id} 吞成 422；显式回 405 指向 POST。"""
+    raise HTTPException(status_code=405, headers={"Allow": "POST"})
+
+
 @app.delete("/api/wiki/chat/sessions/{session_id}")
-def delete_wiki_chat_session(session_id: int):
+def delete_wiki_chat_session(session_id: int = Path(le=2147483647)):
     from app.models import WikiChatMessage, WikiChatSession
 
     with get_session() as sess:
@@ -918,7 +1029,7 @@ def delete_wiki_chat_session(session_id: int):
 
 
 @app.get("/api/wiki/chat/sessions/{session_id}/messages")
-def wiki_chat_messages(session_id: int, db: Session = Depends(get_db)):
+def wiki_chat_messages(session_id: int = Path(le=2147483647), db: Session = Depends(get_db)):
     from app.models import WikiChatMessage
 
     rows = (
@@ -1070,7 +1181,7 @@ def wiki_insights(repo_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/wiki/{page_id}")
-def get_wiki_page(page_id: int, db: Session = Depends(get_db)):
+def get_wiki_page(page_id: int = Path(le=2147483647), db: Session = Depends(get_db)):
     w = crud_wiki_pages.get(db, page_id)
     if w is None:
         raise ApiError(404, "页面不存在", 404)
@@ -1088,7 +1199,7 @@ def get_wiki_page(page_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/wiki/{page_id}/entities")
-def wiki_page_entities(page_id: int, db: Session = Depends(get_db)):
+def wiki_page_entities(page_id: int = Path(le=2147483647), db: Session = Depends(get_db)):
     """本页贡献的图谱实体（Phase3 图谱导航合一）：页 doc_key 反查 KgEntity.source_refs。
 
     doc_key 只由 workspace+标题派生（doc_pipeline.doc_key_for），无需依赖状态行；
@@ -1133,13 +1244,12 @@ def _wiki_rebuild_lock(repo_id: int) -> threading.Lock:
 
 
 @app.post("/api/wiki/rebuild")
-async def rebuild_wiki(request: Request):
-    """一键重建：body {repo_id, full?}。full=true 全量重编译并清 stale。
+async def rebuild_wiki(request: Request, body: WikiRebuildBody):
+    """一键重建：{repo_id, full?}。full=true 全量重编译并清 stale。
     同仓库已有重建在进行时返回 409（编译锁）。"""
 
-    body = await json_body(request)
-    repo_id = int(body.get("repo_id") or 0)
-    full = bool(body.get("full"))
+    repo_id = body.repo_id
+    full = body.full
     with get_session() as sess:
         repo = sess.get(Repos, repo_id)
         if repo is None:
@@ -1198,12 +1308,16 @@ async def create_repo(data: RepoCreateIn):
         raise ApiError(1003, str(exc), 400) from exc
     from app.services.repo.api import register as repo_register
 
-    res = repo_register(
-        url=url,
-        branch=body.get("branch") or "main",
-        credential_ref=body.get("credential_ref") or "",
-        webhook=bool(body.get("webhook")),
-    )
+    try:
+        res = repo_register(
+            url=url,
+            branch=body.get("branch") or "main",
+            credential_ref=body.get("credential_ref") or "",
+            webhook=bool(body.get("webhook")),
+        )
+    except Exception as exc:  # noqa: BLE001
+        # clone/远端访问失败 → 400 业务拒绝（信封 code 携带原因；服务端已把 repo.status 置为「接入失败」）
+        raise ApiError(1006, f"仓库接入失败: {str(exc)[:200]}", 400) from exc
     return ok(res)
 
 
@@ -1304,7 +1418,7 @@ async def repo_webhook(repo_id: int, request: Request):
 
 
 @app.get("/api/functions")
-def list_functions(repo_id: int = 0, module: str = "", name: str = "", db: Session = Depends(get_db)):
+def list_functions(repo_id: int = Query(0, ge=0, le=2147483647), module: str = "", name: str = "", db: Session = Depends(get_db)):
     from app.models import Functions
 
     q = db.query(Functions)
@@ -1354,7 +1468,7 @@ async def create_generation_batch(data: GenerationBatchIn):
 
 
 @app.get("/api/jobs")
-def list_jobs(status: str = "", limit: int = 50, db: Session = Depends(get_db)):
+def list_jobs(status: str = "", limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
     """任务队列台账（生成/回归），新→旧。"""
     q = db.query(Jobs)
     if status:
@@ -1416,7 +1530,7 @@ def export_generation_to_repo(gen_code: str, db: Session = Depends(get_db)):
     repo = crud_repos.get(db, g.repo_id) if g.repo_id else None
     if repo is None or not repo.local_path:
         raise ApiError(404, "生成未绑定可用仓库检出", 404)
-    dest_dir = Path(repo.local_path) / "tests" / "testforge_generated"
+    dest_dir = FilePath(repo.local_path) / "tests" / "testforge_generated"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"test_tf_gen_{gen_code.lower()}.py"
     dest.write_text(src, encoding="utf-8")
@@ -1566,15 +1680,15 @@ async def update_case(case_id: int, request: Request, data: CaseUpdateIn, db: Se
     """编辑用例元数据（title/status/review_note/confidence）。"""
     body = data.model_dump(exclude_unset=True)  # PATCH 语义：只更新调用方显式传入的字段
     fields = {"title", "status", "review_note", "confidence", "stale"}
-    patch = {k: v for k, v in body.items() if k in fields}
-    if not patch:
-        raise ApiError(1001, "无可更新字段（支持 title/status/review_note/confidence/stale）")
-    if "status" in patch and patch["status"] not in ("草稿", "待人审", "已入库", "已替换"):
-        raise ApiError(1001, "非法状态")
+    # 显式 null 同样视为「不更新」（JSON 里 null 语义是清空/忽略，这里取忽略）
+    patch = {k: v for k, v in body.items() if k in fields and v is not None}
     c = crud_cases.get(db, case_id)
     if c is None:
         raise ApiError(404, "case 不存在", 404)
-    crud_cases.update(db, db_obj=c, obj_in=patch)
+    if "status" in patch and patch["status"] not in ("草稿", "待人审", "已入库", "已替换"):
+        raise ApiError(1001, "非法状态")
+    if patch:
+        crud_cases.update(db, db_obj=c, obj_in=patch)
     code = c.code
     from app.core.trace import emit
 
@@ -1603,7 +1717,7 @@ async def review_case(case_id: int, data: CaseReviewIn, db: Session = Depends(ge
 
 
 @app.get("/api/runs")
-def list_runs(limit: int = 100, db: Session = Depends(get_db)):
+def list_runs(limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db)):
     from app.models import Runs
 
     rows = db.query(Runs).order_by(Runs.id.desc()).limit(limit).all()

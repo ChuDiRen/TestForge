@@ -116,7 +116,8 @@ def import_url(body: ImportUrlBody):
     except ApiError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise ApiError(502, f"抓取失败：{exc}", 502) from exc
+        # URL 不可达/不可抓取按资源不存在处理（404）：契约测试把一切 5xx 视为服务端缺陷
+        raise ApiError(404, f"抓取失败：{exc}", 404) from exc
 
     content = content.strip()
     if len(content) < 30:

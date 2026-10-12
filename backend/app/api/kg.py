@@ -36,10 +36,10 @@ import tempfile
 import time
 from pathlib import Path
 
-from fastapi import Request
+from fastapi import Body, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.api.envelope import ApiError, json_body, ok
+from app.api.envelope import ApiError, ok
 from app.main import app, get_session
 from app.models import KgEntity, KgRelation
 from app.schemas.kg import (
@@ -60,10 +60,22 @@ def _require_admin(request: Request) -> None:
         raise ApiError(403, "只读账号无权执行该操作", 403)
 
 
-def _resolve_ws(request_body: dict) -> tuple[int, str]:
-    repo_id = int(request_body.get("repo_id") or 0)
-    workspace = (request_body.get("workspace") or "").strip()
+def _scope(repo_id: int, workspace: str) -> tuple[int, str]:
+    """作用域补全：repo 数据实际落在 workspace='repo:N' 名下，两个定位参数缺一个时
+    从另一个反推——前端编辑只传 workspace（DocKGView），脚本/旧调用只传 repo_id。"""
+    workspace = (workspace or "").strip()
+    if not repo_id and workspace.startswith("repo:"):
+        try:
+            repo_id = int(workspace[5:])
+        except ValueError:
+            pass
+    elif repo_id and not workspace:
+        workspace = f"repo:{repo_id}"
     return repo_id, workspace
+
+
+def _resolve_ws(request_body: dict) -> tuple[int, str]:
+    return _scope(int(request_body.get("repo_id") or 0), (request_body.get("workspace") or "").strip())
 
 
 # ---------------- 文档管理 ----------------
@@ -87,21 +99,22 @@ async def kg_create_document(request: Request, data: KgDocumentCreateIn):
 
 
 @app.post("/api/kg/documents/upload")
-async def kg_upload_document(request: Request):
+async def kg_upload_document(
+    request: Request,
+    file: UploadFile = File(...),
+    workspace: str = Form("default"),
+    repo_id: int = Form(0),
+    parser: str = Form("native"),
+    title: str = Form(""),
+):
     """multipart 文件上传（pdf/docx/txt/md/csv）→ 暂存 → 异步管线解析+分块+抽取。"""
     _require_admin(request)
-    form = await request.form()
-    upload = form.get("file")
-    if upload is None or not hasattr(upload, "read"):
-        raise ApiError(400, "multipart 字段 file 必填", 400)
-    filename = str(getattr(upload, "filename", "doc.txt"))
-    data = await upload.read()
+    filename = str(file.filename or "doc.txt")
+    data = await file.read()
     if not data:
         raise ApiError(400, "上传文件为空", 400)
-    workspace = (str(form.get("workspace") or "").strip() or "default")
-    repo_id = int(str(form.get("repo_id") or "0") or "0")
-    parser = str(form.get("parser") or "native")
-    title = str(form.get("title") or "").strip()
+    workspace = (workspace or "").strip() or "default"
+    title = (title or "").strip()
 
     suffix = Path(filename).suffix.lower()
     if suffix not in (".txt", ".md", ".markdown", ".rst", ".csv", ".pdf", ".docx"):
@@ -268,7 +281,7 @@ def kg_entity_exists(name: str, repo_id: int = 0, workspace: str = ""):
 
 
 @app.get("/api/kg/entity/sources")
-def kg_entity_sources(name: str, repo_id: int = 0, workspace: str = ""):
+def kg_entity_sources(name: str = Query(min_length=1), repo_id: int = Query(0, ge=0, le=2147483647), workspace: str = ""):
     """实体溯源（图谱导航合一）：source_refs（kg_doc doc_key 列表）反查贡献源。
 
     wiki 页按标题重算 doc_key 匹配（doc_key 只由 workspace+标题派生，不依赖
@@ -349,9 +362,10 @@ async def kg_merge_entity(request: Request, data: KgEntityMergeIn):
     _require_admin(request)
     body = data.model_dump()
     into = (body.get("into") or "").strip()
-    sources = [s for s in (body.get("sources") or []) if str(s).strip() and str(s).strip() != into]
-    if not into or not sources:
-        raise ApiError(400, "into 与 sources 必填", 400)
+    sources = [str(s).strip() for s in (body.get("sources") or []) if str(s).strip() and str(s).strip() != into]
+    if not sources:
+        # 过滤后无有效源（源实体不存在或与目标相同）按资源不存在处理
+        raise ApiError(404, "源实体不存在", 404)
     from app.services.knowledge.kg_merge import merge_entities
 
     repo_id, workspace = _resolve_ws(body)
@@ -364,6 +378,7 @@ async def kg_merge_entity(request: Request, data: KgEntityMergeIn):
 @app.post("/api/kg/entity/delete")
 def kg_delete_entity(request: Request, name: str, repo_id: int = 0, workspace: str = ""):
     _require_admin(request)
+    repo_id, workspace = _scope(repo_id, workspace)
     from app.services.knowledge.kg_merge import delete_entity
 
     try:
@@ -391,6 +406,7 @@ async def kg_edit_relation(request: Request, data: KgRelationEditIn):
 @app.post("/api/kg/relation/delete")
 def kg_delete_relation(request: Request, id: int, repo_id: int = 0, workspace: str = ""):
     _require_admin(request)
+    repo_id, workspace = _scope(repo_id, workspace)
     from app.services.knowledge.kg_merge import delete_relation
 
     try:
@@ -421,7 +437,7 @@ def settings_set_dirty(workspace: str) -> None:
 
 
 @app.get("/api/kg/communities")
-def kg_list_communities(request: Request, repo_id: int = 0, workspace: str = "", level: int = 0):
+def kg_list_communities(request: Request, repo_id: int = Query(0, ge=0, le=2147483647), workspace: str = "", level: int = Query(0, ge=0, le=2147483647)):
     from app.services.knowledge.kg_communities import list_communities
 
     return ok(list_communities(repo_id=repo_id, workspace=workspace, level=level))
@@ -576,9 +592,8 @@ def _ollama_answer(request: Request, body: dict) -> str:
 
 
 @app.post("/ollama/api/chat")
-async def ollama_chat(request: Request):
+async def ollama_chat(request: Request, body: dict = Body(...)):
     _ollama_auth(request)
-    body = await json_body(request)
     content = _ollama_answer(request, body)
     from datetime import datetime
 
@@ -594,9 +609,8 @@ async def ollama_chat(request: Request):
 
 
 @app.post("/ollama/api/generate")
-async def ollama_generate(request: Request):
+async def ollama_generate(request: Request, body: dict = Body(...)):
     _ollama_auth(request)
-    body = await json_body(request)
     content = _ollama_answer(request, body)
     from datetime import datetime
 
@@ -604,9 +618,8 @@ async def ollama_generate(request: Request):
 
 
 @app.post("/ollama/api/embeddings")
-async def ollama_embeddings(request: Request):
+async def ollama_embeddings(request: Request, body: dict = Body(...)):
     _ollama_auth(request)
-    body = await json_body(request)
     text = str(body.get("prompt") or "")
     from app.services.knowledge.embedding import embed
 

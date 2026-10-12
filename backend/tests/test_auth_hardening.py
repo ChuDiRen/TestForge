@@ -166,10 +166,10 @@ def test_change_password_flow(client, admin_token):
     resp = c.post("/api/auth/change-password", headers={"Authorization": f"Bearer {admin_token}"},
                   json={"old_password": "wrong", "new_password": "newpass123"})
     assert resp.status_code == 401
-    # 新密码不过策略
+    # 新密码不过策略（契约收紧后：策略在 schema pattern，422 + FastAPI 校验体）
     resp = c.post("/api/auth/change-password", headers={"Authorization": f"Bearer {admin_token}"},
                   json={"old_password": "testforge-admin", "new_password": "short"})
-    assert resp.status_code == 400 and "8 位" in resp.json()["message"]
+    assert resp.status_code == 422
     # 正常改密 → 新密码可登录、旧密码失效（改回默认口令以复现测试）
     resp = c.post("/api/auth/change-password", headers={"Authorization": f"Bearer {admin_token}"},
                   json={"old_password": "testforge-admin", "new_password": "tempPass99"})
@@ -196,15 +196,15 @@ def test_user_crud_and_guards(client, admin_token):
     username = "tf_crud_test"
     _cleanup_user(username)
     try:
-        # 弱密码拒绝
+        # 弱密码拒绝（契约收紧后：密码策略在 schema 层即 422）
         weak = c.post("/api/auth/users/create", headers=h, json={"username": username, "password": "1", "role": "viewer"})
-        assert weak.status_code == 400
+        assert weak.status_code == 422
         # 正常创建
         created = c.post("/api/auth/users/create", headers=h, json={"username": username, "password": "passw0rd1", "role": "viewer"})
         assert created.status_code == 200
-        # 重复创建拒绝
+        # 重复创建拒绝（语义修正：冲突 → 409）
         dup = c.post("/api/auth/users/create", headers=h, json={"username": username, "password": "passw0rd1", "role": "viewer"})
-        assert dup.status_code == 400
+        assert dup.status_code == 409
         # 列表可见
         listing = c.get("/api/auth/users", headers=h)
         assert any(u["username"] == username for u in listing.json()["data"])

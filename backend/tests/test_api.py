@@ -48,10 +48,11 @@ def test_trace_middleware_headers():
 
 
 def test_repo_validation_error_1001():
+    # 契约收紧后：空 url 在校验层即被拒（422），业务层 1001 兜底只对绕过 schema 的调用生效
     with _client() as client:
         r = client.post("/api/repos/create", json={"url": ""}, headers=_auth(client))
-        assert r.status_code == 400
-        assert r.json()["code"] == 1001
+        assert r.status_code == 422
+        assert r.headers.get("X-Trace-Id", "").startswith("tr_")
 
 
 def test_cases_endpoint_envelope_and_fields():
@@ -86,9 +87,10 @@ def test_unknown_case_review_404():
 
 
 def test_requirement_ingest_requires_fields():
+    # 契约收紧后：空 title/body 在校验层即被拒（422），业务层 1001 只对绕过 schema 的调用生效
     with _client() as client:
         r = client.post("/api/requirements/ingest", json={"title": "", "body": ""}, headers=_auth(client))
-        assert r.status_code == 400 and r.json()["code"] == 1001
+        assert r.status_code == 422
 
 
 def test_jobs_endpoint_empty_ok():

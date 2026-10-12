@@ -429,9 +429,14 @@ def test_ollama_version_and_tags_auth():
     from app.main import app
 
     client = TestClient(app)
+    # /ollama 代理已纳入网关认证（原先裸奔）：无 token 必须 401
     r = client.get("/ollama/api/version")
+    assert r.status_code == 401
+    tok = client.post("/api/auth/login", json={"username": "admin", "password": "testforge-admin"}).json()["data"]["token"]
+    h = {"Authorization": f"Bearer {tok}"}
+    r = client.get("/ollama/api/version", headers=h)
     assert r.status_code == 200 and "version" in r.json()
-    r = client.get("/ollama/api/tags")
+    r = client.get("/ollama/api/tags", headers=h)
     assert r.status_code == 200 and r.json()["models"][0]["name"].startswith("testforge-kg")
 
 

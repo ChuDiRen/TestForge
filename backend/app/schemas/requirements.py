@@ -1,12 +1,14 @@
 """需求域 API 请求模型（录入 / 冲突确认）。"""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.common import RepoId
 
 
 class RequirementIngestIn(BaseModel):
-    title: str = ""
-    body: str = ""
-    repo_id: int = 0
+    title: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+    repo_id: RepoId = 0
     source: str = "paste"
 
 

@@ -167,7 +167,7 @@ async def auth_create_user(request: Request, data: AuthUserCreateIn, db: Session
     if policy_error:
         raise ApiError(1004, policy_error, 400)
     if db.query(Users).filter(Users.username == username).first() is not None:
-        raise ApiError(1002, "用户名已存在", 400)
+        raise ApiError(1002, "用户名已存在", 409)
     crud_users.create(db, obj_in={"username": username, "password_hash": hash_password(password), "role": role})
     emit("认证", user["username"], f"创建账号 {username}（{role}）")
     return ok({"username": username, "role": role})
@@ -182,8 +182,7 @@ async def auth_update_user(username: str, request: Request, data: AuthUserUpdate
     body = data.model_dump()
     role = body.get("role")
     disabled = body.get("disabled")
-    if role is None and disabled is None:
-        raise ApiError(1001, "无可更新字段（支持 role/disabled）")
+    # 全 null = no-op：schema 的 anyOf-required 已拦「键全缺」，显式 null 视为不更新
     if role is not None and role not in ("admin", "viewer"):
         raise ApiError(1001, "role 仅支持 admin|viewer")
     if username == user["username"]:

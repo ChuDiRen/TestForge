@@ -31,6 +31,12 @@ log = logging.getLogger("shared.kg_query")
 MODES = ("naive", "local", "global", "hybrid", "mix")
 
 
+def _ws_or_repo(repo_id: int, workspace: str) -> str:
+    """repo 作用域数据实际在 workspace='repo:N' 名下；只传 repo_id 时反推 workspace，
+    否则直查 kg_* 表会静默扑空（检索层 hybrid_search 自己会映射，直查表的三处不会）。"""
+    return (workspace or "").strip() or (f"repo:{repo_id}" if repo_id else "")
+
+
 def _budgets() -> dict[str, int]:
     from app.core.config import get_settings
 
@@ -80,6 +86,7 @@ def _maybe_rerank(query: str, hits: list[dict], limit: int) -> list[dict]:
 
 def _hop_relations(repo_id: int, workspace: str, names: list[str], limit: int) -> list[dict]:
     """local 扩展：命中实体的一跳关系（图导航，向量检索给不了）。"""
+    workspace = _ws_or_repo(repo_id, workspace)
     with get_session() as sess:
         q = sess.query(KgRelation).filter(
             KgRelation.src_name.in_(names) | KgRelation.dst_name.in_(names)
@@ -372,6 +379,7 @@ def answer_stream(query: str, mode: str = "mix", repo_id: int = 0, workspace: st
 
 def kg_graph(repo_id: int = 0, workspace: str = "", max_nodes: int = 500, search: str = "", focus: str = "", depth: int = 1) -> dict:
     """文档 KG 图数据（图谱查看器用）：节点=实体，边=关系；focus+depth 支持 BFS 子图。"""
+    workspace = _ws_or_repo(repo_id, workspace)
     with get_session() as sess:
         if workspace:
             w = "workspace = :ws"
@@ -438,6 +446,7 @@ def kg_graph(repo_id: int = 0, workspace: str = "", max_nodes: int = 500, search
 def entity_exists(name: str, repo_id: int = 0, workspace: str = "") -> dict:
     from app.models import KgEntity
 
+    workspace = _ws_or_repo(repo_id, workspace)
     with get_session() as sess:
         q = sess.query(KgEntity).filter(KgEntity.name == name)
         q = q.filter(KgEntity.workspace == workspace) if workspace else q.filter(KgEntity.repo_id == repo_id, KgEntity.workspace == "")
